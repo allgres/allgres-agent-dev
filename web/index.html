@@ -573,7 +573,7 @@ async function logsTab(target){target=target||$('#view');const d=await api('/api
 function setupSettingsSections(){
   const groups={
     Integrations:['LLM providers','Apply provider/model to every agent','Model prices','API connections'],
-    Automation:['Capability index','Functions','Procedures','Function model experiments','Schedules'],
+    Automation:['Capability lifecycle','Functions','Procedures','Function model experiments','Schedules'],
     Administration:['SQL sandbox allowlist','Dashboard access','Theme','Users']
   };
   if(!groups[state.settingsTab])state.settingsTab='Integrations';

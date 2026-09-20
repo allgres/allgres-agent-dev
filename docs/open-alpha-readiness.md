@@ -10,14 +10,15 @@
 - The Settings UI exposes index, embedding, draft, and search status. Provider forms save before OAuth starts and enforce supported provider purposes.
 - The order-review example proves a generated Function and Procedure can build and execute under an Agent database role without an external service.
 - Navigation now follows Dashboard / Chat (General, Projects, Approvals) / SQL / Settings. General combines conversation, `@agent-name` routing, and session history; Projects combines management and conversation. Regular users receive only their scoped Chat and Agent settings surfaces.
+- User Provider/Model preferences are isolated per user and Agent; shared Agent defaults remain administrator-owned and are used by schedules and users without an override.
+- Capability discovery now has explicit testing/review/publication states, immutable-published transition rules, version snapshots, operator publication, and rollback controls.
 
 ## Remaining alpha gates
 
 - Add browser-level role and three-click navigation regression tests for operator and regular-user accounts.
 - Expand Capability outcome linkage to HTTP and MCP calls; this batch records discovery and the built-in Function/Procedure path.
-- Add the reviewed Draft-to-Published promotion workflow, isolated evaluation comparison, version rollback controls, and operator approval screens. The schema deliberately prevents discovery from acting as automatic publication.
-- Decide whether per-user model preferences should remain able to update shared Agent configuration.
-- Complete MCP protocol initialization and production-grade cost and latency attribution.
+- Connect the Capability review screen to a real isolated-evaluation runner and baseline comparison; publication currently requires an operator-supplied passing result rather than fabricating or automatically running one.
+- Complete stateful MCP protocol initialization/capability negotiation and production-grade cost attribution. Stateless MCP-over-HTTP calls, error outcomes, latency, OAuth refresh, and secret masking are already covered.
 - Re-run packaging and deployment-specific validation before publishing Docker, CNPG, or RPM artifacts.
 
 No production migration, image publication, remote branch update, or deployment is part of this batch.
