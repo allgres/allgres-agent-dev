@@ -1,0 +1,379 @@
+\set ON_ERROR_STOP on
+
+-- Use the web background worker itself as an OpenAI-compatible mock model.
+-- allow_private_network is required: the outbound guard rejects loopback
+-- endpoints unless the provider opts in, which is what stops a dashboard user
+-- from aiming the LLM path at an internal address.
+INSERT INTO allgres_private.llm_providers (name, kind, base_url, is_enabled, allow_private_network)
+VALUES ('allgres_mock', 'openai_compat', 'http://127.0.0.1:8088/mock', true, true)
+ON CONFLICT (name) DO UPDATE
+SET base_url = EXCLUDED.base_url,
+    kind = EXCLUDED.kind,
+    is_enabled = true,
+    allow_private_network = true;
+
+UPDATE allgres_private.policies
+SET llm_config = jsonb_build_object(
+      'provider', 'allgres_mock',
+      'model', 'allgres-mock',
+      'temperature', 0,
+      'max_tokens', 128
+    ),
+    updated_at = now()
+WHERE agent_id = (SELECT agent_id FROM allgres_private.agents WHERE name = 'analyst');
+
+CREATE TEMP TABLE _allgres_test_session(session_id uuid);
+INSERT INTO _allgres_test_session
+SELECT (allgres_public.fn_create_session(
+  (SELECT agent_id FROM allgres_private.agents WHERE name = 'analyst'),
+  'Return the Allgres MVP mock answer.'
+)->>'session_id')::uuid;
+
+-- The native runtime worker is asynchronous.  Wait up to ~20 seconds.
+DO $$
+DECLARE
+  v_status text;
+  i int;
+BEGIN
+  FOR i IN 1..200 LOOP
+    SELECT s.status INTO v_status
+    FROM allgres_private.sessions s
+    JOIN _allgres_test_session t USING (session_id);
+    EXIT WHEN v_status IN ('completed', 'failed');
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+END $$;
+
+SELECT s.session_id, s.status, s.final_answer
+FROM allgres_private.sessions s
+JOIN _allgres_test_session t USING (session_id);
+
+DO $$
+DECLARE
+  v_status text;
+  v_answer text;
+BEGIN
+  SELECT s.status, s.final_answer INTO v_status, v_answer
+  FROM allgres_private.sessions s
+  JOIN _allgres_test_session t USING (session_id);
+
+  IF v_status <> 'completed' THEN
+    RAISE EXCEPTION 'Allgres E2E mock did not complete (status=%)', v_status;
+  END IF;
+  IF v_answer <> 'Allgres mock runtime OK' THEN
+    RAISE EXCEPTION 'Unexpected Allgres E2E answer: %', v_answer;
+  END IF;
+END $$;
+
+-- Queue enough work to keep outbound calls in flight.  scripts/smoke.sh then
+-- measures dashboard latency over HTTP, which is the path that actually goes
+-- web worker -> unix socket -> runtime SPI thread.  Calling dashboard_rpc from
+-- psql would not exercise that thread at all.
+DO $$
+DECLARE
+  v_agent uuid;
+  i int;
+BEGIN
+  SELECT agent_id INTO v_agent FROM allgres_private.agents WHERE name = 'analyst';
+  FOR i IN 1..12 LOOP
+    PERFORM allgres_public.fn_create_session(v_agent, 'load ' || i);
+  END LOOP;
+END $$;
+
+SELECT count(*) AS queued_load
+FROM allgres_private.tasks WHERE status IN ('queued', 'running');
+
+-- OAuth token exchange, driven through the real background worker's HTTP
+-- pool (fn_claim_oauth -> perform_http's send_form branch -> mock token
+-- endpoint -> fn_complete_oauth), not just fn_selftest's direct calls --
+-- the same distinction the LLM mock round trip above draws, and the one
+-- item 12/13/18 kept finding real bugs by insisting on.
+INSERT INTO allgres_private.llm_providers
+  (name, kind, base_url, is_enabled, allow_private_network, oauth_auth_url, oauth_token_url, oauth_client_id)
+VALUES ('allgres_mock_oauth', 'oauth', 'http://127.0.0.1:8088/mock/oauth/authorize', true, true,
+        'http://127.0.0.1:8088/mock/oauth/authorize', 'http://127.0.0.1:8088/mock/oauth/token', 'e2e-client-id')
+ON CONFLICT (name) DO UPDATE
+SET oauth_auth_url = EXCLUDED.oauth_auth_url,
+    oauth_token_url = EXCLUDED.oauth_token_url,
+    oauth_client_id = EXCLUDED.oauth_client_id,
+    allow_private_network = true;
+
+SELECT allgres_public.fn_set_provider(
+  (SELECT provider_id FROM allgres_private.llm_providers WHERE name = 'allgres_mock_oauth'),
+  NULL, NULL, NULL, NULL, NULL, NULL, 'allgres-mock-oauth-secret'
+);
+
+CREATE TEMP TABLE _allgres_oauth_call(call_id uuid, provider_id uuid);
+INSERT INTO _allgres_oauth_call
+SELECT
+  (allgres_public.fn_oauth_token_request(
+    (allgres_public.fn_oauth_start(
+      (SELECT provider_id FROM allgres_private.llm_providers WHERE name = 'allgres_mock_oauth'),
+      'http://127.0.0.1:8088/callback'
+    )->>'state'),
+    'e2e-mock-auth-code',
+    'http://127.0.0.1:8088/callback'
+  )->>'call_id')::uuid,
+  (SELECT provider_id FROM allgres_private.llm_providers WHERE name = 'allgres_mock_oauth');
+
+DO $$
+DECLARE
+  v_status text;
+  i int;
+BEGIN
+  FOR i IN 1..200 LOOP
+    SELECT status INTO v_status
+    FROM allgres_private.oauth_calls o
+    JOIN _allgres_oauth_call c ON c.call_id = o.call_id;
+    EXIT WHEN v_status = 'harvested';
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+END $$;
+
+DO $$
+DECLARE
+  v_status text;
+  v_access text;
+  v_refresh text;
+  v_body text;
+BEGIN
+  SELECT o.status INTO v_status
+  FROM allgres_private.oauth_calls o JOIN _allgres_oauth_call c ON c.call_id = o.call_id;
+  IF v_status <> 'harvested' THEN
+    RAISE EXCEPTION 'Allgres E2E oauth exchange did not complete (status=%)', v_status;
+  END IF;
+
+  SELECT allgres_private.decrypt_secret(s.access_token), allgres_private.decrypt_secret(s.refresh_token)
+  INTO v_access, v_refresh
+  FROM allgres_private.llm_secrets s JOIN _allgres_oauth_call c ON c.provider_id = s.provider_id;
+
+  -- The mock token endpoint echoes the code it received back into the
+  -- access token and refuses the exchange unless the exact client_secret
+  -- arrived -- so a token landing here proves the real code, and the real
+  -- claim-time-injected secret, both actually made it over the wire.
+  IF v_access <> 'allgres-mock-access-e2e-mock-auth-code' THEN
+    RAISE EXCEPTION 'Unexpected Allgres E2E oauth access token: %', v_access;
+  END IF;
+  IF v_refresh <> 'allgres-mock-refresh' THEN
+    RAISE EXCEPTION 'Unexpected Allgres E2E oauth refresh token: %', v_refresh;
+  END IF;
+
+  -- The same proof item 13's own verification used: the client secret and
+  -- the issued tokens exist only in llm_secrets, encrypted -- never in the
+  -- queue row or the execution log of any task (oauth_calls has no task_id
+  -- at all, but the columns it does have are checked anyway).
+  SELECT string_agg(request_body::text || COALESCE(error, ''), ' ') INTO v_body
+  FROM allgres_private.oauth_calls c2
+  WHERE c2.provider_id = (SELECT provider_id FROM _allgres_oauth_call);
+  IF v_body LIKE '%allgres-mock-oauth-secret%' THEN
+    RAISE EXCEPTION 'OAuth client secret leaked into oauth_calls';
+  END IF;
+  IF v_body LIKE '%allgres-mock-access-%' OR v_body LIKE '%allgres-mock-refresh%' THEN
+    RAISE EXCEPTION 'OAuth tokens leaked into oauth_calls';
+  END IF;
+END $$;
+
+-- Agent-identity embeddings and semantic delegate search, driven through
+-- the real background worker's HTTP pool end to end: fn_create_agent ->
+-- queue_agent_embedding -> fn_claim_agent_embedding -> perform_http
+-- (send_json) -> mock embeddings endpoint -> fn_complete_agent_embedding
+-- (writes allgres_private.agents.embedding), then a real 'search_agents'
+-- agent action -> outbound_calls kind='embedding' -> fn_claim_outbound ->
+-- perform_http -> fn_complete_outbound's own 'embedding' branch ->
+-- allgres_private.rank_agents_by_embedding -> a 'tool_result' landing in
+-- execution_logs. fn_selftest exercises the same SQL functions directly
+-- (no HTTP, no worker); this is the one place a real request/response
+-- round trip through the actual runtime process is proven, the same
+-- distinction the LLM and OAuth mock round trips above draw.
+INSERT INTO allgres_private.llm_providers
+  (name, kind, base_url, is_enabled, allow_private_network, purpose, embedding_model)
+VALUES ('allgres_mock_embed', 'openai_compat', 'http://127.0.0.1:8088/mock', true, true,
+        'embedding', 'allgres-mock-embed')
+ON CONFLICT (name) DO UPDATE
+SET base_url = EXCLUDED.base_url,
+    is_enabled = true,
+    allow_private_network = true,
+    purpose = 'embedding',
+    embedding_model = 'allgres-mock-embed';
+
+CREATE TEMP TABLE _allgres_embed_agents(name text, agent_id uuid);
+INSERT INTO _allgres_embed_agents
+SELECT 'e2e_alpha_agent', (allgres_public.fn_create_agent('e2e_alpha_agent', 'You specialize in alpha tasks.')->>'agent_id')::uuid
+UNION ALL
+SELECT 'e2e_gamma_agent', (allgres_public.fn_create_agent('e2e_gamma_agent', 'You specialize in gamma tasks.')->>'agent_id')::uuid;
+
+DO $$
+DECLARE
+  v_n int;
+  i int;
+BEGIN
+  FOR i IN 1..200 LOOP
+    SELECT count(*) INTO v_n
+    FROM allgres_private.agents a JOIN _allgres_embed_agents e ON e.agent_id = a.agent_id
+    WHERE a.embedding IS NOT NULL;
+    EXIT WHEN v_n = 2;
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'Allgres E2E agent-identity embeddings did not complete (got %)', v_n;
+  END IF;
+END $$;
+
+CREATE TEMP TABLE _allgres_search_agent(agent_id uuid, task_id uuid);
+INSERT INTO _allgres_search_agent (agent_id)
+SELECT (allgres_public.fn_create_agent('e2e_search_requester')->>'agent_id')::uuid;
+
+SELECT allgres_public.fn_grant_permission(agent_id, 'agent', 'e2e_alpha_agent') FROM _allgres_search_agent;
+SELECT allgres_public.fn_grant_permission(agent_id, 'agent', 'e2e_gamma_agent') FROM _allgres_search_agent;
+
+DO $$
+DECLARE
+  v_agent uuid;
+  v_sid uuid;
+  v_tid uuid;
+BEGIN
+  SELECT agent_id INTO v_agent FROM _allgres_search_agent;
+  v_sid := (allgres_public.fn_create_session(v_agent, 'find me an alpha specialist')->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  PERFORM allgres_public.fn_next_step(v_tid);
+  PERFORM allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+    'type', 'llm_response',
+    'content', '{"action":"search_agents","query":"I need an alpha specialist"}',
+    'parsed', jsonb_build_object('action', 'search_agents', 'query', 'I need an alpha specialist')
+  ));
+  UPDATE _allgres_search_agent SET task_id = v_tid;
+END $$;
+
+DO $$
+DECLARE
+  v_n int;
+  i int;
+BEGIN
+  FOR i IN 1..200 LOOP
+    SELECT count(*) INTO v_n
+    FROM allgres_private.execution_logs e
+    JOIN _allgres_search_agent s ON s.task_id = e.task_id
+    WHERE e.role = 'function';
+    EXIT WHEN v_n = 1;
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'Allgres E2E search_agents did not complete (got % tool results)', v_n;
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  v_body jsonb;
+  v_top text;
+BEGIN
+  SELECT (e.content->>'body')::jsonb INTO v_body
+  FROM allgres_private.execution_logs e
+  JOIN _allgres_search_agent s ON s.task_id = e.task_id
+  WHERE e.role = 'function';
+
+  v_top := v_body->0->>'name';
+  IF v_top <> 'e2e_alpha_agent' THEN
+    RAISE EXCEPTION 'Allgres E2E search_agents ranked % first, expected e2e_alpha_agent: %', v_top, v_body;
+  END IF;
+  IF jsonb_array_length(v_body) <> 2 THEN
+    RAISE EXCEPTION 'Allgres E2E search_agents returned % candidates, expected 2: %', jsonb_array_length(v_body), v_body;
+  END IF;
+END $$;
+
+-- Semantic memory recall, the same embedding infra as agent-identity
+-- embeddings/search_agents above, applied to allgres_private.agent_memories
+-- instead of allgres_private.agents: write_memory -> queue_memory_embedding
+-- -> fn_claim_agent_embedding -> perform_http -> the same mock embeddings
+-- endpoint -> fn_complete_agent_embedding's 'memory' branch (writes
+-- agent_memories.embedding), then a real 'recall' agent action ->
+-- outbound_calls kind='recall' -> fn_claim_outbound -> perform_http ->
+-- fn_complete_outbound's own 'recall' branch -> rank_memories_by_embedding
+-- -> a 'tool_result' landing in execution_logs.
+CREATE TEMP TABLE _allgres_recall_agent(agent_id uuid, task_id uuid);
+INSERT INTO _allgres_recall_agent (agent_id)
+SELECT (allgres_public.fn_create_agent('e2e_recall_agent')->>'agent_id')::uuid;
+
+DO $$
+DECLARE
+  v_agent uuid;
+BEGIN
+  SELECT agent_id INTO v_agent FROM _allgres_recall_agent;
+  PERFORM allgres_public.fn_remember(v_agent, 'The alpha rollout ships next Tuesday.', 'semantic', '0.5', NULL, NULL);
+  PERFORM allgres_public.fn_remember(v_agent, 'The gamma dataset needs re-labeling.', 'semantic', '0.5', NULL, NULL);
+END $$;
+
+DO $$
+DECLARE
+  v_n int;
+  i int;
+BEGIN
+  FOR i IN 1..200 LOOP
+    SELECT count(*) INTO v_n
+    FROM allgres_private.agent_memories am
+    JOIN _allgres_recall_agent r ON r.agent_id = am.agent_id
+    WHERE am.embedding IS NOT NULL;
+    EXIT WHEN v_n = 2;
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'Allgres E2E memory embeddings did not complete (got %)', v_n;
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  v_agent uuid;
+  v_sid uuid;
+  v_tid uuid;
+BEGIN
+  SELECT agent_id INTO v_agent FROM _allgres_recall_agent;
+  v_sid := (allgres_public.fn_create_session(v_agent, 'recall the alpha memory')->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  PERFORM allgres_public.fn_next_step(v_tid);
+  PERFORM allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+    'type', 'llm_response',
+    'content', '{"action":"recall","query":"what is happening with alpha"}',
+    'parsed', jsonb_build_object('action', 'recall', 'query', 'what is happening with alpha')
+  ));
+  UPDATE _allgres_recall_agent SET task_id = v_tid;
+END $$;
+
+DO $$
+DECLARE
+  v_n int;
+  i int;
+BEGIN
+  FOR i IN 1..200 LOOP
+    SELECT count(*) INTO v_n
+    FROM allgres_private.execution_logs e
+    JOIN _allgres_recall_agent r ON r.task_id = e.task_id
+    WHERE e.role = 'function';
+    EXIT WHEN v_n = 1;
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'Allgres E2E recall did not complete (got % tool results)', v_n;
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  v_body jsonb;
+  v_top text;
+BEGIN
+  SELECT (e.content->>'body')::jsonb INTO v_body
+  FROM allgres_private.execution_logs e
+  JOIN _allgres_recall_agent r ON r.task_id = e.task_id
+  WHERE e.role = 'function';
+
+  v_top := v_body->0->>'content';
+  IF v_top NOT LIKE '%alpha%' THEN
+    RAISE EXCEPTION 'Allgres E2E recall ranked % first, expected the alpha memory: %', v_top, v_body;
+  END IF;
+  IF jsonb_array_length(v_body) <> 2 THEN
+    RAISE EXCEPTION 'Allgres E2E recall returned % candidates, expected 2: %', jsonb_array_length(v_body), v_body;
+  END IF;
+END $$;
+
+SELECT 'e2e ok' AS result;

@@ -1,0 +1,208 @@
+name: Publish image
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runs_on: ubuntu-latest
+          - platform: linux/arm64
+            runs_on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Determine image name from the repository
+        id: image
+        run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Save this platform's digest for the merge job
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Determine image name and tag(s) from the git ref
+        id: tag
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            REF="${GITHUB_REF#refs/tags/}"
+            TAGS="${IMAGE}:${REF}"
+            if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              TAGS="${TAGS},${IMAGE}:latest"
+            fi
+            echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          else
+            REF="${GITHUB_REF#refs/heads/}"
+            echo "tags=${IMAGE}:${REF}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Create and push the multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ steps.tag.outputs.image }}"
+          IFS=',' read -ra TAGS <<< "${{ steps.tag.outputs.tags }}"
+          TAG_ARGS=()
+          for t in "${TAGS[@]}"; do TAG_ARGS+=(--tag "$t"); done
+          docker buildx imagetools create "${TAG_ARGS[@]}" \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect the published manifest
+        run: |
+          FIRST_TAG="${{ steps.tag.outputs.tags }}"
+          docker buildx imagetools inspect "${FIRST_TAG%%,*}"
+
+  build-cnpg-ext:
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runs_on: ubuntu-latest
+          - platform: linux/arm64
+            runs_on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Determine image name from the repository
+        id: image
+        run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')-cnpg-ext" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: cnpg/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Save this platform's digest for the merge job
+        run: |
+          mkdir -p /tmp/cnpg-ext-digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/cnpg-ext-digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cnpg-ext-digest-${{ strategy.job-index }}
+          path: /tmp/cnpg-ext-digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-cnpg-ext:
+    needs: build-cnpg-ext
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: /tmp/cnpg-ext-digests
+          pattern: cnpg-ext-digest-*
+          merge-multiple: true
+
+      - name: Determine image name and tag(s) from the git ref
+        id: tag
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')-cnpg-ext"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            REF="${GITHUB_REF#refs/tags/}"
+            TAGS="${IMAGE}:${REF}"
+            if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              TAGS="${TAGS},${IMAGE}:latest"
+            fi
+            echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          else
+            REF="${GITHUB_REF#refs/heads/}"
+            echo "tags=${IMAGE}:${REF}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Create and push the multi-arch manifest
+        working-directory: /tmp/cnpg-ext-digests
+        run: |
+          IMAGE="${{ steps.tag.outputs.image }}"
+          IFS=',' read -ra TAGS <<< "${{ steps.tag.outputs.tags }}"
+          TAG_ARGS=()
+          for t in "${TAGS[@]}"; do TAG_ARGS+=(--tag "$t"); done
+          docker buildx imagetools create "${TAG_ARGS[@]}" \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect the published manifest
+        run: |
+          FIRST_TAG="${{ steps.tag.outputs.tags }}"
+          docker buildx imagetools inspect "${FIRST_TAG%%,*}"

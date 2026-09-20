@@ -1,0 +1,379 @@
+//! Allgres native runtime.
+//!
+//! Two background workers, neither of which owns any agent state:
+//!
+//!   `allgres runtime`  SPI thread + a pool of HTTP threads.  The SPI thread
+//!                      only ever runs short transactions (pump, RPC); every
+//!                      blocking network call happens on a pool thread, so a
+//!                      slow LLM can never stall the dashboard.  Sandboxed
+//!                      agent SQL also runs here, on the SPI thread, since it
+//!                      needs SPI: PostgreSQL's SET ROLE restriction means it
+//!                      can only be a top-level statement issued directly by
+//!                      this worker, never nested inside a SECURITY DEFINER
+//!                      function -- see `run_sandboxed_sql`.
+//!
+//!   `allgres web`      HTTP listener.  No SPI at all: it forwards to the
+//!                      runtime worker over a unix socket.  One thread per
+//!                      connection, bounded, so a slow client cannot stall the
+//!                      accept loop either.
+//!
+//! All SQL is executed with bound parameters.  Nothing in this file builds a
+//! statement by concatenating a value into a string.  `run_sandboxed_sql`
+//! passes agent-generated SQL to Postgres as a bind parameter too; the one
+//! place it gets wrapped into a larger statement by concatenation is
+//! sql/control_plane.sql's `fn_run_sandboxed_sql`, and only after
+//! `fn_validate_sql` has confirmed it parses as exactly one non-writing
+//! SELECT, which is what makes that safe.
+
+use pgrx::bgworkers::{BackgroundWorkerBuilder, BgWorkerStartTime};
+use pgrx::prelude::*;
+use pgrx::JsonB;
+use serde_json::json;
+use std::collections::HashMap;
+use std::fs;
+use std::time::Duration;
+
+pgrx::pg_module_magic!();
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(crate) const DEFAULT_DB: &str = "postgres";
+/// Loopback by default.  Binding to a public address without a dashboard token
+/// is refused unless the operator opts in explicitly (see `check_exposure`).
+pub(crate) const DEFAULT_HTTP_ADDR: &str = "127.0.0.1:8088";
+pub(crate) const DASHBOARD_HTML: &str = include_str!("../web/index.html");
+
+/// Outbound HTTP threads, and therefore the maximum number of calls claimed
+/// per pump.  The SQL watchdog timeout must stay above `HTTP_TIMEOUT`.
+pub(crate) const HTTP_THREADS: usize = 4;
+pub(crate) const HTTP_TIMEOUT: Duration = Duration::from_secs(45);
+pub(crate) const MAX_RESPONSE_BYTES: usize = 200_000;
+
+pub(crate) const PUMP_BUSY: Duration = Duration::from_millis(150);
+pub(crate) const PUMP_IDLE_MIN: Duration = Duration::from_millis(500);
+pub(crate) const PUMP_IDLE_MAX: Duration = Duration::from_secs(4);
+
+/// Sandboxed SQL executes on the SPI thread itself (it needs SPI, so it can't
+/// go on an HTTP pool thread the way outbound calls do), one call at a time,
+/// bounded by `SQL_STATEMENT_TIMEOUT_MS` each.  Claiming only one per tick, not a
+/// batch, keeps a burst of agent queries from shutting the RPC/dashboard path
+/// out for several statement-timeouts in a row.
+pub(crate) const SQL_CLAIM_LIMIT: i32 = 1;
+/// Milliseconds, the unit both `SET LOCAL statement_timeout` (as a string)
+/// and `enable_timeout_after` (as an integer -- see run_sandboxed_sql's own
+/// comment on why that call exists at all) need; kept as one constant so
+/// the two can never drift apart.
+pub(crate) const SQL_STATEMENT_TIMEOUT_MS: i32 = 5000;
+
+/// A Procedure call gets a much longer ceiling than a plain Function call
+/// or sandboxed SQL: its body may call `allgres_private.fn_llm_complete`
+/// (Phase 3e, a synchronous `call_llm`-style helper) one or more times,
+/// each bounded by `HTTP_TIMEOUT` (45s) on its own, run serially on this
+/// same SPI thread -- there is no separate thread pool for it the way the
+/// main per-task turn loop's own LLM calls get, since the whole point of a
+/// Procedure body is one blocking `CALL`, not a second async round trip.
+/// Kept comfortably under `fn_watchdog`'s own widened `procedure_calls`
+/// reclaim floor (150s, sql/control_plane.sql) so a legitimately still-
+/// running call can never be reclaimed as 'lost' out from under itself.
+pub(crate) const PROCEDURE_CALL_TIMEOUT_MS: i32 = 60000;
+
+pub(crate) const MAX_WEB_THREADS: usize = 64;
+pub(crate) const MAX_REQUEST_BYTES: usize = 1 << 20;
+pub(crate) const REQUEST_DEADLINE: Duration = Duration::from_secs(5);
+pub(crate) const SSE_TOTAL: Duration = Duration::from_secs(30);
+pub(crate) const SSE_INTERVAL: Duration = Duration::from_secs(1);
+/// A ticket minted by `POST /api/v1/events/ticket` (bearer-token gated) is
+/// good for one connection attempt, within this window.  This keeps the
+/// long-lived dashboard token out of the one URL that has to carry auth in
+/// the query string at all -- `EventSource` cannot set request headers --
+/// and therefore out of proxy access logs, browser history, and the
+/// Referrer header.  Reconnection is client-driven (see `startEvents` in
+/// web/index.html), not the browser's native retry-with-the-same-URL, since
+/// a single-use ticket cannot be replayed for that.
+pub(crate) const SSE_TICKET_TTL: Duration = Duration::from_secs(30);
+
+// Seven files, loaded in this exact order -- mirroring sql/control_plane.
+// sql's own original section order (1-8, 9a, 9b, 9c, 10, 11, 12-14)
+// exactly, just as separate compilation units now instead of one file.
+// pgrx allows only one `finalize`-marked extension_sql_file! in the whole
+// crate (it errors at build time otherwise), so only sql/grants_and_
+// facade.sql -- section 14's final ownership pass, which genuinely needs
+// literally everything else to exist first -- carries it; every other
+// file is "normal" position (same as this module's own #[pg_extern] items
+// below), chained to each other with `requires` purely to preserve this
+// original order (most of them have no real cross-file dependency at
+// CREATE time -- see each file's own header for exactly which ones do).
+// Splitting sql/control_plane.sql this way is what fixed the long_
+// running_const_eval trip in practice, once and for all rather than by
+// muting the lint -- each file is now small enough on its own that the
+// const-eval copy loop pgrx's extension_sql_file! macro runs at compile
+// time finishes comfortably inside rustc's default budget.
+extension_sql_file!("../sql/control_plane.sql", name = "control_plane");
+extension_sql_file!(
+    "../sql/operator_agents_and_policies.sql",
+    name = "operator_agents_and_policies",
+    requires = ["control_plane"]
+);
+extension_sql_file!(
+    "../sql/operator_runtime_and_integrations.sql",
+    name = "operator_runtime_and_integrations",
+    requires = ["operator_agents_and_policies"]
+);
+extension_sql_file!(
+    "../sql/operator_accounts_and_chat.sql",
+    name = "operator_accounts_and_chat",
+    requires = ["operator_runtime_and_integrations"]
+);
+extension_sql_file!(
+    "../sql/seed_data.sql",
+    name = "seed_data",
+    requires = ["operator_accounts_and_chat"]
+);
+extension_sql_file!("../sql/selftest.sql", requires = ["seed_data"]);
+extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
+
+#[pg_schema]
+mod allgres {
+    use super::*;
+
+    #[pg_extern]
+    fn native_version() -> &'static str {
+        VERSION
+    }
+
+    /// Structural analysis of a candidate agent statement, using PostgreSQL's
+    /// own grammar.  See `raw_parse_dump` for why this is not a hand-written
+    /// parser and not a regex.
+    ///
+    /// Raises on a syntax error (callers wrap this in an exception block).
+    #[pg_extern(immutable, parallel_safe)]
+    fn analyze_sql(sql: &str) -> JsonB {
+        JsonB(crate::sql_parser::analyze_dump(&crate::sql_parser::raw_parse_dump(sql)))
+    }
+
+    /// Host-level metrics the Overview page shows alongside PostgreSQL's own
+    /// `pg_stat_activity` counts (SQL can read those directly -- this is
+    /// only for what SQL cannot see: OS CPU load and memory). Linux-only, by
+    /// design -- `/proc` is the one interface that needs neither a
+    /// subprocess nor a C library binding, matching this file's existing
+    /// preference (see `raw_parse_dump` above) for the most direct
+    /// interface available rather than the most portable one. Best-effort:
+    /// a missing/unreadable file (a non-Linux host, or a locked-down
+    /// container) yields `null` for that section rather than an error, so
+    /// Overview still renders the parts it can.
+    #[pg_extern]
+    fn native_host_stats() -> JsonB {
+        let load = fs::read_to_string("/proc/loadavg").ok().and_then(|s| {
+            let mut it = s.split_whitespace();
+            let one: f64 = it.next()?.parse().ok()?;
+            let five: f64 = it.next()?.parse().ok()?;
+            let fifteen: f64 = it.next()?.parse().ok()?;
+            Some(json!({"load1": one, "load5": five, "load15": fifteen}))
+        });
+
+        let mem = fs::read_to_string("/proc/meminfo").ok().and_then(|s| {
+            let mut kv: HashMap<&str, u64> = HashMap::new();
+            for line in s.lines() {
+                let mut parts = line.splitn(2, ':');
+                let key = parts.next()?;
+                let rest = parts.next()?.trim();
+                let n: u64 = rest.split_whitespace().next()?.parse().ok()?;
+                kv.insert(key, n);
+            }
+            let total_kb = *kv.get("MemTotal")?;
+            // MemAvailable (kernel-estimated, accounts for reclaimable cache)
+            // is what every modern `free`-alike reports as "available";
+            // MemFree alone overstates memory pressure by not counting cache
+            // the kernel would gladly release under pressure.
+            let avail_kb = *kv.get("MemAvailable")?;
+            let used_kb = total_kb.saturating_sub(avail_kb);
+            Some(json!({
+                "total_mb": total_kb / 1024,
+                "used_mb": used_kb / 1024,
+                "available_mb": avail_kb / 1024,
+                "used_pct": if total_kb > 0 { (used_kb as f64 / total_kb as f64) * 100.0 } else { 0.0 },
+            }))
+        });
+
+        let cpu_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
+
+        JsonB(json!({
+            "load": load,
+            "memory": mem,
+            "cpu_count": cpu_count,
+        }))
+    }
+
+    #[pg_extern]
+    fn native_status() -> JsonB {
+        let preload = Spi::get_one::<String>("SELECT current_setting('shared_preload_libraries', true)")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        JsonB(json!({
+            "name": "Allgres",
+            "tagline": "Postgres Is All You Need.",
+            "version": VERSION,
+            "preloaded": preload.split(',').any(|x| x.trim() == "allgres"),
+            "runtime_worker": "allgres runtime",
+            "web_worker": "allgres web",
+            "web_default": DEFAULT_HTTP_ADDR,
+            "rpc_socket": crate::config::rpc_socket_path().display().to_string(),
+        }))
+    }
+
+    /// The no-restart alternative to `shared_preload_libraries = 'allgres'`
+    /// (README, "Installing without a restart"): registers both workers with
+    /// `RegisterDynamicBackgroundWorker` instead of the static path `_PG_init`
+    /// takes at preload time, so it can run from any ordinary backend, no
+    /// postmaster restart involved. Only `allgres_public.fn_start_dynamic_
+    /// workers` (gated on `allgres.reloadable = 'on'`) calls this; it is not
+    /// itself granted to any role.
+    ///
+    /// A no-op, not an error, when already preloaded (the postmaster already
+    /// owns these workers there) or already running dynamically -- the
+    /// latter checked via `allgres runtime`'s own pg_stat_activity row.
+    /// `allgres web` is not checked the same way: it never connects to a
+    /// database (see `v_system_health`'s own comment on this), so it never
+    /// appears in pg_stat_activity at all; since the two are only ever
+    /// started together by this function, `allgres runtime`'s presence
+    /// stands in for both.
+    #[pg_extern]
+    fn native_start_dynamic_workers() -> JsonB {
+        let preload = Spi::get_one::<String>("SELECT current_setting('shared_preload_libraries', true)")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if preload.split(',').any(|x| x.trim() == "allgres") {
+            return JsonB(json!({
+                "ok": false,
+                "reason": "allgres is already in shared_preload_libraries; the postmaster owns these workers, dynamic start does not apply",
+            }));
+        }
+
+        let already_running: i64 = Spi::get_one(
+            "SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'allgres runtime'",
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+        if already_running > 0 {
+            return JsonB(json!({"ok": true, "already_running": true}));
+        }
+
+        let notify_pid = unsafe { *(&raw const pg_sys::MyProcPid) };
+        let mut results = Vec::new();
+        for (label, builder) in [
+            ("allgres runtime", crate::runtime_worker_builder()),
+            ("allgres web", crate::web_worker_builder()),
+        ] {
+            let outcome = match builder.set_notify_pid(notify_pid).load_dynamic() {
+                Ok(handle) => match handle.wait_for_startup() {
+                    Ok(pid) => json!({"worker": label, "started": true, "pid": pid}),
+                    Err(status) => {
+                        json!({"worker": label, "started": false, "reason": format!("{status:?}")})
+                    }
+                },
+                Err(_) => json!({
+                    "worker": label,
+                    "started": false,
+                    "reason": "postmaster could not register the worker -- check max_worker_processes",
+                }),
+            };
+            results.push(outcome);
+        }
+
+        JsonB(json!({"ok": true, "already_running": false, "results": results}))
+    }
+
+    /// Performs one SSRF-guarded HTTP(S) POST, synchronously, on the calling
+    /// backend's own thread -- unlike every other outbound call in this
+    /// extension, which is dispatched onto a dedicated HTTP thread pool
+    /// (src/outbound.rs) precisely so it never blocks the worker's own SPI
+    /// thread. This one is meant to block it: it is the only thing
+    /// `allgres_private.fn_llm_complete` (Phase 3e's `call_llm`-style
+    /// helper for a Procedure body) calls, itself only ever reachable from
+    /// inside a Procedure's own single blocking `CALL`
+    /// (src/procedure_exec.rs's `run_procedure_call`) -- that design
+    /// already accepts a Procedure body tying up this one worker thread
+    /// for its own duration, so paying that same cost for one more HTTP
+    /// round trip inside it is the existing trade-off applied once more,
+    /// not a new one. SECURITY INVOKER (the default): it decrypts nothing
+    /// and resolves no credential itself, only sends exactly the
+    /// url/headers/body it is given -- fn_llm_complete (SECURITY DEFINER,
+    /// owned by the narrow allgres_llm_admin role) is what injects the
+    /// real credential before calling this, and EXECUTE here is granted
+    /// only to that role, never to `sandbox` -- see
+    /// sql/grants_and_facade.sql.
+    #[pg_extern]
+    fn native_llm_http_send(url: &str, headers: JsonB, body: JsonB, allow_private: bool) -> JsonB {
+        let (status, resp_body) =
+            crate::outbound::guarded_post_json(url, headers.0.as_object(), &body.0, allow_private);
+        JsonB(json!({"status": status, "body": resp_body}))
+    }
+}
+
+// Shared by both registration paths: `_PG_init`'s static `.load()` at
+// preload time, and `native_start_dynamic_workers`'s `.load_dynamic()` from
+// an ordinary backend (README, "Installing without a restart"). Identical
+// configuration either way -- `set_restart_time` is honored by the
+// postmaster the same way regardless of how a worker was registered, so a
+// dynamically-started worker that crashes is relaunched exactly like a
+// statically-started one; only a full Postgres restart drops a dynamic
+// registration, since nothing persists it anywhere.
+fn runtime_worker_builder() -> BackgroundWorkerBuilder {
+    BackgroundWorkerBuilder::new("allgres runtime")
+        .set_function("allgres_runtime_main")
+        .set_library("allgres")
+        .set_start_time(BgWorkerStartTime::RecoveryFinished)
+        .set_restart_time(Some(Duration::from_secs(5)))
+        .enable_spi_access()
+}
+
+fn web_worker_builder() -> BackgroundWorkerBuilder {
+    BackgroundWorkerBuilder::new("allgres web")
+        .set_function("allgres_web_main")
+        .set_library("allgres")
+        .set_start_time(BgWorkerStartTime::RecoveryFinished)
+        .set_restart_time(Some(Duration::from_secs(5)))
+}
+
+#[pg_guard]
+pub extern "C-unwind" fn _PG_init() {
+    // Registering a background worker is only legal from the postmaster during
+    // shared_preload_libraries processing.  Without this guard a plain
+    // `LOAD 'allgres'` in a normal backend errors out.
+    if !unsafe { *(&raw const pg_sys::process_shared_preload_libraries_in_progress) } {
+        return;
+    }
+
+    runtime_worker_builder().load();
+    web_worker_builder().load();
+}
+
+mod config;
+mod function_exec;
+mod http_protocol;
+mod outbound;
+mod procedure_exec;
+mod rpc;
+mod runtime_worker;
+mod sandbox;
+mod sql_parser;
+mod web;
+#[cfg(test)]
+mod tests;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+pub(crate) fn truncate_utf8(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}

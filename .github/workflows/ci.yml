@@ -1,0 +1,245 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  PGRX_VERSION: "0.19.2"
+
+jobs:
+  native-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [16, 17, 18]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1 (stable)
+        with:
+          toolchain: stable
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang libclang-dev pkg-config libssl-dev curl ca-certificates
+
+      - name: Install PostgreSQL ${{ matrix.pg }} (PGDG)
+        run: |
+          sudo apt-get install -y --no-install-recommends postgresql-common
+          yes '' | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          sudo apt-get install -y --no-install-recommends \
+            postgresql-${{ matrix.pg }} postgresql-server-dev-${{ matrix.pg }}
+          echo "PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg }}/bin/pg_config" >> "$GITHUB_ENV"
+          if [ ! -f "/etc/postgresql/${{ matrix.pg }}/main/postgresql.conf" ]; then
+            sudo pg_createcluster ${{ matrix.pg }} main
+          fi
+
+      - name: Cache cargo registry, cargo-pgrx binary, and target dir
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-pgrx
+            target
+          key: pg${{ matrix.pg }}-cargo-pgrx${{ env.PGRX_VERSION }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install cargo-pgrx (skip if the cache already has it)
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo-pgrx" ]; then
+            cargo install --locked cargo-pgrx --version "$PGRX_VERSION"
+          fi
+
+      - name: cargo pgrx init
+        run: cargo pgrx init --pg${{ matrix.pg }}="$PG_CONFIG"
+
+      - name: Rust unit tests (request parsing, auth/rate-limit, parse-tree reader)
+        run: cargo test --no-default-features --features "pg${{ matrix.pg }},pg_test" --lib
+
+      - name: cargo pgrx install
+        run: |
+          sudo chown "$(id -un)" "$("$PG_CONFIG" --pkglibdir)" "$("$PG_CONFIG" --sharedir)/extension"
+          cargo pgrx install --no-default-features --features pg${{ matrix.pg }} --pg-config "$PG_CONFIG"
+
+      - name: Configure and restart the cluster
+        run: |
+          PGCONF="/etc/postgresql/${{ matrix.pg }}/main/postgresql.conf"
+          PGENV="/etc/postgresql/${{ matrix.pg }}/main/environment"
+          echo "shared_preload_libraries = 'allgres'" | sudo tee -a "$PGCONF"
+          echo "ALLGRES_ENABLE_MOCK = '1'" | sudo tee -a "$PGENV"
+          sudo pg_ctlcluster ${{ matrix.pg }} main restart
+          PGPORT="$(pg_lsclusters -h | awk -v v="${{ matrix.pg }}" '$1==v && $2=="main"{print $3}')"
+          echo "PGPORT=$PGPORT" >> "$GITHUB_ENV"
+          for _ in $(seq 1 30); do sudo -u postgres pg_isready -q -p "$PGPORT" && break; sleep 1; done
+
+      - name: CREATE EXTENSION and run fn_selftest / smoke / e2e
+        run: |
+          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -c "CREATE EXTENSION allgres;"
+          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          check_selftest() {
+            result=$(sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -tAc \
+              "SELECT allgres_public.fn_selftest()")
+            failed=$(jq -r '.failed' <<<"$result")
+            echo "fn_selftest: $(jq -r '.passed' <<<"$result") passed, $failed failed"
+            if [[ "$failed" != "0" ]]; then
+              jq '[.cases[] | select(.ok == false)]' <<<"$result"
+              return 1
+            fi
+          }
+          check_selftest
+          check_selftest
+          check_selftest
+          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -tAc \
+            "SELECT allgres_public.fn_create_user('ci_selftest_admin', 'ci-selftest-check-pw', 'admin');" >/dev/null
+          check_selftest
+          sudo -u postgres psql -p "$PGPORT" -d postgres -tAc \
+            "DELETE FROM allgres_private.web_sessions WHERE user_id IN (SELECT user_id FROM allgres_private.users WHERE username = 'ci_selftest_admin'); DELETE FROM allgres_private.users WHERE username = 'ci_selftest_admin';" >/dev/null
+          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/smoke.sql
+          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/e2e_mock.sql
+
+      - name: PostgreSQL log on failure
+        if: failure()
+        run: sudo tail -n 300 /var/log/postgresql/postgresql-${{ matrix.pg }}-main.log || true
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: docker compose build + smoke
+        run: ./scripts/smoke.sh
+      - name: install flow (first admin + one real agent task to completion)
+        run: ./scripts/bootstrap.sh
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs --no-color allgres | tail -300 || true
+
+  fault-injection-drill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1 (stable)
+        with:
+          toolchain: stable
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang libclang-dev pkg-config libssl-dev curl ca-certificates
+
+      - name: Install PostgreSQL 16 (PGDG)
+        run: |
+          sudo apt-get install -y --no-install-recommends postgresql-common
+          yes '' | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          sudo apt-get install -y --no-install-recommends postgresql-16 postgresql-server-dev-16
+
+      - name: Cache cargo registry, cargo-pgrx binary, and target dir
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-pgrx
+            target
+          key: pg16-cargo-pgrx${{ env.PGRX_VERSION }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install cargo-pgrx (skip if the cache already has it)
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo-pgrx" ]; then
+            cargo install --locked cargo-pgrx --version "$PGRX_VERSION"
+          fi
+
+      - name: cargo pgrx init
+        run: cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
+
+      - name: cargo pgrx install
+        run: |
+          sudo chown "$(id -un)" /usr/lib/postgresql/16/lib /usr/share/postgresql/16/extension
+          cargo pgrx install --no-default-features --features pg16 --pg-config /usr/lib/postgresql/16/bin/pg_config
+
+      - name: Configure and restart the cluster
+        run: |
+          echo "shared_preload_libraries = 'allgres'" | sudo tee -a /etc/postgresql/16/main/postgresql.conf
+          echo "ALLGRES_ENABLE_MOCK = '1'" | sudo tee -a /etc/postgresql/16/main/environment
+          sudo pg_ctlcluster 16 main restart
+          for _ in $(seq 1 30); do sudo -u postgres pg_isready -q && break; sleep 1; done
+          sudo -u postgres psql -d postgres -v ON_ERROR_STOP=1 -c "CREATE EXTENSION allgres;"
+
+      - name: fault injection drill (real SIGKILL mid-call, real crash recovery, real automatic retry)
+        run: ./scripts/fault_injection_drill.sh
+
+      - name: PostgreSQL log on failure
+        if: failure()
+        run: sudo tail -n 300 /var/log/postgresql/postgresql-16-main.log || true
+
+  makefile-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install PostgreSQL 16 (PGDG) and OS build prerequisites -- no Rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang libclang-dev pkg-config libssl-dev curl ca-certificates \
+            postgresql-common
+          yes '' | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          sudo apt-get install -y --no-install-recommends postgresql-16 postgresql-server-dev-16
+          sudo chown "$(id -un)" /usr/lib/postgresql/16/lib /usr/share/postgresql/16/extension
+
+      - name: Cache cargo registry (not rustup or cargo-pgrx themselves -- this job's whole point is installing both from nothing)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: makefile-smoke-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: make build, attempt 1 -- Rust hidden from PATH, expected to install rustup and stop there
+        id: first_attempt
+        continue-on-error: true
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin make build PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config
+
+      - name: Confirm the first attempt failed the documented way, not some other way
+        if: steps.first_attempt.outcome != 'failure'
+        run: |
+          echo "make build succeeded on the very first try -- Rust must already have been on this runner, which defeats the point of this job" >&2
+          exit 1
+
+      - name: make build, attempt 2 -- same as opening a new shell after rustup finished, as the Makefile's own message says to
+        run: |
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          make build PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config
+
+      - name: make install
+        run: make install PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config
+
+      - name: make quickstart -- the "no restart needed" claim, proven end to end
+        run: |
+          sudo pg_ctlcluster 16 main start || true
+          for _ in $(seq 1 30); do sudo -u postgres pg_isready -q && break; sleep 1; done
+          sudo -u postgres make quickstart
+          ok=0
+          for _ in $(seq 1 15); do
+            curl -sf -o /dev/null http://127.0.0.1:8088/ && { ok=1; break; }
+            sleep 1
+          done
+          [ "$ok" = 1 ] || { echo "dashboard never answered on 127.0.0.1:8088 after make quickstart" >&2; exit 1; }
+
+      - name: PostgreSQL log on failure
+        if: failure()
+        run: sudo tail -n 300 /var/log/postgresql/postgresql-16-main.log || true

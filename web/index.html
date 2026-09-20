@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Allgres Control Plane</title><style nonce="__CSP_NONCE__">
+:root{--bg:#0b0d10;--panel:#11151a;--panel2:#161b22;--line:#262d36;--text:#e6edf3;--muted:#8b949e;--accent:#7ee787;--accent2:#58a6ff;--bad:#ff7b72;--warn:#d29922}
+:root[data-theme="light"]{--bg:#f5f7fa;--panel:#ffffff;--panel2:#eef1f5;--line:#d7dee6;--text:#0b0d10;--muted:#5b6570;--accent:#1a7f37;--accent2:#0969da;--bad:#cf222e;--warn:#9a6700}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,textarea,select{font:inherit}.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}.side{border-right:1px solid var(--line);padding:24px 16px;position:sticky;top:0;height:100vh;background:#0d1014}.brand{font-size:22px;font-weight:760;letter-spacing:-.5px}.tag{color:var(--muted);font-size:12px;margin:2px 0 28px}.nav button{display:block;width:100%;text-align:left;border:0;background:transparent;color:var(--muted);padding:10px 12px;border-radius:8px;margin:2px 0;cursor:pointer}.nav button.active,.nav button:hover{background:var(--panel2);color:var(--text)}.main{padding:28px 32px;max-width:1500px;width:100%}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}.title{font-size:24px;font-weight:700}.pill{display:inline-flex;gap:7px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted)}.dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}.cards{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:12px;margin:16px 0 24px}.card,.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}.card{padding:16px}.metric{font-size:28px;font-weight:720}.label{color:var(--muted);font-size:12px}.panel{padding:16px;margin-bottom:16px}.panel h3{margin:0 0 14px;font-size:14px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.row{display:flex;gap:10px;align-items:center}.row.wrap{flex-wrap:wrap}.spacer{flex:1}.btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:8px 12px;border-radius:8px;cursor:pointer}.btn.primary{background:var(--accent);border-color:var(--accent);color:#08110a;font-weight:650}.btn.danger{color:var(--bad)}.btn.small{padding:3px 8px;font-size:11px}.input,.textarea,.select{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px}.textarea{min-height:110px;resize:vertical}.field{margin:10px 0}.field label{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}.table{width:100%;border-collapse:collapse}.table th,.table td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.table th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}.status{font-size:11px;border:1px solid var(--line);padding:3px 7px;border-radius:999px}.s-completed,.s-approved,.s-ok{color:var(--accent)}.s-failed,.s-rejected,.s-cancelled,.s-error{color:var(--bad)}.s-running,.s-queued,.s-open,.s-checking{color:var(--accent2)}.s-waiting_human,.s-pending{color:var(--warn)}.s-stale,.s-untested{color:var(--muted)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.muted{color:var(--muted)}.hidden{display:none!important}.modal{position:fixed;inset:0;background:#0009;display:flex;align-items:center;justify-content:center;padding:24px}.dialog{width:min(680px,100%);max-height:90vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}.toast{position:fixed;right:24px;bottom:24px;background:var(--panel2);border:1px solid var(--line);padding:10px 14px;border-radius:9px;display:none}.log{max-width:680px;white-space:pre-wrap;word-break:break-word}.hero{padding:18px 0 4px}.hero h2{font-size:30px;margin:0}.hero p{color:var(--muted);margin:4px 0}.banner{border:1px solid var(--warn);color:var(--warn);border-radius:9px;padding:10px 12px;margin-bottom:14px;font-size:13px}.msg{padding:8px 0;border-bottom:1px solid var(--line)}.msg-body{margin-top:4px;white-space:pre-wrap;word-break:break-word}.bubblerow{display:flex;padding:3px 0}.bubblerow-me{justify-content:flex-end}.bubblerow-agent{justify-content:flex-start}.bubblerow-op{justify-content:center}.bubble{max-width:78%;border-radius:14px;padding:8px 12px;border:1px solid var(--line)}.bubble-me{background:var(--accent);color:var(--bg);border-color:var(--accent)}.bubble-agent{background:var(--panel2)}.bubble-op{background:transparent;border-style:dashed}.bubble-meta{display:flex;gap:8px;align-items:center;margin-bottom:3px}.bubblerow-me .bubble-meta{flex-direction:row-reverse}.bubble-body{white-space:pre-wrap;word-break:break-word;line-height:1.45}.listrow{padding:10px 0;border-bottom:1px solid var(--line)}.listrow:last-child{border-bottom:0}@media(max-width:900px){.app{grid-template-columns:1fr}.side{height:auto;position:relative;border-right:0;border-bottom:1px solid var(--line)}.nav{display:flex;overflow:auto}.nav button{width:auto;white-space:nowrap}.main{padding:20px}.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+</style></head><body><div class="app"><aside class="side"><div class="brand">Allgres</div><div class="tag">Postgres Is All You Need.</div><nav class="nav" id="nav"></nav></aside><main class="main"><div class="top"><div><div class="title" id="pageTitle">Overview</div><div class="muted" id="pageSub">PostgreSQL-native agent control plane</div></div><div class="row"><span class="muted mono" id="whoami" style="font-size:12px"></span><button class="btn small" id="logoutBtn">Sign out</button><div class="pill"><span class="dot"></span><span id="health">connecting</span></div></div></div><div id="view"></div></main></div><div id="modal" class="modal hidden"></div><div id="toast" class="toast"></div>
+<style nonce="__CSP_NONCE__">
+/* Responsive/accessibility restoration after the dashboard source split.
+   Keep this override separate from the compact base sheet above so future
+   refactors cannot accidentally reintroduce neon accents or narrow-screen
+   overflow. */
+:root{--bg:#101217;--sidebar:#12151b;--panel:#181c23;--panel2:#20252e;--line:#323946;--text:#edf0f5;--muted:#9ca5b2;--accent:#7487b8;--accent-hover:#8395c2;--accent2:#9a8ab0;--bad:#cf8585;--warn:#b99a62;--focus:#aeb9d3;--on-accent:#fff}
+:root[data-theme="light"]{--bg:#f3f4f7;--sidebar:#f8f9fb;--panel:#fff;--panel2:#eceff3;--line:#cfd5dd;--text:#20242b;--muted:#626c78;--accent:#566c9e;--accent-hover:#485e8d;--accent2:#77658c;--bad:#a94f55;--warn:#8a6a32;--focus:#455b8a;--on-accent:#fff}
+html,body{min-width:0;overflow-x:hidden}
+body{font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.app{grid-template-columns:216px minmax(0,1fr)}
+.side{background:var(--sidebar);min-width:0}
+.nav{display:grid;gap:4px;scrollbar-width:none}.nav::-webkit-scrollbar{display:none}.nav button{margin:0}
+.main{min-width:0}.top{flex-wrap:wrap;gap:16px}.top>.row{justify-content:flex-end}
+.row{flex-wrap:wrap;min-width:0}.row>.input,.row>.select,.row>.textarea{flex:1 1 220px;width:auto;min-width:0}.spacer{flex:1 1 16px}
+.btn{min-height:36px;line-height:1.2;white-space:nowrap;transition:background .15s,border-color .15s,color .15s}.btn:hover{background:var(--line);border-color:var(--muted)}.btn.primary{color:var(--on-accent)}.btn.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}.btn.small{min-height:30px;padding:6px 9px}
+.input{min-height:36px;line-height:1.2}
+.select{-webkit-appearance:none;-moz-appearance:none;appearance:none;height:36px;padding:9px 28px 9px 10px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%238b949e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.btn:focus-visible,.input:focus-visible,.textarea:focus-visible,.select:focus-visible,.nav button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.chatPanel{max-width:760px;margin:0 auto;width:100%}
+#chatThread,#projectChatThread,#msgFeed{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+#chatThread::-webkit-scrollbar,#projectChatThread::-webkit-scrollbar,#msgFeed::-webkit-scrollbar{width:10px}
+#chatThread::-webkit-scrollbar-track,#projectChatThread::-webkit-scrollbar-track,#msgFeed::-webkit-scrollbar-track{background:transparent}
+#chatThread::-webkit-scrollbar-thumb,#projectChatThread::-webkit-scrollbar-thumb,#msgFeed::-webkit-scrollbar-thumb{background-color:var(--line);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+#chatThread::-webkit-scrollbar-thumb:hover,#projectChatThread::-webkit-scrollbar-thumb:hover,#msgFeed::-webkit-scrollbar-thumb:hover{background-color:var(--muted);background-clip:padding-box}
+.panel{min-width:0;overflow-x:auto}.table{min-width:620px}.table tr:last-child td{border-bottom:0}
+a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}a:visited{color:var(--accent2)}
+.table tbody tr:hover{background:var(--panel2)}
+.panel,.dialog{box-shadow:0 1px 3px rgba(0,0,0,.24)}
+.hero,.hero h2,.hero p,.panel>.row.wrap>div{min-width:0}.hero h2,.hero p,.panel>.row.wrap>div>div:last-child{overflow-wrap:anywhere}
+@media(max-width:900px){.side{padding:18px 16px}.tag{margin-bottom:14px}.nav{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}.nav button{width:auto;white-space:nowrap}.main{padding:20px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.main{padding:14px}.panel{padding:15px;margin-bottom:14px}.cards{grid-template-columns:1fr;gap:10px}.top{align-items:flex-start}.top>.row{width:100%;justify-content:flex-start}.hero h2{font-size:25px;line-height:1.2}.modal{padding:10px}.dialog{padding:16px}.bubble{max-width:92%}.table{min-width:560px}}
+/* This page's own CSP (src/web.rs) is style-src 'nonce-...' with no
+   'unsafe-inline' -- a nonce only ever covers the style and script
+   elements themselves, never the style="..." HTML attribute, so every
+   inline style="..." used throughout this file's JS templates is
+   silently dropped by the browser (confirmed live: computed
+   margin-bottom read 0px despite the attribute being right there in the
+   DOM). Rather than rewrite every one of those call sites, each exact
+   style="..." string still in use gets a matching attribute-selector
+   rule here, so the same literal value takes effect through this
+   nonce'd stylesheet instead. IMPORTANT: adding a new style="..."
+   attribute anywhere in this file does nothing on its own -- it needs a
+   rule added here (or, better, an existing/new class) with the
+   identical value, or it silently no-ops exactly like this one did. */
+.verdict-label{font-size:14px;font-weight:600}.txt-accent{color:var(--accent)}.txt-bad{color:var(--bad)}
+[style="color:var(--accent2)"]{color:var(--accent2)}[style="color:var(--muted)"]{color:var(--muted)}[style="flex:1;min-width:0"]{flex:1;min-width:0}[style="flex:1;white-space:pre-wrap;font-size:12px"]{flex:1;white-space:pre-wrap;font-size:12px}[style="font-size:11px"]{font-size:11px}[style="font-size:11px;margin-bottom:10px"]{font-size:11px;margin-bottom:10px}[style="font-size:11px;margin-top:2px"]{font-size:11px;margin-top:2px}[style="font-size:11px;margin-top:4px"]{font-size:11px;margin-top:4px}[style="font-size:11px;margin-top:6px"]{font-size:11px;margin-top:6px}[style="font-size:11px;min-width:110px"]{font-size:11px;min-width:110px}[style="font-size:11px;opacity:.7"]{font-size:11px;opacity:.7}[style="font-size:12px"]{font-size:12px}[style="font-size:12px;line-height:1.6"]{font-size:12px;line-height:1.6}[style="font-size:12px;margin-bottom:10px"]{font-size:12px;margin-bottom:10px}[style="font-size:12px;margin-top:10px"]{font-size:12px;margin-top:10px}[style="font-size:12px;margin-top:10px;color:var(--bad)"]{font-size:12px;margin-top:10px;color:var(--bad)}[style="font-size:12px;margin-top:4px;white-space:pre-wrap"]{font-size:12px;margin-top:4px;white-space:pre-wrap}[style="font-size:12px;margin-top:6px"]{font-size:12px;margin-top:6px}[style="font-size:12px;margin:-4px 0 8px"]{font-size:12px;margin:-4px 0 8px}[style="font-size:12px;margin:14px 0 6px"]{font-size:12px;margin:14px 0 6px}[style="font-size:12px;white-space:pre-wrap"]{font-size:12px;white-space:pre-wrap}[style="font-size:13px"]{font-size:13px}[style="font-size:13px;margin-bottom:10px"]{font-size:13px;margin-bottom:10px}[style="font-size:13px;margin:16px 0 10px;border-top:1px solid var(--line);padding-top:14px"]{font-size:13px;margin:16px 0 10px;border-top:1px solid var(--line);padding-top:14px}[style="gap:20px"]{gap:20px}[style="margin-bottom:10px"]{margin-bottom:10px}[style="margin-bottom:20px"]{margin-bottom:20px}[style="margin-bottom:22px"]{margin-bottom:22px}[style="margin-bottom:22px;gap:8px;align-items:flex-end"]{margin-bottom:22px;gap:8px;align-items:flex-end}[style="margin-top:10px"]{margin-top:10px}[style="margin-top:12px"]{margin-top:12px}[style="margin-top:12px;gap:8px"]{margin-top:12px;gap:8px}[style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px;align-items:flex-end"]{margin-top:14px;border-top:1px solid var(--line);padding-top:12px;align-items:flex-end}[style="margin-top:8px"]{margin-top:8px}[style="margin:0"]{margin:0}[style="margin:0;min-width:180px"]{margin:0;min-width:180px}[style="margin:0;min-width:220px"]{margin:0;min-width:220px}[style="margin:14px 0"]{margin:14px 0}[style="margin:14px 0;flex-direction:column;align-items:stretch;gap:8px"]{margin:14px 0;flex-direction:column;align-items:stretch;gap:8px}[style="margin:6px 0"]{margin:6px 0}[style="max-height:50vh;overflow:auto;margin-top:10px"]{max-height:50vh;overflow:auto;margin-top:10px}[style="max-height:55vh;overflow:auto;margin-bottom:14px"]{max-height:55vh;overflow:auto;margin-bottom:14px}[style="max-height:60vh;overflow:auto;margin-bottom:14px"]{max-height:60vh;overflow:auto;margin-bottom:14px}[style="max-width:110px"]{max-width:110px}[style="max-width:130px"]{max-width:130px}[style="max-width:200px"]{max-width:200px}[style="max-width:220px"]{max-width:220px}[style="max-width:220px;white-space:pre-wrap"]{max-width:220px;white-space:pre-wrap}[style="max-width:300px"]{max-width:300px}[style="max-width:320px;white-space:pre-wrap"]{max-width:320px;white-space:pre-wrap}[style="max-width:360px"]{max-width:360px}[style="max-width:360px;white-space:pre-wrap"]{max-width:360px;white-space:pre-wrap}[style="min-height:100px"]{min-height:100px}[style="min-height:120px"]{min-height:120px}[style="min-height:140px"]{min-height:140px}[style="min-height:160px"]{min-height:160px}[style="min-height:50px"]{min-height:50px}[style="min-height:60px"]{min-height:60px}[style="min-height:80px"]{min-height:80px}[style="min-width:80px"]{min-width:80px}[style="min-width:90px"]{min-width:90px}[style="padding:4px 0"]{padding:4px 0}[style="padding:4px 0;align-items:flex-start"]{padding:4px 0;align-items:flex-start}[style="padding:5px 0"]{padding:5px 0}[style="padding:8px 0;border-bottom:1px solid var(--line);align-items:flex-start"]{padding:8px 0;border-bottom:1px solid var(--line);align-items:flex-start}[style="white-space:pre-wrap;word-break:break-word"]{white-space:pre-wrap;word-break:break-word}[style="width:min(760px,100%)"]{width:min(760px,100%)}
+</style>
+<script nonce="__CSP_NONCE__">
+const state={page:'Overview',me:null,agents:[],myAgents:[],users:[],chatAgentId:null,chatMode:'general',chatProjectId:null,projects:[],sessions:[],approvals:[],proposals:[],fixes:[],proposalAgentFilter:null,tasks:[],logs:[],memories:[],auditLog:[],settings:null,overview:null,auditTab:'Log',approvalsTab:'Approvals'};
+// Sessions/Tasks/Logs folded into Audit (as tabs); Users folded into
+// Settings (as a section); Approvals/Proposals/Fixes folded into one
+// Approvals page (as tabs, open to regular users too -- item 41); Chat/
+// Messenger/Project folded into one Chat page (as a mode switch -- item
+// 43). Nav is simpler because of it, not because anything was removed.
+const adminPages=['Overview','Agents','Chat','Approvals','Projects','Run','Memories','Audit','SQL','Settings'];
+const userPages=['Chat','Approvals','My Agents'];
+function pagesForRole(){return state.me?.role==='admin'?adminPages:userPages}
+const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(s){const t=$('#toast');t.textContent=s;t.style.display='block';setTimeout(()=>t.style.display='none',2200)}
+// Chat/Messenger threads are fixed-height scroll boxes (see item 65 --
+// max-height + overflow:auto); resetting their content on every render
+// (initial load, own send, and each poll tick) leaves the scroll position
+// wherever it was, which is the top on first render -- so a long thread
+// looked cut off at the newest message instead of showing it. Pin to the
+// bottom after every render instead, same as any chat UI.
+function scrollBottom(id){const el=$(id);if(el)el.scrollTop=el.scrollHeight}
+
+// Theme (item 47) is a plain per-browser preference, kept in
+// localStorage -- nothing server-side to configure, nothing that needs
+// to survive a different browser. I18N below is English-only (item 59
+// dropped a Korean toggle that only ever translated nav labels and a
+// couple dozen short UI words -- everything else on every page stayed
+// hardcoded English regardless, an inconsistent half-translation worse
+// than no toggle at all); it exists as a single named-strings table for
+// nav labels, page chrome, and common actions/empty-states, not because
+// more than one language is selectable.
+const I18N={
+  Overview:'Overview',Agents:'Agents',Chat:'Chat',Approvals:'Approvals',Projects:'Projects',Run:'Run',Memories:'Memories',Audit:'Audit',Settings:'Settings','My Agents':'My Agents',
+  general:'General',messenger:'Messenger',project:'Project',
+  save:'Save',cancel:'Cancel',close:'Close',edit:'Edit',create:'Create',approve:'Approve',reject:'Reject',send:'Send',delete:'Delete',
+  signIn:'Sign in',signOut:'Sign out',username:'Username',password:'Password',
+  theme:'Theme',dark:'Dark',light:'Light',
+  noData:'Nothing here yet.',loading:'Loading…',
+  sessionsTab:'Sessions',tasksTab:'Tasks',logsTab:'Logs',auditTab:'Audit log',
+  approvalsTab:'Approvals',proposalsTab:'Proposals',fixesTab:'Fixes',
+  usersSection:'Users',providersSection:'LLM providers',sandboxSection:'SQL sandbox allowlist',accessSection:'Dashboard access',
+};
+function t(key){return I18N[key]??key}
+
+function theme(){return localStorage.getItem('allgres_theme')||''}
+function setTheme(v){try{v?localStorage.setItem('allgres_theme',v):localStorage.removeItem('allgres_theme')}catch{};document.documentElement.setAttribute('data-theme',v||'dark')}
+setTheme(theme());
+
+// The dashboard token, when one is configured, lives in sessionStorage only.
+// Nothing persists it to disk and it is never placed in the page URL.
+const tok=()=>sessionStorage.getItem('allgres_token')||'';
+function setTok(v){v?sessionStorage.setItem('allgres_token',v):sessionStorage.removeItem('allgres_token')}
+function askToken(){const v=prompt('Dashboard token (ALLGRES_DASHBOARD_TOKEN)');if(v!==null){setTok(v.trim());location.reload()}}
+
+// Self-reported label only -- there is no per-operator account system (see
+// README, "Operator audit log"): anyone holding the one shared dashboard
+// token can type any name here, or leave it blank. It exists so
+// audit_log answers "who claimed responsibility for this," not "who was
+// authenticated to do it."
+const opName=()=>sessionStorage.getItem('allgres_operator')||'';
+function setOpName(v){v?sessionStorage.setItem('allgres_operator',v):sessionStorage.removeItem('allgres_operator')}
+function askOpName(){const v=prompt('Your name, for the audit log (optional -- self-reported, not authentication)',opName());if(v!==null)setOpName(v.trim())}
+
+// A real per-user login (README, "Model configuration and conversations"),
+// layered on top of the dashboard token above rather than replacing it: the
+// token still gates the whole HTTP surface; this identifies *who*, within
+// that, is using it, and scopes the chat/messenger/model-config surface to
+// their role and assigned agents.
+const sessTok=()=>sessionStorage.getItem('allgres_session_token')||'';
+function setSessTok(v){v?sessionStorage.setItem('allgres_session_token',v):sessionStorage.removeItem('allgres_session_token')}
+
+// X-Allgres-Client cannot be set by a cross-site form or <img>, so requiring it
+// forces a preflight that the server never approves.
+async function api(path,opt={}){
+  opt.headers={...(opt.headers||{}),'Content-Type':'application/json','X-Allgres-Client':'dashboard'};
+  if(tok())opt.headers['Authorization']='Bearer '+tok();
+  // A GET route (tasks.list/logs.list) carries no body for session_token to
+  // ride in -- a header instead of a query string, so the token never lands
+  // in a URL (server logs, browser history, Referer). Harmless to also send
+  // on every other api() call; the legacy POST routes already put
+  // session_token in their own JSON body, so the server just ignores this
+  // header there.
+  if(sessTok())opt.headers['X-Allgres-Session']=sessTok();
+  const r=await fetch(path,opt);
+  if(r.status===401){askToken();throw new Error('unauthorized')}
+  const j=await r.json();
+  if(j.ok===false)throw new Error(j.error||'request failed');
+  return j;
+}
+// Generic dashboard_rpc passthrough: every action added since agents/run/
+// tasks/logs/settings (projects.*, approvals.*, sessions.*, permissions.*,
+// allowlist.*, policy.history) reaches allgres.dashboard_rpc through this one
+// route instead of a named one, so a new SQL-side action never needs a Rust
+// or dashboard rebuild to become reachable -- only this file changes.
+const rpc=(action,body={})=>api('/api/v1/rpc',{method:'POST',body:JSON.stringify({action,operator_name:opName(),session_token:sessTok(),...body})});
+
+function nav(){const n=$('#nav');const list=pagesForRole();n.innerHTML=list.map(p=>`<button class="${state.page===p?'active':''}" data-p="${p}">${esc(t(p))}</button>`).join('');n.querySelectorAll('button').forEach(b=>b.onclick=()=>{state.page=b.dataset.p;nav();loadPage()});renderWhoami()}
+function renderWhoami(){const el=$('#whoami');if(!el)return;el.textContent=state.me?`${state.me.username} (${state.me.role})`:'';const lb=$('#logoutBtn');if(lb)lb.textContent=t('signOut')}
+function status(s){return `<span class="status s-${esc(s)}">${esc(s)}</span>`}
+// A provider's is_enabled flag only ever meant "an operator turned this on",
+// never "this endpoint actually answers with the stored credential right
+// now" -- last_probe_status (set by fn_complete_provider_probe, from
+// Settings' own "Test connection" button) is the real signal. 'untested'
+// covers both a provider nobody has probed yet and a fresh install's seeded
+// rows, which start with last_probe_status NULL either way.
+function providerStatusBadge(p){
+  if(!p.is_enabled)return status('disabled');
+  if(p.last_probe_status==='ok')return status('ok');
+  if(p.last_probe_status==='error')return `<span title="${esc(p.last_probe_error||'')}">${status('error')}</span>`;
+  return status('untested');
+}
+// A native <datalist> keeps the Model field free text (a provider's model
+// list is sometimes incomplete -- a fine-tune, a deployment alias -- and an
+// Ollama/openai_compat server may not implement /models the way this
+// expects at all) while still offering real, fetched choices once a
+// provider has been probed at least once. Empty until then, same as before.
+function modelDatalist(id, models){return `<datalist id="${esc(id)}">${(models||[]).map(m=>`<option value="${esc(m)}">`).join('')}</datalist>`}
+function fmtContent(c){return typeof c==='string'?c:JSON.stringify(c)}
+function fmtInterval(sec){sec=Number(sec)||0;if(sec%86400===0&&sec>=86400)return (sec/86400)+'d';if(sec%3600===0&&sec>=3600)return (sec/3600)+'h';if(sec%60===0&&sec>=60)return (sec/60)+'m';return sec+'s'}
+// A chat bubble's assistant turn is the agent's raw step-loop reply --
+// {"action":"final_answer","answer":"..."} is the protocol shape every
+// agent in this system must reply in (see fn_next_step's own prompt), not
+// something a chat UI should show verbatim. Only that one shape unwraps to
+// plain text; anything else (execute_sql, an error, mid-turn actions still
+// worth seeing) falls back to the same raw rendering fmtContent already
+// gives everywhere else (Logs' full transcript included -- deliberately
+// untouched, since that view exists to show exactly this).
+function chatText(l){
+  if(l.role==='assistant'&&typeof l.content==='string'){
+    try{
+      const p=JSON.parse(l.content);
+      if(p&&p.action==='final_answer'&&typeof p.answer==='string')return p.answer;
+    }catch(e){}
+  }
+  return fmtContent(l.content);
+}
+async function loadPage(){
+  // Chat/Messenger poll for an async reply on a setInterval; leaving the
+  // page must stop it, or it keeps firing against DOM elements (#chatThread/
+  // #msgFeed) that no longer exist once another page has rendered.
+  if(chatPollTimer){clearInterval(chatPollTimer);chatPollTimer=null}
+  if(msgPollTimer){clearInterval(msgPollTimer);msgPollTimer=null}
+  if(projectChatPollTimer){clearInterval(projectChatPollTimer);projectChatPollTimer=null}
+  $('#pageTitle').textContent=t(state.page); try{
+  if(state.page==='Overview')await overview();
+  if(state.page==='Agents')await agents();
+  if(state.page==='Projects')await projectsPage();
+  if(state.page==='Run')await runView();
+  if(state.page==='Approvals')await approvalsPage();
+  if(state.page==='Memories')await memoriesPage();
+  if(state.page==='Audit')await auditPage();
+  if(state.page==='SQL')await sqlConsolePage();
+  if(state.page==='Settings')await settings();
+  if(state.page==='Chat')await chatPage();
+  if(state.page==='My Agents')await myAgentsPage();
+}catch(e){toast(e.message)} }
+
+// Cluster monitoring (item 44): PostgreSQL's own version + this database's
+// pg_stat_activity session counts come from dashboard_rpc's overview
+// branch directly; host_stats (OS CPU load, memory) is the one thing SQL
+// cannot see on its own -- native_host_stats reads it from /proc.
+function clusterCard(){
+  const h=state.overview?.host||{};
+  const load=h.load?`${h.load.load1?.toFixed(2)} / ${h.load.load5?.toFixed(2)} / ${h.load.load15?.toFixed(2)}`:'—';
+  const mem=h.memory?`${h.memory.used_mb.toLocaleString()} / ${h.memory.total_mb.toLocaleString()} MB (${h.memory.used_pct.toFixed(0)}%)`:'—';
+  const db=state.overview?.db_sessions||{};
+  return `<div class="panel"><h3>Cluster</h3><div class="row wrap" style="gap:20px"><div><div class="label">PostgreSQL</div><div>${esc(state.overview?.pg_version||'—')}</div></div><div><div class="label">CPUs / load (1m·5m·15m)</div><div>${esc(h.cpu_count??'—')} · ${esc(load)}</div></div><div><div class="label">Memory used / total</div><div>${esc(mem)}</div></div><div><div class="label">DB sessions (active/idle/total)</div><div>${esc(db.active??0)} / ${esc(db.idle??0)} / ${esc(db.total??0)}</div></div></div></div>`;
+}
+// KNOWN_ISSUES.md item 5: `allgres web` deliberately never connects to the
+// database (see runtime_worker.rs's own module doc), so it can never appear
+// in pg_stat_activity -- d.workers (built from that view, sql/grants_and_
+// facade.sql) can therefore only ever list `allgres runtime`, which used to
+// read as though the web worker were down while it was the one serving this
+// very page. Fixed client-side, not by teaching SQL to see a connection that
+// genuinely does not exist: this successful fetch is itself live proof
+// `allgres web` is up right now, so synthesize its row from that instead of
+// from a query that structurally cannot see it.
+function workersWithWeb(reported){
+  const workers=[...(reported||[])];
+  if(!workers.some(w=>w.name==='allgres web'))workers.push({name:'allgres web',self:true});
+  return workers;
+}
+async function overview(){const d=await api('/api/v1/status');state.overview=d;$('#view').innerHTML=`${secretBanner(d.secret_storage)}<div class="hero"><h2>One database. One extension.</h2><p>Agents, state, policy, queue, audit, native I/O and dashboard inside PostgreSQL.</p></div>${clusterCard()}<div class="cards">${[['Agents',d.agents],['Active',d.active_agents],['Running',d.running_tasks],['Outbound',d.queued_outbound],['SQL',d.queued_sql],['Approvals',d.pending_approvals],['Failed',d.failed_tasks]].map(x=>`<div class="card"><div class="metric">${x[1]}</div><div class="label">${x[0]}</div></div>`).join('')}</div><div class="grid2"><div class="panel"><h3>Workers</h3>${workersWithWeb(d.workers).map(w=>`<div class="row"><span class="dot"></span><span>${esc(w.name)}</span><span class="spacer"></span><span class="mono muted">${w.self?'serving this page':'PID '+esc(w.pid)}</span></div>`).join('')||'<div class="muted">No workers reported</div>'}</div><div class="panel"><h3>Recent tasks</h3>${taskRows(d.recent_tasks||[],true)}</div></div>`}
+function secretBanner(mode){if(!mode||mode==='encrypted')return '';const why=mode==='plaintext_no_pgcrypto'?'pgcrypto is not installed':'allgres.secret_key is not set';return `<div class="banner">Provider API keys are stored in plaintext because ${esc(why)}. See README, "Secrets at rest".</div>`}
+function taskRows(a,compact=false){if(!a.length)return '<div class="muted">No tasks yet.</div>';return `<table class="table"><thead><tr><th>Agent</th><th>Status</th><th>Goal</th>${compact?'':'<th>Steps</th><th>Updated</th>'}</tr></thead><tbody>${a.map(t=>`<tr><td>${esc(t.agent)}</td><td>${status(t.status)}</td><td>${esc(t.goal||'')}</td>${compact?'':`<td>${esc(t.step_count)}</td><td class="mono muted">${esc(t.updated_at||'')}</td>`}</tr>`).join('')}</tbody></table>`}
+
+// --- Agents: CRUD, plus permissions and policy history in the edit modal ---
+// is_system/parent_name/autonomy_level (item 32/33): a system agent shows
+// its place in the root+five hierarchy and its autonomy dial right in the
+// list, not just buried in the edit modal.
+async function agents(){const d=await api('/api/v1/agents');state.agents=d.agents||[];$('#view').innerHTML=`<div class="row" style="margin-bottom:22px"><button class="btn primary" id="newAgent">New agent</button><span class="spacer"></span><span class="muted">${state.agents.length} agents</span></div><div class="panel"><table class="table"><thead><tr><th>Name</th><th>Model</th><th>Provider</th><th>Status</th><th>Permissions</th><th>System</th><th></th></tr></thead><tbody>${state.agents.map(a=>`<tr><td><b>${esc(a.name)}</b>${a.parent_name?`<div class="muted" style="font-size:11px">child of ${esc(a.parent_name)}</div>`:''}<div class="mono muted">${esc(a.agent_id).slice(0,12)}…</div></td><td>${esc(a.llm_config?.model||'—')}</td><td>${esc(a.llm_config?.provider||'—')}</td><td>${a.is_active?status('running'):status('disabled')}</td><td>${(a.permissions||[]).length}</td><td>${a.is_system?`<span class="status s-waiting_human">${esc(a.autonomy_level)}</span>`:'—'}</td><td><button class="btn editAgent" data-id="${esc(a.agent_id)}">${esc(t('edit'))}</button></td></tr>`).join('')}</tbody></table></div>`;$('#newAgent').onclick=()=>agentModal();document.querySelectorAll('.editAgent').forEach(b=>b.onclick=()=>agentModal(state.agents.find(a=>a.agent_id===b.dataset.id)))}
+// agent_config (item 49-52): a generic jsonb bag on the agent row for
+// whatever per-agent-kind behavior needs to be admin-tunable without a
+// schema migration per parameter. Known keys get a named, labeled field
+// here (blank = clear the key, restoring the coded default -- same idiom
+// as Max turn seconds above); the raw JSON textarea is the forward-
+// compatible fallback for anything not given a named field yet, and is
+// merged with (overridden by) the named fields on save.
+function agentConfigFields(a,locked){
+  const cfg=a.agent_config||{};
+  const dis=locked?'disabled':'';
+  const named=[];
+  if(a.name==='session_compactor'){
+    named.push(`<div class="grid2"><div class="field"><label>Compaction threshold <span class="muted">(logs before auto-compact, default 60)</span></label><input type="number" class="input" id="acCompactionThreshold" placeholder="60" value="${cfg.compaction_threshold??''}" ${dis}></div><div class="field"><label>Compaction keep recent <span class="muted">(logs left uncompacted, default 10)</span></label><input type="number" class="input" id="acCompactionKeepRecent" placeholder="10" value="${cfg.compaction_keep_recent??''}" ${dis}></div></div>`);
+  }
+  return `${named.join('')}<div class="field"><label>Agent config (raw JSON) <span class="muted">-- advanced, merges into the fields above</span></label><textarea class="textarea mono" id="aConfigRaw" style="min-height:60px" placeholder="{}" ${dis}>${esc(JSON.stringify(cfg,null,2))}</textarea></div>`;
+}
+async function agentModal(a){
+  const isNew=!a;
+  const opts=isNew?null:await rpc('permissions.options').catch(()=>null);
+  const providers=(await api('/api/v1/settings').catch(()=>({providers:[]}))).providers||[];
+  const curProvider=a?.llm_config?.provider||'';
+  // Only providers actually configured (added or edited in Settings) and
+  // enabled show up here -- an agent can no longer be pointed at a
+  // provider name that was just typed and might not exist. If the agent's
+  // stored provider was since disabled or removed, it's kept as an extra
+  // option so the field doesn't silently show something else.
+  const providerOpts=providers.filter(p=>p.is_enabled||p.name===curProvider);
+  const providerSelect=providerOpts.length
+    ?`<select class="select" id="aProvider">${!curProvider?'<option value="">— select —</option>':''}${providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===curProvider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join('')}</select>`
+    :`<select class="select" id="aProvider" disabled><option value="">No provider configured yet -- add one in Settings</option></select>`;
+  const locked=!isNew&&a.is_system;
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${isNew?'Create agent':'Edit agent'}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div>
+${locked?`<div class="banner">System agent -- not editable from the dashboard. Connect directly to the database to change its prompt, config, or permissions. Autonomy level below is the one exception.</div>`:''}
+<div class="field"><label>Name</label><input class="input" id="aName" value="${esc(a?.name||'')}" ${locked?'disabled':''}></div>
+<div class="field"><label>System prompt</label><textarea class="textarea" id="aPrompt" ${locked?'disabled':''}>${esc(a?.system_prompt||'')}</textarea></div>
+<div class="grid2"><div class="field"><label>Provider</label>${providerSelect}</div><div class="field"><label>Model</label><input class="input" id="aModel" value="${esc(a?.llm_config?.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5, llama3" list="aModelOptions" ${locked?'disabled':''}>${modelDatalist('aModelOptions',providerOpts.find(p=>p.name===curProvider)?.available_models||[])}</div></div>
+<div class="muted" style="font-size:12px;margin:-4px 0 8px">The endpoint URL and API key come from the provider chosen above (see Settings); an agent cannot override them. ${!providerOpts.length?'No provider is configured yet, so this agent cannot run until one is added.':''}</div>
+${isNew?'':`<div class="grid2"><div class="field"><label>Max steps</label><input type="number" class="input" id="aSteps" value="${esc(a.max_steps||20)}" ${locked?'disabled':''}></div><div class="field"><label>Max retries</label><input type="number" class="input" id="aRetries" value="${esc(a.max_retries||2)}" ${locked?'disabled':''}></div></div>
+<div class="grid2"><div class="field"><label>Max concurrent tasks</label><input type="number" class="input" id="aConcurrent" value="${esc(a.max_concurrent_tasks||4)}" ${locked?'disabled':''}></div><div class="field"><label>Max turn seconds (blank = uncapped)</label><input type="number" class="input" id="aTurnSecs" value="${a.max_turn_seconds??''}" ${locked?'disabled':''}></div></div>
+<div class="grid2"><div class="field"><label>Max delegation depth</label><input type="number" class="input" id="aDelegDepth" value="${esc(a.max_delegation_depth??5)}" ${locked?'disabled':''}></div><div class="field"><label>Max session tasks</label><input type="number" class="input" id="aSessTasks" value="${esc(a.max_session_tasks??100)}" ${locked?'disabled':''}></div></div>
+<div class="field"><label><input type="checkbox" id="aActive" ${a.is_active?'checked':''} ${locked?'disabled':''}> Active</label></div>
+${a.is_system?`<div class="field"><label>Autonomy level ${a.parent_name?`<span class="muted">(system agent, child of ${esc(a.parent_name)})</span>`:'<span class="muted">(root system agent)</span>'}</label><select class="select" id="aAutonomy"><option value="admin_approval"${a.autonomy_level==='admin_approval'?' selected':''}>admin_approval -- every action queued for an admin</option><option value="self_approve"${a.autonomy_level==='self_approve'?' selected':''}>self_approve -- applies immediately, may still ask when unsure</option><option value="auto"${a.autonomy_level==='auto'?' selected':''}>auto -- always applies immediately</option></select></div>`:''}
+${agentConfigFields(a,locked)}
+<div class="field"><div class="row"><label style="margin:0">Permissions</label><span class="spacer"></span><span class="muted mono" style="font-size:11px">v${esc(a.generation||1)}</span><button class="btn small" id="viewProposals">Proposals</button><button class="btn small" id="viewHistory">History</button><button class="btn small" id="evalHealth">Evaluate last change</button><button class="btn small" id="viewAssigned">Assigned users</button></div>
+<div id="permList">${(a.permissions||[]).map(p=>`<div class="row" style="padding:4px 0"><span class="mono" style="font-size:12px">${esc(p.type)}: ${esc(p.ref)}</span><span class="spacer"></span>${locked?'':`<button class="btn danger small revokeP" data-type="${esc(p.type)}" data-ref="${esc(p.ref)}">Revoke</button>`}</div>`).join('')||'<div class="muted" style="font-size:12px">No permissions granted.</div>'}</div>
+${locked?'':`<div class="row" style="margin-top:8px"><select class="select" id="permType" style="max-width:130px"><option value="view">view</option><option value="function">function</option><option value="agent">agent</option><option value="http_host">http_host</option><option value="procedure">procedure</option></select><input class="input" id="permRef" placeholder="resource ref" list="permRefOptions"><datalist id="permRefOptions"></datalist><button class="btn" id="grantP">Grant</button></div>`}
+</div>`}
+<button class="btn primary" id="saveA">${locked?'Save autonomy level':'Save'}</button></div>`;
+  $('#closeM').onclick=closeModal;
+  if($('#aProvider')&&!$('#aProvider').disabled){
+    $('#aProvider').onchange=()=>{
+      const p=providerOpts.find(x=>x.name===$('#aProvider').value);
+      $('#aModelOptions').innerHTML=(p?.available_models||[]).map(m=>`<option value="${esc(m)}">`).join('')
+    };
+  }
+  if(!isNew&&opts&&!locked){
+    const fillRefOptions=()=>{const t=$('#permType').value;const list=t==='view'?opts.views:t==='agent'?opts.agents:t==='function'?opts.functions:t==='procedure'?opts.procedures:[];$('#permRefOptions').innerHTML=(list||[]).map(v=>`<option value="${esc(v)}">`).join('')};
+    $('#permType').onchange=fillRefOptions; fillRefOptions();
+    $('#grantP').onclick=async()=>{try{await rpc('permissions.grant',{agent_id:a.agent_id,type:$('#permType').value,ref:$('#permRef').value});closeModal();toast('Granted');agents()}catch(e){toast(e.message)}};
+    document.querySelectorAll('.revokeP').forEach(b=>b.onclick=async()=>{try{await rpc('permissions.revoke',{agent_id:a.agent_id,type:b.dataset.type,ref:b.dataset.ref});closeModal();toast('Revoked');agents()}catch(e){toast(e.message)}});
+  }
+  if(!isNew){
+    $('#viewHistory').onclick=async()=>{try{const h=await rpc('policy.history',{agent_id:a.agent_id});historyModal(a.agent_id,h.history||[],a.is_system)}catch(e){toast(e.message)}};
+    $('#evalHealth').onclick=async()=>{try{const r=await rpc('agents.evaluate',{agent_id:a.agent_id});evaluateModal(r)}catch(e){toast(e.message)}};
+    $('#viewProposals').onclick=()=>{state.proposalAgentFilter=a.agent_id;state.page='Approvals';state.approvalsTab='Proposals';closeModal();nav();loadPage()};
+    $('#viewAssigned').onclick=()=>assignedUsersModal(a.agent_id);
+  }
+  $('#saveA').onclick=async()=>{try{if(locked){
+    if($('#aAutonomy'))await rpc('agents.set_autonomy',{agent_id:a.agent_id,autonomy_level:$('#aAutonomy').value});
+    closeModal();toast('Saved');agents();return;
+  }if(isNew){
+    const r=await api('/api/v1/agents',{method:'POST',body:JSON.stringify({name:$('#aName').value,system_prompt:$('#aPrompt').value,operator_name:opName(),session_token:sessTok()})});
+    const prov=$('#aProvider').value,mdl=$('#aModel').value.trim();
+    if(prov||mdl)await api('/api/v1/agents/'+encodeURIComponent(r.agent_id),{method:'PATCH',body:JSON.stringify({llm_config:{provider:prov,model:mdl},session_token:sessTok(),operator_name:opName()})})
+  }else{
+    let agentConfig;
+    try{agentConfig=JSON.parse($('#aConfigRaw').value||'{}')}catch(e){toast('Agent config is not valid JSON');return}
+    if($('#acCompactionThreshold'))agentConfig.compaction_threshold=$('#acCompactionThreshold').value===''?null:+$('#acCompactionThreshold').value;
+    if($('#acCompactionKeepRecent'))agentConfig.compaction_keep_recent=$('#acCompactionKeepRecent').value===''?null:+$('#acCompactionKeepRecent').value;
+    await api('/api/v1/agents/'+encodeURIComponent(a.agent_id),{method:'PATCH',body:JSON.stringify({system_prompt:$('#aPrompt').value,is_active:$('#aActive').checked,max_steps:+$('#aSteps').value,max_retries:+$('#aRetries').value,max_concurrent_tasks:+$('#aConcurrent').value,max_turn_seconds:$('#aTurnSecs').value===''?null:+$('#aTurnSecs').value,max_delegation_depth:+$('#aDelegDepth').value,max_session_tasks:+$('#aSessTasks').value,llm_config:{provider:$('#aProvider').value,model:$('#aModel').value},agent_config:agentConfig,session_token:sessTok(),operator_name:opName()})});if($('#aAutonomy'))await rpc('agents.set_autonomy',{agent_id:a.agent_id,autonomy_level:$('#aAutonomy').value})}closeModal();toast('Saved');agents()}catch(e){toast(e.message)}}
+}
+// Assigned users (item 32's own "admin should be able to grant this from
+// the Agents page too"): the reverse direction of the Users page's own
+// per-user agent checkboxes -- one agent, every user, toggled individually
+// via assignments.toggle rather than replacing a user's whole list.
+function assignedUsersModal(agentId){
+  Promise.all([rpc('users.list'),rpc('assignments.for_agent',{agent_id:agentId})]).then(([ud,ad])=>{
+    const assigned=new Set(ad.user_ids||[]);
+    const users=ud.users||[];
+    $('#modal').classList.remove('hidden');
+    $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Users assigned to this agent</h3><span class="spacer"></span><button class="btn" id="closeM">${esc(t('close'))}</button></div>${users.length?users.map(u=>`<div class="field"><label><input type="checkbox" class="assignUserChk" value="${esc(u.user_id)}" ${assigned.has(u.user_id)?'checked':''}> ${esc(u.username)} (${esc(u.role)})</label></div>`).join(''):'<div class="muted">No users exist yet.</div>'}</div>`;
+    $('#closeM').onclick=closeModal;
+    document.querySelectorAll('.assignUserChk').forEach(c=>c.onchange=async()=>{
+      try{await rpc('assignments.toggle',{user_id:c.value,agent_id:agentId,assigned:c.checked});toast('Saved')}catch(e){toast(e.message);c.checked=!c.checked}
+    });
+  }).catch(e=>toast(e.message));
+}
+function historyModal(agentId,history,isSystem){
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Policy history</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div>${history.length?history.map(h=>`<div class="listrow"><div class="row"><b>v${esc(h.generation)}</b><span class="spacer"></span><span class="mono muted" style="font-size:11px">${esc(h.changed_at)}</span>${isSystem?'':`<button class="btn small rollbackV" data-gen="${esc(h.generation)}">Rollback to this version</button>`}</div><div class="mono" style="font-size:12px;margin-top:4px;white-space:pre-wrap">${esc((h.system_prompt||'').slice(0,220))}${(h.system_prompt||'').length>220?'…':''}</div><div class="muted" style="font-size:11px;margin-top:4px">max_steps ${esc(h.max_steps)} · max_retries ${esc(h.max_retries)} · concurrent ${esc(h.max_concurrent_tasks)} · turn_secs ${h.max_turn_seconds??'∞'} · deleg_depth ${esc(h.max_delegation_depth)} · session_tasks ${esc(h.max_session_tasks)}</div><div class="muted" style="font-size:11px;margin-top:2px">success rate at change: ${h.success_rate_at_change==null?'no evaluable data yet':esc(h.success_rate_at_change)}</div></div>`).join(''):'<div class="muted">No prior versions -- nothing has changed since this agent was created.</div>'}</div>`;
+  $('#closeM').onclick=closeModal;
+  document.querySelectorAll('.rollbackV').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Roll back to v'+b.dataset.gen+'? This restores that version\'s settings as a new version -- it does not delete history.'))return;
+    try{await rpc('policy.rollback',{agent_id:agentId,generation:+b.dataset.gen});closeModal();toast('Rolled back');agents()}catch(e){toast(e.message)}
+  });
+}
+// Roadmap item 7: fn_evaluate_last_change surfaced as a read-only verdict --
+// whether this agent's own recent completed/failed ratio is better, worse,
+// or the same as it was right before its last policy change. No action
+// here rolls anything back automatically; this is purely something for an
+// operator (or a future self_improve turn) to read and decide from.
+function evaluateModal(r){
+  $('#modal').classList.remove('hidden');
+  const colorClass={improved:'txt-accent',regressed:'txt-bad'}[r.verdict]||'muted';
+  $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Evaluate last change</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div>
+<div class="field"><span class="verdict-label ${colorClass}">${esc(r.verdict)}</span></div>
+<div class="muted" style="font-size:12px;line-height:1.6">
+current success rate: ${r.current_success_rate??'no evaluable data yet'} (${r.current_sample_size??0} sample${r.current_sample_size===1?'':'s'})<br>
+success rate before that change: ${r.success_rate_before_last_change??'no evaluable data yet'} (${r.before_sample_size??0} sample${r.before_sample_size===1?'':'s'})<br>
+compared to generation: ${r.compared_to_generation??'—'}<br>
+last changed at: ${r.last_changed_at?esc(r.last_changed_at):'—'}<br>
+${r.verdict==='insufficient_data'?`<span style="color:var(--muted)">needs at least ${r.min_samples_required??5} evaluable tasks on each side to judge a trend</span><br>`:''}
+completion rate only -- not a judge of whether the agent's actual output was correct
+</div></div>`;
+  $('#closeM').onclick=closeModal;
+}
+function closeModal(){$('#modal').classList.add('hidden');$('#modal').innerHTML=''}
+
+// --- Projects ---
+async function projectsPage(){
+  const d=await rpc('projects.list');state.projects=d.projects||[];
+  if(!state.agents.length){const da=await api('/api/v1/agents');state.agents=da.agents||[]}
+  $('#view').innerHTML=`<div class="row" style="margin-bottom:22px"><button class="btn primary" id="newProject">New project</button><span class="spacer"></span><span class="muted">${state.projects.length} projects</span></div><div class="panel"><table class="table"><thead><tr><th>Name</th><th>Description</th><th>Chat agent</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${state.projects.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.description||'—')}</td><td>${p.agent?esc(p.agent):'<span class="muted">not a chat target</span>'}</td><td>${p.is_active?status('open'):status('disabled')}</td><td class="mono muted">${esc(p.created_at)}</td><td><div class="row"><button class="btn small editProject" data-id="${esc(p.project_id)}">${esc(t('edit'))}</button><button class="btn small toggleProject" data-id="${esc(p.project_id)}" data-active="${p.is_active}">${p.is_active?'Disable':'Enable'}</button></div></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No projects yet.</td></tr>'}</tbody></table></div>`;
+  $('#newProject').onclick=()=>projectModal();
+  document.querySelectorAll('.editProject').forEach(b=>b.onclick=()=>projectModal(state.projects.find(p=>p.project_id===b.dataset.id)));
+  document.querySelectorAll('.toggleProject').forEach(b=>b.onclick=async()=>{try{await rpc('projects.update',{project_id:b.dataset.id,is_active:b.dataset.active!=='true'});toast('Saved');projectsPage()}catch(e){toast(e.message)}});
+}
+// agent_id/preset_prompt (item 42): what turns a plain session label into
+// a real Chat "Project" mode target -- see fn_next_step's own use of
+// preset_prompt.
+function projectModal(p){
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${p?'Edit project':'New project'}</h3><span class="spacer"></span><button class="btn" id="closeM">${esc(t('close'))}</button></div><div class="field"><label>Name</label><input class="input" id="pjName" value="${esc(p?.name||'')}" ${p?'disabled':''}></div><div class="field"><label>Description</label><textarea class="textarea" id="pjDesc">${esc(p?.description||'')}</textarea></div><div class="field"><label>Chat agent (optional -- leave blank to keep this a plain session label)</label><select class="select" id="pjAgent"><option value="">— none —</option>${state.agents.map(a=>`<option value="${esc(a.agent_id)}" ${p?.agent_id===a.agent_id?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label>Preset prompt (appended after the agent's own system prompt)</label><textarea class="textarea" id="pjPreset" placeholder="e.g. Focus only on the Seoul region.">${esc(p?.preset_prompt||'')}</textarea></div><button class="btn primary" id="savePj">${p?esc(t('save')):esc(t('create'))}</button></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#savePj').onclick=async()=>{
+    try{
+      if(p){await rpc('projects.update',{project_id:p.project_id,description:$('#pjDesc').value,agent_id:$('#pjAgent').value,preset_prompt:$('#pjPreset').value})}
+      else{await rpc('projects.create',{name:$('#pjName').value,description:$('#pjDesc').value,agent_id:$('#pjAgent').value,preset_prompt:$('#pjPreset').value})}
+      closeModal();toast('Saved');projectsPage()
+    }catch(e){toast(e.message)}
+  };
+}
+
+// --- Run: fire a session, optionally scoped to a project ---
+async function runView(){
+  if(!state.agents.length){const d=await api('/api/v1/agents');state.agents=d.agents||[]}
+  const pd=await rpc('projects.list').catch(()=>({projects:[]}));state.projects=pd.projects||[];
+  $('#view').innerHTML=`<div class="grid2"><div class="panel"><h3>Run agent</h3><div class="field"><label>Agent</label><select class="select" id="runAgent">${state.agents.filter(a=>a.is_active).map(a=>`<option value="${esc(a.agent_id)}">${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label>Project (optional)</label><select class="select" id="runProject"><option value="">— none —</option>${state.projects.filter(p=>p.is_active).map(p=>`<option value="${esc(p.project_id)}">${esc(p.name)}</option>`).join('')}</select></div><div class="field"><label>Goal / prompt</label><textarea class="textarea" id="runGoal" placeholder="Ask the agent to do something…"></textarea></div><button class="btn primary" id="runBtn">Run</button></div><div class="panel"><h3>Live activity</h3><div id="live" class="muted">Waiting for events…</div></div></div>`;
+  $('#runBtn').onclick=async()=>{try{const body={agent_id:$('#runAgent').value,goal:$('#runGoal').value,session_token:sessTok()};if($('#runProject').value)body.project_id=$('#runProject').value;const d=await api('/api/v1/run',{method:'POST',body:JSON.stringify(body)});toast('Task queued: '+d.task_id);$('#runGoal').value=''}catch(e){toast(e.message)}}
+}
+
+// --- Audit: Sessions/Tasks/Logs/the audit trail, as tabs of one page
+// (item 45 -- these used to be four separate nav entries). ---
+async function auditPage(){
+  const tabs=[['Log','auditTab'],['Sessions','sessionsTab'],['Tasks','tasksTab'],['Logs','logsTab']];
+  $('#view').innerHTML=`<div class="row" style="margin-bottom:22px">${tabs.map(([tb,k])=>`<button class="btn small auditTabBtn${state.auditTab===tb?' primary':''}" data-tab="${tb}">${esc(t(k))}</button>`).join('')}</div><div id="auditTabBody"></div>`;
+  document.querySelectorAll('.auditTabBtn').forEach(b=>b.onclick=()=>{state.auditTab=b.dataset.tab;auditPage()});
+  const body=$('#auditTabBody');
+  if(state.auditTab==='Log')await auditLogPage(body);
+  if(state.auditTab==='Sessions')await sessionsPage(body);
+  if(state.auditTab==='Tasks')await tasksTab(body);
+  if(state.auditTab==='Logs')await logsTab(body);
+}
+// --- Sessions: the thread list, and the thread itself (a modal) ---
+async function sessionsPage(target){
+  target=target||$('#view');
+  const d=await rpc('sessions.list',{limit:200});state.sessions=d.sessions||[];
+  target.innerHTML=`<div class="panel"><table class="table"><thead><tr><th>Agent</th><th>Goal</th><th>Status</th><th>Started</th><th></th></tr></thead><tbody>${state.sessions.map(s=>`<tr><td>${esc(s.agent)}</td><td>${esc(s.goal)}</td><td>${status(s.status)}</td><td class="mono muted">${esc(s.started_at)}</td><td><button class="btn small openThread" data-id="${esc(s.session_id)}">Open</button></td></tr>`).join('')||`<tr><td colspan="5" class="muted">${esc(t('noData'))}</td></tr>`}</tbody></table></div>`;
+  target.querySelectorAll('.openThread').forEach(b=>b.onclick=()=>threadModal(b.dataset.id));
+}
+function msgBubble(l){
+  const who=l.role==='user'?'me':l.role==='assistant'?'agent':'op';
+  return `<div class="bubblerow bubblerow-${who}"><div class="bubble bubble-${who}"><div class="bubble-meta">${status(l.role)}<span class="mono" style="font-size:11px;opacity:.7">${esc(l.created_at)}</span></div><div class="bubble-body">${esc(chatText(l))}</div></div></div>`;
+}
+async function threadModal(sessionId){
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML=`<div class="dialog" style="width:min(760px,100%)"><div class="row"><h3>Thread</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div id="threadBody" class="muted">Loading…</div></div>`;
+  $('#closeM').onclick=closeModal;
+  try{
+    const [d,ap]=await Promise.all([rpc('sessions.get',{session_id:sessionId}),rpc('approvals.list',{limit:200})]);
+    const s=d.session,taskIds=(d.tasks||[]).map(t=>t.task_id);
+    const pending=(ap.approvals||[]).find(x=>taskIds.includes(x.task_id));
+    const body=$('#threadBody');body.className='';
+    body.innerHTML=`<div class="row" style="margin-bottom:10px"><b>${esc(s.agent)}</b><span class="spacer"></span>${status(s.status)}${s.status==='open'?`<button class="btn danger small" id="cancelSession">Cancel</button>`:''}</div><div class="muted" style="margin-bottom:10px">${esc(s.goal)}</div>${pending?`<div class="banner"><b>Waiting on you:</b> ${esc(pending.reason||'(no reason given)')}<div class="field" style="margin-top:8px"><textarea class="textarea" id="apReply" placeholder="Reply (optional)…" style="min-height:60px"></textarea></div><div class="row"><button class="btn primary small" id="apAccept">Approve</button><button class="btn danger small" id="apReject">Reject</button></div></div>`:''}<div style="max-height:50vh;overflow:auto;margin-top:10px">${(d.logs||[]).map(msgBubble).join('')||'<div class="muted">No messages yet.</div>'}</div>`;
+    if(s.status==='open')$('#cancelSession').onclick=async()=>{if(!confirm('Cancel this session? Every open task in it will stop.'))return;try{await rpc('sessions.cancel',{session_id:sessionId,reason:'Cancelled from dashboard'});toast('Cancelled');threadModal(sessionId)}catch(e){toast(e.message)}};
+    if(pending){
+      $('#apAccept').onclick=()=>decideApproval(pending.approval_id,true,$('#apReply').value,()=>threadModal(sessionId));
+      $('#apReject').onclick=()=>decideApproval(pending.approval_id,false,$('#apReply').value,()=>threadModal(sessionId));
+    }
+  }catch(e){$('#threadBody').textContent=e.message}
+}
+
+// --- Approvals (item 45): the await_human inbox, an agent's own
+// propose_change/create_agent proposals, and fixer's remediation queue,
+// as three tabs of one page -- open to regular users too (item 41),
+// scoped server-side (visible_agent_ids) to whatever they're assigned. ---
+async function approvalsPage(){
+  const tabs=[['Approvals','approvalsTab'],['Proposals','proposalsTab'],['Fixes','fixesTab']];
+  $('#view').innerHTML=`<div class="row" style="margin-bottom:22px">${tabs.map(([tb,k])=>`<button class="btn small apTabBtn${state.approvalsTab===tb?' primary':''}" data-tab="${tb}">${esc(t(k))}</button>`).join('')}</div><div id="apTabBody"></div>`;
+  document.querySelectorAll('.apTabBtn').forEach(b=>b.onclick=()=>{state.approvalsTab=b.dataset.tab;approvalsPage()});
+  const body=$('#apTabBody');
+  if(state.approvalsTab==='Approvals')await approvalsTab(body);
+  if(state.approvalsTab==='Proposals')await proposalsTab(body);
+  if(state.approvalsTab==='Fixes')await fixesTab(body);
+}
+async function decideApproval(id,accept,reply,after){try{await rpc('approvals.decide',{approval_id:id,accept,reply});toast(accept?'Approved':'Rejected');after()}catch(e){toast(e.message)}}
+async function approvalsTab(target){
+  target=target||$('#view');
+  const d=await rpc('approvals.list',{limit:200});state.approvals=d.approvals||[];
+  target.innerHTML=`<div class="panel">${state.approvals.length?state.approvals.map(a=>`<div class="listrow"><div class="row"><b>${esc(a.agent)}</b><span class="muted"> — ${esc(a.goal)}</span><span class="spacer"></span><span class="mono muted" style="font-size:11px">${esc(a.created_at)}</span></div><div style="margin:6px 0">${esc(a.reason||'(no reason given)')}</div><div class="field"><textarea class="textarea apReply" data-id="${esc(a.approval_id)}" placeholder="Reply (optional)…" style="min-height:50px"></textarea></div><div class="row"><button class="btn primary small apAccept" data-id="${esc(a.approval_id)}">${esc(t('approve'))}</button><button class="btn danger small apReject" data-id="${esc(a.approval_id)}">${esc(t('reject'))}</button><button class="btn small openThread" data-id="${esc(a.session_id)}">Open thread</button></div></div>`).join(''):`<div class="muted">${esc(t('noData'))}</div>`}</div>`;
+  target.querySelectorAll('.apAccept').forEach(b=>b.onclick=()=>decideApproval(b.dataset.id,true,target.querySelector(`.apReply[data-id="${b.dataset.id}"]`)?.value||'',approvalsPage));
+  target.querySelectorAll('.apReject').forEach(b=>b.onclick=()=>decideApproval(b.dataset.id,false,target.querySelector(`.apReply[data-id="${b.dataset.id}"]`)?.value||'',approvalsPage));
+  target.querySelectorAll('.openThread').forEach(b=>b.onclick=()=>threadModal(b.dataset.id));
+}
+
+// --- Proposals: an agent's own propose_change/create_agent actions (see
+// fn_submit_result) awaiting a decision, plus history ---
+async function decideProposal(id,approve,reply,after){try{const r=await rpc('proposals.decide',{proposal_id:id,approve,reply});toast(r.status==='stale'?'Stale -- the policy changed since this was proposed':(approve?'Approved':'Rejected'));after()}catch(e){toast(e.message)}}
+async function proposalsTab(target){
+  target=target||$('#view');
+  const d=await rpc('proposals.list',state.proposalAgentFilter?{agent_id:state.proposalAgentFilter}:{});
+  state.proposals=d.proposals||[];
+  const pending=state.proposals.filter(p=>p.status==='pending'),decided=state.proposals.filter(p=>p.status!=='pending');
+  const changes=c=>`<div class="mono" style="font-size:12px;white-space:pre-wrap">${esc(JSON.stringify(c,null,2))}</div>`;
+  const label=p=>p.kind==='create_agent'?`${esc(p.agent)} → new agent "${esc(p.proposed_changes?.name||'')}"`:(p.target_agent&&p.target_agent!==p.agent?`${esc(p.agent)} → ${esc(p.target_agent)}`:esc(p.agent));
+  target.innerHTML=`${state.proposalAgentFilter?`<div class="row" style="margin-bottom:22px"><span class="muted">Showing proposals for one agent.</span><button class="btn small" id="clearFilter">Show all agents</button></div>`:''}
+<div class="panel"><h3>Pending</h3>${pending.length?pending.map(p=>`<div class="listrow"><div class="row"><b>${label(p)}</b><span class="spacer"></span><span class="mono muted" style="font-size:11px">${esc(p.created_at)}</span></div><div style="margin:6px 0">${esc(p.reason||'(no reason given)')}</div>${changes(p.proposed_changes)}<div class="field"><textarea class="textarea prReply" data-id="${esc(p.proposal_id)}" placeholder="Reply (optional)…" style="min-height:50px"></textarea></div><div class="row"><button class="btn primary small prAccept" data-id="${esc(p.proposal_id)}">${esc(t('approve'))}</button><button class="btn danger small prReject" data-id="${esc(p.proposal_id)}">${esc(t('reject'))}</button></div></div>`).join(''):`<div class="muted">${esc(t('noData'))}</div>`}</div>
+<div class="panel"><h3>Decided</h3>${decided.length?decided.map(p=>`<div class="listrow"><div class="row"><b>${label(p)}</b>${status(p.status)}<span class="spacer"></span><span class="mono muted" style="font-size:11px">${esc(p.decided_at||'')}</span></div>${p.reason?`<div class="muted" style="margin:6px 0">${esc(p.reason)}</div>`:''}${changes(p.proposed_changes)}${p.decided_reply?`<div class="muted" style="font-size:12px;margin-top:6px">Reply: ${esc(p.decided_reply)}</div>`:''}</div>`).join(''):'<div class="muted">No decided proposals yet.</div>'}</div>`;
+  target.querySelectorAll('.prAccept').forEach(b=>b.onclick=()=>decideProposal(b.dataset.id,true,target.querySelector(`.prReply[data-id="${b.dataset.id}"]`)?.value||'',approvalsPage));
+  target.querySelectorAll('.prReject').forEach(b=>b.onclick=()=>decideProposal(b.dataset.id,false,target.querySelector(`.prReply[data-id="${b.dataset.id}"]`)?.value||'',approvalsPage));
+  const cf=target.querySelector('#clearFilter');if(cf)cf.onclick=()=>{state.proposalAgentFilter=null;approvalsPage()};
+}
+
+// --- Fixes: fixer's remediation proposals (revoke a permission, or
+// deactivate an agent) built from what health_monitor's own views show. ---
+async function decideFix(id,approve,reply,after){try{const r=await rpc('fixes.decide',{fix_id:id,approve,reply});toast(approve?'Approved':'Rejected');after()}catch(e){toast(e.message)}}
+async function fixesTab(target){
+  target=target||$('#view');
+  const d=await rpc('fixes.list',{});state.fixes=d.fixes||[];
+  const pending=state.fixes.filter(f=>f.status==='pending'),decided=state.fixes.filter(f=>f.status!=='pending');
+  const detail=f=>`<div class="mono" style="font-size:12px">${esc(f.fix_kind)} → ${esc(f.target_agent)}${f.detail&&Object.keys(f.detail).length?': '+esc(JSON.stringify(f.detail)):''}</div>`;
+  target.innerHTML=`<div class="panel"><h3>Pending</h3>${pending.length?pending.map(f=>`<div class="listrow"><div class="row"><b>${esc(f.agent)}</b><span class="spacer"></span><span class="mono muted" style="font-size:11px">${esc(f.created_at)}</span></div>${detail(f)}<div class="muted" style="margin:6px 0">${esc(f.reason||'(no reason given)')}</div><div class="row"><button class="btn primary small fxAccept" data-id="${esc(f.fix_id)}">${esc(t('approve'))}</button><button class="btn danger small fxReject" data-id="${esc(f.fix_id)}">${esc(t('reject'))}</button></div></div>`).join(''):`<div class="muted">${esc(t('noData'))}</div>`}</div>
+<div class="panel"><h3>Decided</h3>${decided.length?decided.map(f=>`<div class="listrow"><div class="row"><b>${esc(f.agent)}</b>${status(f.status)}<span class="spacer"></span><span class="mono muted" style="font-size:11px">${esc(f.decided_at||'')}</span></div>${detail(f)}</div>`).join(''):'<div class="muted">No decided fixes yet.</div>'}</div>`;
+  target.querySelectorAll('.fxAccept').forEach(b=>b.onclick=()=>decideFix(b.dataset.id,true,'',approvalsPage));
+  target.querySelectorAll('.fxReject').forEach(b=>b.onclick=()=>decideFix(b.dataset.id,false,'',approvalsPage));
+}
+
+// --- Memories: what an agent has written with the `remember` action, plus
+// an operator can seed one directly (fn_remember) -- see README, "Memory". ---
+const memTypes=['semantic','episodic','preference','instruction','relationship','working'];
+async function memoriesPage(){
+  if(!state.agents.length){const d=await api('/api/v1/agents');state.agents=d.agents||[]}
+  const d=await rpc('memories.list',{limit:300});state.memories=d.memories||[];
+  const row=m=>`<tr><td>${esc(m.agent)}</td><td>${status(m.memory_type)}</td><td style="max-width:360px;white-space:pre-wrap">${esc(m.content)}</td><td class="mono">${esc(Number(m.importance).toFixed(2))}</td><td class="mono muted" style="font-size:11px">${esc(m.created_at)}</td><td class="mono muted" style="font-size:11px">${esc(m.expires_at||'never')}</td><td><button class="btn danger small forgetMem" data-id="${esc(m.memory_id)}">Forget</button></td></tr>`;
+  $('#view').innerHTML=`<div class="panel"><h3>Search history</h3><div class="muted" style="font-size:12px;margin-bottom:10px">Search past memories, task failures, and session decisions -- everything an agent has learned, gotten wrong, or concluded -- scoped to the agents you can see. Each result links back to where it came from.</div><div class="row"><input class="input" id="histQuery" placeholder="Search…"><select class="select" id="histAgent" style="max-width:220px"><option value="">All agents</option>${state.agents.map(a=>`<option value="${esc(a.agent_id)}">${esc(a.name)}</option>`).join('')}</select><button class="btn primary" id="histGo">Search</button></div><div id="histResults" style="margin-top:12px"></div></div><div class="panel"><h3>Teach an agent something</h3><div class="grid2"><div><div class="field"><label>Agent</label><select class="select" id="memAgent">${state.agents.map(a=>`<option value="${esc(a.agent_id)}">${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label>Type</label><select class="select" id="memType">${memTypes.map(t=>`<option value="${esc(t)}"${t==='semantic'?' selected':''}>${esc(t)}</option>`).join('')}</select></div><div class="field"><label>Importance (0-1)</label><input class="input" id="memImportance" value="0.5"></div></div><div><div class="field"><label>Content</label><textarea class="textarea" id="memContent" placeholder="Something worth this agent recalling next time…"></textarea></div><div class="field"><label>Subject (optional)</label><input class="input" id="memSubject" placeholder="who or what this is about"></div><div class="field"><label>Expires in days (optional)</label><input class="input" id="memExpires" placeholder="blank = never"></div></div></div><button class="btn primary" id="memSave">Save</button></div><div class="panel"><h3>All memories</h3><table class="table"><thead><tr><th>Agent</th><th>Type</th><th>Content</th><th>Importance</th><th>Created</th><th>Expires</th><th></th></tr></thead><tbody>${state.memories.map(row).join('')||'<tr><td colspan="7" class="muted">No memories yet.</td></tr>'}</tbody></table></div>`;
+  const runHistSearch=async()=>{
+    const query=$('#histQuery').value.trim();
+    if(!query){toast('Type something to search for');return}
+    try{
+      const r=await rpc('history.search',{query,agent_id:$('#histAgent').value,limit:50});
+      const results=r.results||[];
+      $('#histResults').innerHTML=results.map(x=>`<div class="row" style="padding:8px 0;border-bottom:1px solid var(--line);align-items:flex-start"><div style="min-width:80px">${status(x.source)}</div><div style="flex:1;min-width:0"><div class="muted" style="font-size:11px">${esc(x.agent)}${x.kind?' · '+esc(x.kind):''} · ${esc(x.created_at)}</div><div style="white-space:pre-wrap;word-break:break-word">${esc(x.snippet||'')}</div></div>${(state.me?.role==='admin'&&x.session_id)?`<button class="btn small openHistSession" data-id="${esc(x.session_id)}">Open</button>`:''}</div>`).join('')||'<div class="muted">No matches.</div>';
+      document.querySelectorAll('.openHistSession').forEach(b=>b.onclick=()=>threadModal(b.dataset.id));
+    }catch(e){toast(e.message)}
+  };
+  $('#histGo').onclick=runHistSearch;
+  $('#histQuery').onkeydown=e=>{if(e.key==='Enter')runHistSearch()};
+  $('#memSave').onclick=async()=>{try{await rpc('memories.create',{agent_id:$('#memAgent').value,content:$('#memContent').value,memory_type:$('#memType').value,importance:$('#memImportance').value,subject_id:$('#memSubject').value,expires_in_days:$('#memExpires').value});toast('Remembered');memoriesPage()}catch(e){toast(e.message)}};
+  document.querySelectorAll('.forgetMem').forEach(b=>b.onclick=async()=>{try{await rpc('memories.remove',{memory_id:b.dataset.id});toast('Forgotten');memoriesPage()}catch(e){toast(e.message)}});
+}
+
+// --- Audit Log: one row per consequential dashboard action (README,
+// "Operator audit log"). operator_name is self-reported, not
+// authentication -- see the banner on this page. ---
+async function auditLogPage(target){
+  target=target||$('#view');
+  const d=await rpc('audit.list',{limit:300});state.auditLog=d.entries||[];
+  const row=e=>`<tr><td class="mono muted" style="font-size:11px">${esc(e.created_at)}</td><td>${e.username?`<b>${esc(e.username)}</b>`:esc(e.operator_name||'(unlabeled)')}${e.username&&e.operator_name&&e.operator_name!==e.username?`<div class="muted" style="font-size:11px">self-reported: ${esc(e.operator_name)}</div>`:''}</td><td class="mono">${esc(e.action)}</td><td class="mono" style="font-size:12px;white-space:pre-wrap">${esc(JSON.stringify(e.details))}</td></tr>`;
+  target.innerHTML=`<div class="banner">Operator is the real logged-in account (verified via that request's session_token) when one was used for the call -- shown in bold. Otherwise it falls back to operator_name, a plain self-reported label anyone holding the shared dashboard token could type; "(unlabeled)" means neither was present. See README, "Operator audit log".</div><div class="panel"><table class="table"><thead><tr><th>Time</th><th>Operator</th><th>Action</th><th>Details</th></tr></thead><tbody>${state.auditLog.map(row).join('')||`<tr><td colspan="4" class="muted">${esc(t('noData'))}</td></tr>`}</tbody></table></div>`;
+}
+
+async function tasksTab(target){target=target||$('#view');const d=await api('/api/v1/tasks');state.tasks=d.tasks||[];target.innerHTML=`<div class="panel">${taskRows(state.tasks)}</div>`}
+async function logsTab(target){target=target||$('#view');const d=await api('/api/v1/logs');state.logs=d.logs||[];target.innerHTML=`<div class="panel"><table class="table"><thead><tr><th>Time</th><th>Agent</th><th>Role</th><th>Step</th><th>Content</th></tr></thead><tbody>${state.logs.map(l=>`<tr><td class="mono muted">${esc(l.created_at)}</td><td>${esc(l.agent)}</td><td>${status(l.role)}</td><td>${esc(l.step_number)}</td><td class="log mono">${esc(fmtContent(l.content))}</td></tr>`).join('')}</tbody></table></div>`}
+
+// --- Settings: providers, dashboard access, and the SQL sandbox allowlist ---
+async function settings(){
+  const d=await api('/api/v1/settings');state.settings=d;
+  const al=await rpc('allowlist.list').catch(()=>({allowlist:[]}));
+  const conns=await rpc('connections.list').catch(()=>({connections:[]}));
+  state.connections=conns.connections||[];
+  const procs=await rpc('procedures.list').catch(()=>({procedures:[]}));
+  state.procedures=procs.procedures||[];
+  const funcs=await rpc('functions.list').catch(()=>({functions:[]}));
+  state.functions=funcs.functions||[];
+  if(!state.agents.length){const da=await api('/api/v1/agents');state.agents=da.agents||[]}
+  const scheds=await rpc('schedules.list').catch(()=>({schedules:[]}));
+  state.schedules=scheds.schedules||[];
+  const texps=await rpc('function_experiments.list').catch(()=>({experiments:[]}));
+  state.functionExperiments=texps.experiments||[];
+  const selfImprove=state.agents.find(a=>a.name==='self_improve');
+  const mprices=await rpc('model_prices.list').catch(()=>({prices:[]}));
+  state.modelPrices=mprices.prices||[];
+  $('#view').innerHTML=`${secretBanner(d.secret_storage)}<div class="panel"><h3>${esc(t('providersSection'))}</h3><table class="table"><thead><tr><th>Name</th><th>Kind</th><th>Purpose</th><th>Base URL</th><th>Secret</th><th>Private net</th><th>Status</th><th></th></tr></thead><tbody>${(d.providers||[]).map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.kind)}</td><td>${p.purpose==='embedding'?`embedding<div class="muted" style="font-size:11px">${esc(p.embedding_model||'')}</div>`:'chat'}</td><td class="mono">${esc(p.base_url)}</td><td>${p.has_secret?'configured':'—'}</td><td>${p.allow_private_network?'allowed':'blocked'}</td><td>${providerStatusBadge(p)}</td><td><button class="btn editProvider" data-id="${esc(p.provider_id)}">${esc(t('edit'))}</button></td></tr>`).join('')}</tbody></table><div class="row" style="margin-top:12px"><button class="btn primary" id="newProvider">Add provider</button></div></div><div class="panel"><h3>Apply provider/model to every agent</h3><div class="muted" style="font-size:12px;margin-bottom:10px">Sets llm_config.provider/model on every active agent at once (system agents included) -- a one-time write, the same as editing each agent's Provider/Model field by hand; new agents created afterward still start unconfigured, same as always.</div><div class="grid2"><div class="field"><label>Provider</label><select class="select" id="bulkProvider">${(d.providers||[]).filter(p=>p.is_enabled&&p.purpose!=='embedding').map(p=>`<option value="${esc(p.name)}">${esc(p.name)} (${esc(p.kind)})</option>`).join('')||'<option value="">No provider configured yet</option>'}</select></div><div class="field"><label>Model</label><input class="input" id="bulkModel" placeholder="e.g. gpt-4o, claude-sonnet-5, llama3" list="bulkModelOptions">${modelDatalist('bulkModelOptions',[])}</div></div><button class="btn primary" id="bulkApply">Apply to all agents</button></div><div class="panel"><h3>Model prices</h3><div class="muted" style="font-size:12px;margin-bottom:10px">A manual price sheet, one row per provider/model actually priced -- nothing populates this automatically, there is no live pricing API this reads from. Only a priced model's calls get a real <code>cost_usd</code> and count toward a schedule's own budget (see Schedules below); an unpriced model is invisible to cost tracking, never treated as free.</div><table class="table"><thead><tr><th>Provider</th><th>Model</th><th>Input $/1k</th><th>Output $/1k</th><th>Updated</th><th></th></tr></thead><tbody>${state.modelPrices.map(p=>`<tr><td>${esc(p.provider)}</td><td class="mono">${esc(p.model)}</td><td class="mono">${esc(p.input_price_per_1k)}</td><td class="mono">${esc(p.output_price_per_1k)}</td><td class="mono muted" style="font-size:11px">${esc(p.updated_at)}</td><td><button class="btn danger small deleteMPrice" data-provider="${esc(p.provider_id)}" data-model="${esc(p.model)}">Delete</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No prices set yet.</td></tr>'}</tbody></table><div class="row wrap" style="margin-top:12px;gap:8px"><select class="select" id="mpProvider" style="max-width:200px">${(d.providers||[]).filter(p=>p.purpose!=='embedding').map(p=>`<option value="${esc(p.provider_id)}">${esc(p.name)}</option>`).join('')||'<option value="">No provider configured yet</option>'}</select><input class="input" id="mpModel" placeholder="model name, e.g. gpt-4o" style="max-width:200px" list="mpModelOptions">${modelDatalist('mpModelOptions',[])}<input class="input" id="mpInput" placeholder="input $/1k" style="max-width:110px"><input class="input" id="mpOutput" placeholder="output $/1k" style="max-width:110px"><button class="btn" id="mpAdd">Set price</button></div></div><div class="panel"><h3>API connections</h3><div class="muted" style="font-size:12px;margin-bottom:10px">A named external endpoint the <code>http_request</code> function can call with a stored credential -- an agent supplies a relative path, never a full URL, so a connection's secret can only ever reach its own base_url. Grant an agent the <code>function</code> permission <code>http_request</code> (and an <code>http_host</code> permission for the connection's host) before it can use one.</div><table class="table"><thead><tr><th>Name</th><th>Base URL</th><th>Auth</th><th>Secret</th><th>Private net</th><th>Status</th><th></th></tr></thead><tbody>${state.connections.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td class="mono">${esc(c.base_url)}</td><td>${esc(c.auth_kind)}</td><td>${c.has_secret?'configured':'—'}</td><td>${c.allow_private_network?'allowed':'blocked'}</td><td>${c.is_enabled?status('running'):status('disabled')}</td><td><div class="row"><button class="btn small editConn" data-id="${esc(c.connection_id)}">${esc(t('edit'))}</button><button class="btn danger small deleteConn" data-id="${esc(c.connection_id)}">Delete</button></div></td></tr>`).join('')||'<tr><td colspan="7" class="muted">No connections yet.</td></tr>'}</tbody></table><div class="row" style="margin-top:12px"><button class="btn primary" id="newConn">Add connection</button></div></div><div class="panel"><h3>Functions</h3><div class="muted" style="font-size:12px;margin-bottom:10px">The callable half of a Procedure (see docs/procedures.md): a fixed <code>http_get</code> URL, a real role-scoped PL/pgSQL <code>plpgsql</code> body, or one remote <code>mcp_call</code> tool on an API connection above. Bind one to a Procedure so a granted agent sees it alongside that Procedure's content.</div><table class="table"><thead><tr><th>Name</th><th>Handler</th><th>Build</th><th>Bound to</th><th>Status</th><th></th></tr></thead><tbody>${state.functions.map(f=>`<tr><td><b>${esc(f.name)}</b><div class="muted" style="font-size:11px">${esc(f.description)}</div></td><td class="mono">${esc(f.handler)}</td><td>${f.handler==='plpgsql'?(f.build_status==='built'?status('running'):f.build_status==='failed'?status('failed'):status('waiting_human')):'—'}</td><td style="font-size:12px">${(f.procedures||[]).join(', ')||'—'}</td><td>${f.is_active?status('running'):status('disabled')}</td><td><button class="btn small editFunc" data-id="${esc(f.function_id)}">${esc(t('edit'))}</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No functions yet.</td></tr>'}</tbody></table><div class="row" style="margin-top:12px"><button class="btn primary" id="newFunc">Add function</button></div></div><div class="panel"><h3>Procedures</h3><div class="muted" style="font-size:12px;margin-bottom:10px">A named, versioned, reusable "how to do X" an agent can be granted (permission type <code>procedure</code>) -- its current content is shown in every granted agent's prompt on every turn, alongside its own memory. Editing one keeps its full history; Rollback creates a new version rather than rewriting an old one. A <code>body</code> (below) makes it real, runnable code a granted agent can trigger with <code>run_procedure</code> instead of only reading <code>content</code> as guidance.</div><table class="table"><thead><tr><th>Name</th><th>Content</th><th>Body</th><th>Version</th><th>Status</th><th></th></tr></thead><tbody>${state.procedures.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td style="max-width:320px;white-space:pre-wrap">${esc(p.content)}</td><td>${p.body?(p.build_status==='built'?status('running'):p.build_status==='failed'?status('failed'):status('waiting_human')):'<span class="muted">none</span>'}</td><td class="mono">v${esc(p.generation)}</td><td>${p.is_active?status('running'):status('disabled')}</td><td><button class="btn small editProc" data-id="${esc(p.procedure_id)}">${esc(t('edit'))}</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No procedures yet.</td></tr>'}</tbody></table><div class="row" style="margin-top:12px"><button class="btn primary" id="newProc">Add procedure</button></div></div><div class="panel"><h3>Function model experiments</h3><div class="muted" style="font-size:12px;margin-bottom:10px">Canary experiments self_improve runs to find a cheaper model for one function (see <code>functions.llm_override</code> and <code>model_experiments</code>). Success rate is a format-validity signal -- did the reply parse into a valid action -- not a judgment of whether the answer was actually correct.</div><table class="table"><thead><tr><th>Function</th><th>Candidate</th><th>Canary</th><th>Status</th><th>Sample</th><th>Success rate</th><th>Baseline</th><th>Created</th></tr></thead><tbody>${state.functionExperiments.map(x=>`<tr><td><b>${esc(x.function_name)}</b></td><td class="mono">${esc(x.candidate_provider)} / ${esc(x.candidate_model)}</td><td class="mono">${esc(x.canary_percent)}%</td><td>${status(x.status)}</td><td class="mono">${esc(x.success_count??0)} / ${esc(x.sample_size??0)}<div class="muted" style="font-size:11px">min ${esc(x.min_sample_size)}</div></td><td class="mono">${x.candidate_success_rate??'—'}</td><td class="mono">${x.baseline_success_rate??'—'}</td><td class="mono muted" style="font-size:11px">${esc(x.created_at)}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">No experiments yet.</td></tr>'}</tbody></table>${selfImprove?`<div class="row wrap" style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px;align-items:flex-end"><div><div class="label">self_improve function_override dials</div><div class="mono" style="font-size:12px">self_approve cap ${esc(selfImprove.agent_config?.function_override_self_approve_canary_cap??20)}% · auto promote slack ${esc(selfImprove.agent_config?.function_override_auto_promote_slack_pct??0)}pp</div></div><span class="spacer"></span><div class="field" style="margin:0;min-width:220px"><label>Apply a preset</label><select class="select" id="teePreset"><option value="conservative">conservative (cap 10%, slack 0)</option><option value="balanced">balanced (cap 20%, slack 0)</option><option value="aggressive">aggressive (cap 50%, slack 5)</option></select></div><button class="btn primary" id="teApplyPreset">Apply</button></div><div class="muted" style="font-size:11px;margin-top:6px">Governs how much of self_improve's own <code>function_override</code> proposing/deciding happens automatically vs. queued for an admin, at each <code>autonomy_level</code> tier -- edit self_improve in Agents for autonomy_level itself, or call <code>fn_set_agent_config</code> directly for a value between presets.</div>`:'<div class="muted" style="font-size:12px;margin-top:10px">No self_improve agent found.</div>'}</div><div class="panel"><h3>Schedules</h3><div class="muted" style="font-size:12px;margin-bottom:10px">Runs an agent against a goal on a recurring interval -- each firing starts a brand-new session (visible in Audit -&gt; Sessions), the same as sending it a message by hand. A schedule's run count/last run/last session <em>is</em> the durable record of a long-running goal, not a separate thing to track elsewhere. Firing is polled from PostgreSQL (no external cron); Run now fires immediately regardless of the interval.</div><table class="table"><thead><tr><th>Name</th><th>Agent</th><th>Goal</th><th>Every</th><th>Runs</th><th>Cost</th><th>Next / last</th><th>Status</th><th></th></tr></thead><tbody>${state.schedules.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.agent)}</td><td style="max-width:220px;white-space:pre-wrap">${esc(s.goal)}</td><td class="mono">${esc(fmtInterval(s.interval_seconds))}</td><td class="mono">${esc(s.run_count)}${s.max_runs?' / '+esc(s.max_runs):''}</td><td class="mono">$${Number(s.spent_cost_usd||0).toFixed(3)}${s.max_cost_usd?' / $'+Number(s.max_cost_usd).toFixed(2):''}</td><td class="mono muted" style="font-size:11px">${s.is_active?'next '+esc(s.next_run_at):(s.last_run_at?'last '+esc(s.last_run_at):'never run')}</td><td>${s.is_active?status('running'):status('disabled')}</td><td><div class="row"><button class="btn small runSchedNow" data-id="${esc(s.schedule_id)}">Run now</button><button class="btn small editSched" data-id="${esc(s.schedule_id)}">${esc(t('edit'))}</button></div></td></tr>`).join('')||'<tr><td colspan="9" class="muted">No schedules yet.</td></tr>'}</tbody></table><div class="row" style="margin-top:12px"><button class="btn primary" id="newSched">Add schedule</button></div></div><div class="panel"><h3>${esc(t('sandboxSection'))}</h3><div class="muted" style="font-size:12px;margin-bottom:10px">Views an agent's <code>execute_sql</code> action may read from, in addition to that agent holding a matching view permission -- both are required. See README, "The SQL sandbox".</div><div id="allowList">${(al.allowlist||[]).map(r=>`<div class="row" style="padding:4px 0"><span class="mono" style="font-size:12px">${esc(r)}</span><span class="spacer"></span><button class="btn danger small removeAllow" data-ref="${esc(r)}">Remove</button></div>`).join('')||'<div class="muted" style="font-size:12px">Empty.</div>'}</div><div class="row" style="margin-top:10px"><input class="input" id="allowRef" placeholder="allgres_public.v_name"><button class="btn" id="addAllow">Add</button></div></div><div class="panel"><h3>${esc(t('accessSection'))}</h3><div class="muted" style="font-size:13px;margin-bottom:10px">${tok()?'A token is set for this browser tab.':'No token set for this browser tab. If the server requires one, requests will return 401.'}</div><div class="row"><button class="btn" id="setTok">Set token</button><button class="btn" id="clrTok">Clear token</button><span class="spacer"></span><button class="btn" id="runSelftest">Run selftest</button></div><div id="selftestOut" class="mono muted" style="margin-top:12px"></div><div class="muted" style="font-size:13px;margin:16px 0 10px;border-top:1px solid var(--line);padding-top:14px">${opName()?`Audit log entries you make will be labeled "${esc(opName())}".`:'No name set -- audit log entries will show as unlabeled. This is self-reported, not authentication: anyone with the token can type any name.'}</div><div class="row"><button class="btn" id="setOpName">${opName()?'Change my name':'Set my name'}</button></div></div><div class="panel"><h3>${esc(t('theme'))}</h3><div class="row wrap"><span class="muted" style="min-width:90px">${esc(t('theme'))}</span><button class="btn small themeBtn${(theme()||'dark')==='dark'?' primary':''}" data-theme="dark">${esc(t('dark'))}</button><button class="btn small themeBtn${theme()==='light'?' primary':''}" data-theme="light">${esc(t('light'))}</button></div></div><div class="panel"><h3>${esc(t('usersSection'))}</h3><div id="usersSection"></div></div>`;
+  document.querySelectorAll('.editProvider').forEach(b=>b.onclick=()=>providerModal(d.providers.find(p=>p.provider_id===b.dataset.id)));
+  $('#newProvider').onclick=newProviderModal;
+  // Refreshes each Model field's datalist from the currently-selected
+  // provider's available_models (fn_complete_provider_probe writes that
+  // once "Test connection" has succeeded at least once) -- empty, meaning
+  // pure free text same as before, until a provider has been probed.
+  const syncBulkModelOptions=()=>{const p=d.providers.find(x=>x.name===$('#bulkProvider').value);$('#bulkModelOptions').innerHTML=(p?.available_models||[]).map(m=>`<option value="${esc(m)}">`).join('')};
+  if($('#bulkProvider')){$('#bulkProvider').onchange=syncBulkModelOptions;syncBulkModelOptions()}
+  const syncMpModelOptions=()=>{const p=d.providers.find(x=>x.provider_id===$('#mpProvider').value);$('#mpModelOptions').innerHTML=(p?.available_models||[]).map(m=>`<option value="${esc(m)}">`).join('')};
+  if($('#mpProvider')){$('#mpProvider').onchange=syncMpModelOptions;syncMpModelOptions()}
+  $('#bulkApply').onclick=async()=>{
+    const provider=$('#bulkProvider').value,model=$('#bulkModel').value.trim();
+    if(!provider||!model){toast('Pick a provider and enter a model first');return}
+    if(!confirm(`Set every active agent's provider/model to ${provider} / ${model}? This overwrites each agent's current Provider/Model.`))return;
+    try{const r=await rpc('agents.bulk_set_model',{provider,model});toast(`Updated ${r.updated_count} agent(s)`)}catch(e){toast(e.message)}
+  };
+  document.querySelectorAll('.editConn').forEach(b=>b.onclick=()=>connectionModal(state.connections.find(c=>c.connection_id===b.dataset.id)));
+  $('#newConn').onclick=newConnectionModal;
+  document.querySelectorAll('.deleteConn').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this connection?'))return;try{await rpc('connections.delete',{connection_id:b.dataset.id});toast('Deleted');settings()}catch(e){toast(e.message)}});
+  document.querySelectorAll('.editProc').forEach(b=>b.onclick=()=>procedureModal(state.procedures.find(p=>p.procedure_id===b.dataset.id)));
+  $('#newProc').onclick=newProcedureModal;
+  document.querySelectorAll('.editFunc').forEach(b=>b.onclick=()=>functionModal(state.functions.find(f=>f.function_id===b.dataset.id)));
+  $('#newFunc').onclick=newFunctionModal;
+  if($('#teApplyPreset'))$('#teApplyPreset').onclick=async()=>{try{await rpc('agents.set_function_override_autonomy_preset',{agent_id:selfImprove.agent_id,preset:$('#teePreset').value});toast('Preset applied');settings()}catch(e){toast(e.message)}};
+  document.querySelectorAll('.deleteMPrice').forEach(b=>b.onclick=async()=>{if(!confirm('Delete this price?'))return;try{await rpc('model_prices.delete',{provider_id:b.dataset.provider,model:b.dataset.model});toast('Deleted');settings()}catch(e){toast(e.message)}});
+  $('#mpAdd').onclick=async()=>{
+    try{
+      const provider_id=$('#mpProvider').value,model=$('#mpModel').value.trim();
+      if(!provider_id||!model){toast('Pick a provider and enter a model first');return}
+      await rpc('model_prices.set',{provider_id,model,input_price_per_1k:$('#mpInput').value,output_price_per_1k:$('#mpOutput').value});
+      toast('Price set');settings()
+    }catch(e){toast(e.message)}
+  };
+  document.querySelectorAll('.editSched').forEach(b=>b.onclick=()=>scheduleModal(state.schedules.find(s=>s.schedule_id===b.dataset.id)));
+  $('#newSched').onclick=newScheduleModal;
+  document.querySelectorAll('.runSchedNow').forEach(b=>b.onclick=async()=>{try{await rpc('schedules.run_now',{schedule_id:b.dataset.id});toast('Fired');settings()}catch(e){toast(e.message)}});
+  document.querySelectorAll('.removeAllow').forEach(b=>b.onclick=async()=>{try{await rpc('allowlist.remove',{ref:b.dataset.ref});toast('Removed');settings()}catch(e){toast(e.message)}});
+  $('#addAllow').onclick=async()=>{try{await rpc('allowlist.add',{ref:$('#allowRef').value});toast('Added');settings()}catch(e){toast(e.message)}};
+  $('#setTok').onclick=askToken;$('#clrTok').onclick=()=>{setTok('');location.reload()};
+  $('#setOpName').onclick=()=>{askOpName();settings()};
+  $('#runSelftest').onclick=async()=>{try{$('#selftestOut').textContent='running…';const r=await api('/api/v1/selftest',{method:'POST'});$('#selftestOut').textContent=`passed ${r.passed}, failed ${r.failed}`+(r.failed?': '+(r.cases||[]).filter(c=>!c.ok).map(c=>c.name).join(', '):'')}catch(e){$('#selftestOut').textContent=e.message}}
+  document.querySelectorAll('.themeBtn').forEach(b=>b.onclick=()=>{setTheme(b.dataset.theme);settings()});
+  await usersPage($('#usersSection'));
+}
+
+// The admin SQL console (dashboard_rpc action sql.execute, allgres_public.
+// fn_admin_execute_sql's own comment covers what it runs as and why) --
+// no query history/tabs/multi-statement support, on purpose: this exists
+// so an admin never has to open a separate client for one query, not to
+// replace one. Ctrl/Cmd+Enter runs the query, the same shortcut every
+// real SQL client uses.
+async function sqlConsolePage(){
+  $('#view').innerHTML=`<div class="panel"><h3>SQL console</h3><div class="muted" style="font-size:12px;margin-bottom:10px">Runs as <code>allgres_owner</code> -- the role that owns essentially all of allgres's own schemas and functions, not a read-only sandbox. One statement per run (Ctrl/Cmd+Enter). Every query reaches the audit log before it runs, whether it succeeds or not.</div><textarea class="textarea mono" id="sqlInput" placeholder="SELECT * FROM allgres_public.v_agent_health" style="min-height:140px"></textarea><div class="row" style="margin-top:12px"><button class="btn primary" id="sqlRun">Run</button><span class="spacer"></span><span class="muted mono" id="sqlMeta" style="font-size:12px"></span></div></div><div id="sqlResultPanel"></div>`;
+  const run=async()=>{
+    const sql=$('#sqlInput').value.trim();
+    if(!sql)return;
+    $('#sqlRun').disabled=true;$('#sqlMeta').textContent='running…';
+    const t0=performance.now();
+    try{
+      const r=await rpc('sql.execute',{sql});
+      $('#sqlMeta').textContent=`${(performance.now()-t0).toFixed(0)} ms`;
+      renderSqlResult(r);
+    }catch(e){
+      $('#sqlMeta').textContent='';
+      renderSqlResult(null,e.message);
+    }finally{
+      $('#sqlRun').disabled=false;
+    }
+  };
+  $('#sqlRun').onclick=run;
+  $('#sqlInput').onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();run()}};
+}
+function renderSqlResult(r,errMsg){
+  const panel=$('#sqlResultPanel');
+  if(errMsg){panel.innerHTML=`<div class="banner">${esc(errMsg)}</div>`;return}
+  // fn_admin_execute_sql's own shape for a statement with no output rows
+  // (DDL, or DML with no RETURNING) -- a count, not a real row set.
+  if('rows_affected' in r){
+    panel.innerHTML=`<div class="panel">ok -- ${esc(r.rows_affected)} row(s) affected.</div>`;return;
+  }
+  const cols=r.cols||[],rows=r.rows||[];
+  if(!rows.length){panel.innerHTML=`<div class="panel muted">No rows.</div>`;return}
+  // cols/rows, not one keyed object per row: jsonb sorts object keys as
+  // part of its own storage, so a keyed shape came back alphabetized
+  // instead of in SELECT order (confirmed live) -- see
+  // fn_admin_execute_sql's own comment for why this positional shape is
+  // what actually survives being embedded in dashboard_rpc's own jsonb
+  // response.
+  panel.innerHTML=`<div class="panel"><div class="muted" style="font-size:12px;margin-bottom:10px">${esc(rows.length)} row(s)</div><table class="table"><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(v=>`<td class="mono">${esc(fmtSqlCell(v))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function fmtSqlCell(v){
+  if(v===null||v===undefined)return '—';
+  if(typeof v==='object')return JSON.stringify(v);
+  return String(v);
+}
+function providerModal(p){
+  const isOauth=p.kind==='oauth';
+  // xai_oauth is seeded with oauth_flow='device_code' (RFC 8628); every other
+  // oauth provider uses the ordinary authorization-code redirect below.
+  // fn_oauth_start itself rejects a device_code provider outright ("provider
+  // uses device-code oauth"), so this branch is not optional polish -- without
+  // it, clicking Connect on a device-code provider always fails.
+  const isDeviceFlow=isOauth&&p.oauth_flow==='device_code';
+  const isEmbedding=p.purpose==='embedding';
+  const oauthFields=isOauth?`<div class="field"><label>Authorization URL</label><input class="input" id="pAuthUrl" value="${esc(p.oauth_auth_url||'')}" ${isDeviceFlow?'disabled':''}></div><div class="field"><label>Token URL</label><input class="input" id="pTokenUrl" value="${esc(p.oauth_token_url||'')}"></div><div class="field"><label>Client ID</label><input class="input" id="pClientId" value="${esc(p.oauth_client_id||'')}"></div><div class="field"><label>Client secret (leave blank to keep existing)</label><input type="password" class="input" id="pClientSecret" autocomplete="new-password"></div>`:'';
+  // Authorization-code providers redirect back to whatever URL is registered
+  // with the provider's own OAuth app -- that has to be this dashboard's own
+  // URL exactly, and there was previously no way to see that value without
+  // reading the source. Device-code providers never redirect anywhere, so no
+  // URI to register exists for them.
+  const redirectUri=location.origin+location.pathname;
+  const connectRow=isOauth?(isDeviceFlow
+    ?`<div class="row" style="margin:14px 0;flex-direction:column;align-items:stretch;gap:8px"><div class="row"><button class="btn" id="connectOauth">Connect via OAuth</button><span class="spacer"></span><span class="muted" style="font-size:12px">${p.has_secret?'A token is stored for this provider.':'Not connected yet.'}</span></div><div class="muted" style="font-size:12px">Device login: click Connect, then open the link that appears on any device (this one or your phone) and enter the code shown. This tab keeps checking automatically -- no redirect happens.</div><div id="deviceFlowOut" class="mono" style="font-size:13px"></div></div>`
+    :`<div class="row" style="margin:14px 0"><button class="btn" id="connectOauth">Connect via OAuth</button><span class="spacer"></span><span class="muted" style="font-size:12px">${p.has_secret?'A token is stored for this provider.':'Not connected yet.'}</span></div><div class="muted" style="font-size:12px">Register this exact redirect URI with the provider's OAuth app before connecting: <span class="mono">${esc(redirectUri)}</span></div>`
+  ):'';
+  const embedField=isEmbedding?`<div class="field"><label>Embedding model</label><input class="input" id="pEmbedModel" value="${esc(p.embedding_model||'')}"></div>`:'';
+  const jsonModeField=isOauth?'':`<div class="field"><label><input type="checkbox" id="pJsonMode" ${p.response_format_json_object!==false?'checked':''}> Send OpenAI response_format</label><div class="muted" style="font-size:12px">Most servers accept it and it improves reply quality. Uncheck for a local server that rejects it outright (confirmed live against LM Studio: HTTP 400, "response_format.type must be 'json_schema' or 'text'"); already off for the seeded Ollama provider.</div></div>`;
+  // GET {base_url}/models, queued by fn_provider_probe_start and run by the
+  // same runtime worker HTTP pool as everything else here -- confirms the
+  // stored credential actually works (Status column on the list, above)
+  // and fills available_models, which every Model field's datalist reads
+  // from. Available for every provider, not just oauth -- an API-key
+  // provider needs this exactly as much (a typo'd key still "saves" fine).
+  const probeLine=p.last_probe_status==='ok'
+    ?`Last check: connected${p.last_probe_at?` (${esc(p.last_probe_at)})`:''}${(p.available_models||[]).length?`, ${p.available_models.length} model(s) found`:''}.`
+    :p.last_probe_status==='error'
+    ?`Last check failed: ${esc(p.last_probe_error||'unknown error')}`
+    :'Not tested yet.';
+  const probeRow=`<div class="row" style="margin:14px 0"><button class="btn" id="testConn">Test connection</button><span class="spacer"></span><span id="probeOut" class="muted" style="font-size:12px">${probeLine}</span></div>`;
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${esc(p.name)}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Purpose</label><div class="muted" style="font-size:12px">${isEmbedding?'embedding -- powers search_agents only':'chat -- serves an agent\'s own turns'} (set at creation, cannot be changed here)</div></div>${embedField}<div class="field"><label>Base URL</label><input class="input" id="pUrl" value="${esc(p.base_url)}"></div>${isOauth?'':'<div class="field"><label>API key (leave blank to keep existing)</label><input type="password" class="input" id="pKey" autocomplete="new-password"></div>'}${oauthFields}<div class="field"><label><input type="checkbox" id="pEnabled" ${p.is_enabled?'checked':''}> Enabled</label></div><div class="field"><label><input type="checkbox" id="pPrivate" ${p.allow_private_network?'checked':''}> Allow loopback / private-network endpoint</label><div class="muted" style="font-size:12px">Needed for a local Ollama or an in-cluster gateway. Leaving this off is what stops this endpoint from being pointed at an internal address.</div></div>${jsonModeField}${probeRow}${connectRow}<button class="btn primary" id="saveP">Save</button></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#testConn').onclick=async()=>{
+    const out=$('#probeOut');
+    out.textContent='Checking…';
+    try{
+      const start=await rpc('providers.probe_start',{provider_id:p.provider_id});
+      const callId=start.call_id;
+      const poll=async()=>{
+        let s;
+        try{s=await rpc('providers.probe_status',{call_id:callId})}
+        catch(e){out.textContent=e.message;return}
+        if(s.status==='queued'||s.status==='in_flight'){setTimeout(poll,1500);return}
+        if(s.status==='lost'){out.textContent='Timed out -- try again.';return}
+        out.textContent=s.last_probe_status==='ok'
+          ?`Connected.${(s.available_models||[]).length?` ${s.available_models.length} model(s) found.`:''}`
+          :`Failed: ${s.last_probe_error||'unknown error'}`;
+      };
+      poll();
+    }catch(e){out.textContent=e.message}
+  };
+  $('#saveP').onclick=async()=>{try{const body={provider_id:p.provider_id,base_url:$('#pUrl').value,is_enabled:$('#pEnabled').checked,allow_private_network:$('#pPrivate').checked,operator_name:opName(),session_token:sessTok()};if(!isOauth)body.response_format_json_object=$('#pJsonMode').checked;if(isOauth){body.oauth_auth_url=$('#pAuthUrl').value;body.oauth_token_url=$('#pTokenUrl').value;body.oauth_client_id=$('#pClientId').value;body.oauth_client_secret=$('#pClientSecret').value}else{body.api_key=$('#pKey').value}if(isEmbedding)body.embedding_model=$('#pEmbedModel').value;await api('/api/v1/settings/provider',{method:'POST',body:JSON.stringify(body)});closeModal();toast('Provider saved');settings()}catch(e){toast(e.message)}};
+  if(isDeviceFlow){
+    // Device-code flow (RFC 8628): oauth_device_start only queues the
+    // provider's own device-authorization request -- the runtime worker's
+    // HTTP pool performs it and fn_complete_oauth fills in user_code/
+    // verification_uri, so the first oauth_device_status call or two can
+    // still show 'starting' before those fields exist. Poll every 2-3s
+    // (well under the provider's own minimum interval) until the session
+    // reaches a terminal or user-actionable state.
+    $('#connectOauth').onclick=async()=>{
+      const out=$('#deviceFlowOut');
+      out.textContent='Starting…';
+      try{
+        const start=await rpc('providers.oauth_device_start',{provider_id:p.provider_id});
+        const sessionId=start.session_id;
+        const poll=async()=>{
+          let s;
+          try{s=await rpc('providers.oauth_device_status',{session_id:sessionId})}
+          catch(e){out.textContent=e.message;return}
+          if(s.status==='awaiting_user'){
+            const link=s.verification_uri_complete||s.verification_uri;
+            out.innerHTML=`Open <a href="${esc(link)}" target="_blank" rel="noopener">${esc(s.verification_uri)}</a> and enter code <b>${esc(s.user_code)}</b>`;
+            setTimeout(poll,3000);
+          }else if(s.status==='connected'){
+            out.textContent='Connected.';toast('Provider connected');settings();
+          }else if(s.status==='denied'||s.status==='expired'||s.status==='error'){
+            out.textContent='Failed: '+(s.error||s.status);
+          }else{
+            setTimeout(poll,2000);
+          }
+        };
+        poll();
+      }catch(e){out.textContent=e.message}
+    };
+  }else if(isOauth){
+    // Full-page redirect to the provider's own login page, same as any other
+    // OAuth "Connect" button -- the provider redirects back to this same
+    // dashboard URL with ?code=&state=, which the boot-time handler below
+    // (oauthCallbackOnLoad) picks up and completes via providers.oauth_callback.
+    $('#connectOauth').onclick=async()=>{try{const redirect=location.origin+location.pathname;const r=await rpc('providers.oauth_start',{provider_id:p.provider_id,redirect});if(r.redirect_url)location.href=r.redirect_url}catch(e){toast(e.message)}};
+  }
+}
+// Adds a brand new provider row -- until fn_create_provider existed, the
+// only providers that could ever exist were the fixed seeded list (xai,
+// openai, anthropic, ollama, openai_compat); an operator who wanted to
+// point at anything else had no way to add it.
+function newProviderModal(){
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Add provider</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Name</label><input class="input" id="npName" placeholder="e.g. my-openai-compat-endpoint"></div><div class="field"><label>Kind</label><select class="input" id="npKind"><option value="openai_compat">openai_compat</option><option value="anthropic">anthropic</option><option value="oauth">oauth</option></select></div><div class="field"><label>Purpose <span class="muted">-- embedding powers semantic delegate search (agents.embedding) and needs kind=openai_compat, e.g. OpenAI or a local server's /embeddings endpoint</span></label><select class="input" id="npPurpose"><option value="chat">chat -- serves an agent's own turns</option><option value="embedding">embedding -- powers search_agents only</option></select></div><div class="field" id="npEmbedModelField" hidden><label>Embedding model</label><input class="input" id="npEmbedModel" placeholder="e.g. text-embedding-3-small"></div><div class="field"><label>Base URL</label><input class="input" id="npUrl" placeholder="https://..."></div><div class="field"><label>API key (optional here for a non-OAuth provider; can also be set later)</label><input type="password" class="input" id="npKey" autocomplete="new-password"></div><div class="field"><label><input type="checkbox" id="npPrivate"> Allow loopback / private-network endpoint</label><div class="muted" style="font-size:12px">Needed for a local Ollama or an in-cluster gateway. Leaving this off is what stops this endpoint from being pointed at an internal address.</div></div><div class="field"><label><input type="checkbox" id="npJsonMode" checked> Send OpenAI response_format</label><div class="muted" style="font-size:12px">Most servers accept it and it improves reply quality. A server that rejects it outright (confirmed live against LM Studio) is now detected automatically on the first failed call and this turns itself off -- manual only for setting it up front, or turning it back on.</div></div><button class="btn primary" id="saveNewP">Add provider</button></div>`;
+  $('#closeM').onclick=closeModal;
+  const syncPurpose=()=>{$('#npEmbedModelField').hidden=$('#npPurpose').value!=='embedding'};
+  $('#npPurpose').onchange=syncPurpose;syncPurpose();
+  $('#saveNewP').onclick=async()=>{
+    try{
+      await rpc('provider.create',{
+        name:$('#npName').value,
+        kind:$('#npKind').value,
+        purpose:$('#npPurpose').value,
+        embedding_model:$('#npEmbedModel').value,
+        base_url:$('#npUrl').value,
+        api_key:$('#npKey').value,
+        allow_private_network:$('#npPrivate').checked,
+        response_format_json_object:$('#npJsonMode').checked
+      });
+      closeModal();toast('Provider added');settings()
+    }catch(e){toast(e.message)}
+  };
+}
+
+// --- API connections (roadmap item 2): a named endpoint the http_request
+// function can call with a stored credential. Same create/edit shape as
+// providers, minus everything OAuth/embedding-specific -- a connection is
+// just base_url + auth_kind + an optional secret. ---
+function connectionModal(c){
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${esc(c.name)}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Base URL</label><input class="input" id="cUrl" value="${esc(c.base_url)}"></div><div class="field"><label>Auth</label><select class="select" id="cAuth"><option value="none"${c.auth_kind==='none'?' selected':''}>none</option><option value="authorization"${c.auth_kind==='authorization'?' selected':''}>Authorization: Bearer &lt;key&gt;</option><option value="x-api-key"${c.auth_kind==='x-api-key'?' selected':''}>x-api-key: &lt;key&gt;</option></select></div><div class="field"><label>API key (leave blank to keep existing)</label><input type="password" class="input" id="cKey" autocomplete="new-password"></div><div class="field"><label><input type="checkbox" id="cEnabled" ${c.is_enabled?'checked':''}> Enabled</label></div><div class="field"><label><input type="checkbox" id="cPrivate" ${c.allow_private_network?'checked':''}> Allow loopback / private-network endpoint</label><div class="muted" style="font-size:12px">Needed for an in-cluster or local service. Leaving this off is what stops this endpoint from being pointed at an internal address.</div></div><button class="btn primary" id="saveConn">Save</button></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#saveConn').onclick=async()=>{try{const body={connection_id:c.connection_id,base_url:$('#cUrl').value,auth_kind:$('#cAuth').value,is_enabled:$('#cEnabled').checked,allow_private_network:$('#cPrivate').checked};if($('#cKey').value)body.api_key=$('#cKey').value;await rpc('connections.update',body);closeModal();toast('Connection saved');settings()}catch(e){toast(e.message)}};
+}
+function newConnectionModal(){
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Add connection</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Name</label><input class="input" id="ncName" placeholder="e.g. internal-crm"></div><div class="field"><label>Base URL</label><input class="input" id="ncUrl" placeholder="https://..."></div><div class="field"><label>Auth</label><select class="select" id="ncAuth"><option value="none">none</option><option value="authorization">Authorization: Bearer &lt;key&gt;</option><option value="x-api-key">x-api-key: &lt;key&gt;</option></select></div><div class="field"><label>API key (optional here; can also be set later)</label><input type="password" class="input" id="ncKey" autocomplete="new-password"></div><div class="field"><label><input type="checkbox" id="ncPrivate"> Allow loopback / private-network endpoint</label></div><button class="btn primary" id="saveNewConn">Add connection</button></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#saveNewConn').onclick=async()=>{
+    try{
+      await rpc('connections.create',{
+        name:$('#ncName').value,
+        base_url:$('#ncUrl').value,
+        auth_kind:$('#ncAuth').value,
+        api_key:$('#ncKey').value,
+        allow_private_network:$('#ncPrivate').checked
+      });
+      closeModal();toast('Connection added');settings()
+    }catch(e){toast(e.message)}
+  };
+}
+
+// --- Procedures (roadmap item 4): a named, versioned, reusable "how to do
+// X" any agent granted a 'procedure' permission for the same name sees in
+// its own prompt every turn (fn_next_step's own '# procedures' block) --
+// see that table's own comment in control_plane.sql. Editing shows the
+// full version history and a Rollback button per past version, the same
+// idea as an agent's own policy History modal. ---
+async function procedureModal(p){
+  const buildLine=p.body?`<div class="muted" style="font-size:12px;margin-bottom:10px">Build: ${esc(p.build_status||'—')}${p.build_error?' -- '+esc(p.build_error):''}</div>`:'';
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${esc(p.name)}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Content <span class="muted">-- shown as guidance in every granted agent's prompt</span></label><textarea class="textarea" id="pcContent" style="min-height:100px">${esc(p.content)}</textarea></div><div class="field"><label>Body <span class="muted">-- optional; real PL/pgSQL a granted agent can run with run_procedure, assigning p_result before it ends. Leave blank to keep content-only.</span></label><textarea class="textarea mono" id="pcBody" style="min-height:140px" placeholder="BEGIN
+  p_result := jsonb_build_object('ok', true);
+END;">${esc(p.body||'')}</textarea></div>${buildLine}<div class="field"><label><input type="checkbox" id="pcEnabled" ${p.is_active?'checked':''}> Enabled</label></div><button class="btn primary" id="savePc">Save</button><div class="muted" style="font-size:12px;margin:14px 0 6px">Version history (current: v${esc(p.generation)})</div><div id="pcHistory" class="muted">Loading…</div></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#savePc').onclick=async()=>{try{await rpc('procedures.update',{procedure_id:p.procedure_id,content:$('#pcContent').value,is_active:$('#pcEnabled').checked,body:$('#pcBody').value.trim()||null});closeModal();toast('Saved');settings()}catch(e){toast(e.message)}};
+  try{
+    const d=await rpc('procedures.get',{procedure_id:p.procedure_id});
+    $('#pcHistory').innerHTML=(d.history||[]).map(h=>`<div class="row" style="padding:4px 0;align-items:flex-start"><div class="mono muted" style="font-size:11px;min-width:110px">v${esc(h.generation)} · ${esc(h.changed_at)}</div><div style="flex:1;white-space:pre-wrap;font-size:12px">${esc(h.content)}</div><button class="btn small rollbackPc" data-gen="${esc(h.generation)}">Rollback</button></div>`).join('')||'<div class="muted" style="font-size:12px">No earlier versions.</div>';
+    document.querySelectorAll('.rollbackPc').forEach(b=>b.onclick=async()=>{if(!confirm(`Roll back to v${b.dataset.gen}? This creates a new version with that content, it does not erase what happened since.`))return;try{await rpc('procedures.rollback',{procedure_id:p.procedure_id,generation:b.dataset.gen});closeModal();toast('Rolled back');settings()}catch(e){toast(e.message)}});
+  }catch(e){$('#pcHistory').textContent=e.message}
+}
+function newProcedureModal(){
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Add procedure</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Name</label><input class="input" id="npcName" placeholder="e.g. weekly-sales-report"></div><div class="field"><label>Content</label><textarea class="textarea" id="npcContent" style="min-height:100px" placeholder="Step-by-step instructions, a SQL template, a checklist -- whatever a granted agent should follow…"></textarea></div><div class="field"><label>Body <span class="muted">-- optional; real PL/pgSQL a granted agent can run with run_procedure instead of following content by hand</span></label><textarea class="textarea mono" id="npcBody" style="min-height:120px" placeholder="BEGIN
+  p_result := jsonb_build_object('ok', true);
+END;"></textarea></div><button class="btn primary" id="saveNewPc">Add procedure</button></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#saveNewPc').onclick=async()=>{try{await rpc('procedures.create',{name:$('#npcName').value,content:$('#npcContent').value,body:$('#npcBody').value.trim()||null});closeModal();toast('Procedure added');settings()}catch(e){toast(e.message)}};
+}
+
+// --- Functions: the callable half of a Procedure (see docs/procedures.md).
+// Three handlers, fixed at creation except plpgsql's own body/param_schema:
+// http_get (one URL), plpgsql (a real role-scoped PL/pgSQL body), mcp_call
+// (one remote tool on an API connection above). fn_update_function itself
+// refuses anything but a plpgsql function ("http_get is fixed at
+// creation"), so the edit modal only ever shows Save for that handler --
+// everything else is read-only past creation, same restriction the
+// backend already enforces, not a UI-only one. ---
+function functionHandlerFields(handler){
+  if(handler==='mcp_call')return `<div class="grid2"><div class="field"><label>MCP connection</label><select class="select" id="nfConn">${state.connections.map(c=>`<option value="${esc(c.connection_id)}">${esc(c.name)}</option>`).join('')||'<option value="">No connections yet -- add one in API connections above</option>'}</select></div><div class="field"><label>Remote tool name</label><input class="input" id="nfTool" placeholder="e.g. search"></div></div>`;
+  if(handler==='plpgsql')return `<div class="field"><label>Body <span class="muted">-- statements only (not a full CREATE FUNCTION); read p_args jsonb, RETURN a jsonb value; runs later as the calling agent's own role</span></label><textarea class="textarea mono" id="nfBody" style="min-height:140px" placeholder="BEGIN
+  RETURN jsonb_build_object('ok', true);
+END;"></textarea></div><div class="field"><label>Param schema (JSON, shown to callers, never enforced)</label><textarea class="textarea mono" id="nfParamSchema" style="min-height:60px" placeholder="{}"></textarea></div>`;
+  return `<div class="field"><label>URL</label><input class="input" id="nfUrl" placeholder="https://..."></div>`;
+}
+function newFunctionModal(){
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Add function</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Name</label><input class="input" id="nfName" placeholder="e.g. seoul_weather"></div><div class="field"><label>Description</label><input class="input" id="nfDesc" placeholder="Shown to a granted agent alongside its procedure"></div><div class="field"><label>Handler</label><select class="select" id="nfHandler"><option value="http_get">http_get -- one fixed URL</option><option value="plpgsql">plpgsql -- real PL/pgSQL body</option><option value="mcp_call">mcp_call -- one remote MCP tool</option></select></div><div id="nfFields">${functionHandlerFields('http_get')}</div><button class="btn primary" id="saveNewFunc">Add function</button></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#nfHandler').onchange=()=>{$('#nfFields').innerHTML=functionHandlerFields($('#nfHandler').value)};
+  $('#saveNewFunc').onclick=async()=>{
+    try{
+      const handler=$('#nfHandler').value;
+      const body={name:$('#nfName').value,description:$('#nfDesc').value,handler};
+      if(handler==='http_get'){
+        body.args_template={url:$('#nfUrl').value};
+      }else if(handler==='mcp_call'){
+        body.mcp_connection_id=$('#nfConn').value;
+        body.args_template={tool:$('#nfTool').value};
+      }else{
+        body.body=$('#nfBody').value;
+        const schema=$('#nfParamSchema').value.trim();
+        if(schema){try{body.param_schema=JSON.parse(schema)}catch{throw new Error('Param schema must be valid JSON')}}
+      }
+      await rpc('functions.create',body);closeModal();toast('Function added');settings()
+    }catch(e){toast(e.message)}
+  };
+}
+function functionModal(f){
+  const boundNames=new Set(f.procedures||[]);
+  const availableProcs=state.procedures.filter(p=>!boundNames.has(p.name));
+  let fixedInfo='';
+  if(f.handler==='http_get'){
+    fixedInfo=`<div class="field"><label>URL <span class="muted">-- fixed at creation</span></label><div class="mono" style="font-size:12px">${esc(f.args_template?.url||'')}</div></div>`;
+  }else if(f.handler==='mcp_call'){
+    const conn=state.connections.find(c=>c.connection_id===f.mcp_connection_id);
+    fixedInfo=`<div class="field"><label>MCP connection / tool <span class="muted">-- fixed at creation</span></label><div class="mono" style="font-size:12px">${esc(conn?.name||f.mcp_connection_id||'—')} / ${esc(f.args_template?.tool||'')}</div></div>`;
+  }
+  const editable=f.handler==='plpgsql';
+  const buildLine=editable?`<div class="muted" style="font-size:12px;margin-bottom:10px">Build: ${esc(f.build_status||'—')}${f.build_error?' -- '+esc(f.build_error):''}</div>`:'';
+  const plFields=editable?`<div class="field"><label>Body</label><textarea class="textarea mono" id="fBody" style="min-height:160px">${esc(f.body||'')}</textarea></div><div class="field"><label>Param schema (JSON)</label><textarea class="textarea mono" id="fParamSchema" style="min-height:60px">${esc(JSON.stringify(f.param_schema||{},null,2))}</textarea></div>${buildLine}<button class="btn primary" id="saveFunc">Save</button>`:'<div class="muted" style="font-size:12px;margin-bottom:10px">Only a plpgsql function’s body can be edited after creation -- this handler is fixed.</div>';
+  const bindRow=availableProcs.length?`<div class="row" style="margin-top:8px"><select class="select" id="fBindProc">${availableProcs.map(p=>`<option value="${esc(p.procedure_id)}">${esc(p.name)}</option>`).join('')}</select><button class="btn" id="fBind">Bind to procedure</button></div>`:'';
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${esc(f.name)}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Handler</label><div class="mono" style="font-size:12px">${esc(f.handler)}</div></div>${fixedInfo}<div class="field"><label>Description</label>${editable?`<textarea class="textarea" id="fDesc">${esc(f.description)}</textarea>`:`<div style="font-size:13px">${esc(f.description)}</div>`}</div>${plFields}<div class="muted" style="font-size:12px;margin:14px 0 6px">Bound to: ${[...boundNames].map(esc).join(', ')||'nothing yet'}</div>${bindRow}</div>`;
+  $('#closeM').onclick=closeModal;
+  if(editable)$('#saveFunc').onclick=async()=>{
+    try{
+      const body={function_id:f.function_id,description:$('#fDesc').value,body:$('#fBody').value};
+      const schema=$('#fParamSchema').value.trim();
+      if(schema){try{body.param_schema=JSON.parse(schema)}catch{throw new Error('Param schema must be valid JSON')}}
+      await rpc('functions.update',body);closeModal();toast('Saved');settings()
+    }catch(e){toast(e.message)}
+  };
+  if($('#fBind'))$('#fBind').onclick=async()=>{try{await rpc('functions.bind',{procedure_id:$('#fBindProc').value,function_id:f.function_id});closeModal();toast('Bound');settings()}catch(e){toast(e.message)}};
+}
+
+// --- Schedules (roadmap item 6): fire an agent against a goal on a
+// recurring interval, polled from PostgreSQL (fn_run_schedules via
+// fn_pump) -- see that table's own comment in control_plane.sql. A
+// schedule's run_count/last_run_at/last_session_id is itself the durable
+// record of a long-running goal, so the edit modal surfaces those instead
+// of hiding them behind a separate history view. ---
+function scheduleModal(s){
+  const endsVal=s.ends_at?new Date(s.ends_at).toISOString().slice(0,16):'';
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${esc(s.name)}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Agent</label><div class="muted" style="font-size:12px">${esc(s.agent)} (set at creation, cannot be changed here)</div></div><div class="field"><label>Goal (sent as a new message each run)</label><textarea class="textarea" id="scGoal" style="min-height:80px">${esc(s.goal)}</textarea></div><div class="grid2"><div class="field"><label>Every (seconds)</label><input class="input" id="scInterval" value="${esc(s.interval_seconds)}"></div><div class="field"><label>Max runs (optional)</label><input class="input" id="scMaxRuns" value="${s.max_runs?esc(s.max_runs):''}" placeholder="unlimited"></div></div><div class="grid2"><div class="field"><label>Ends at (optional)</label><input type="datetime-local" class="input" id="scEndsAt" value="${endsVal}"></div><div class="field"><label>Max cost, USD (optional)</label><input class="input" id="scMaxCost" value="${s.max_cost_usd?esc(s.max_cost_usd):''}" placeholder="unlimited"></div></div><div class="field"><label><input type="checkbox" id="scEnabled" ${s.is_active?'checked':''}> Enabled</label></div><div class="muted" style="font-size:12px;margin-bottom:10px">Run ${esc(s.run_count)}${s.max_runs?' of '+esc(s.max_runs):''}, spent $${Number(s.spent_cost_usd||0).toFixed(3)}${s.max_cost_usd?' of $'+Number(s.max_cost_usd).toFixed(2):''}. ${s.last_run_at?'Last ran '+esc(s.last_run_at)+'.':'Never run yet.'} ${s.is_active?'Next due '+esc(s.next_run_at)+'.':''}</div><div class="muted" style="font-size:11px;margin-bottom:10px">Cost is only ever tracked for a model with a price set in Settings' Model prices panel -- a call against an unpriced model doesn't count toward this and can't be capped by it.</div><div class="row"><button class="btn primary" id="saveSched">Save</button><button class="btn" id="runSchedNowM">Run now</button><span class="spacer"></span><button class="btn danger" id="deleteSched">Delete</button></div></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#saveSched').onclick=async()=>{
+    try{
+      const body={schedule_id:s.schedule_id,goal:$('#scGoal').value,interval_seconds:$('#scInterval').value,is_active:$('#scEnabled').checked};
+      const maxRuns=$('#scMaxRuns').value.trim();
+      if(maxRuns)body.max_runs=maxRuns;else body.clear_max_runs=true;
+      const endsAt=$('#scEndsAt').value;
+      if(endsAt)body.ends_at=new Date(endsAt).toISOString();else body.clear_ends_at=true;
+      const maxCost=$('#scMaxCost').value.trim();
+      if(maxCost)body.max_cost_usd=maxCost;else body.clear_max_cost_usd=true;
+      await rpc('schedules.update',body);closeModal();toast('Schedule saved');settings()
+    }catch(e){toast(e.message)}
+  };
+  $('#runSchedNowM').onclick=async()=>{try{await rpc('schedules.run_now',{schedule_id:s.schedule_id});closeModal();toast('Fired');settings()}catch(e){toast(e.message)}};
+  $('#deleteSched').onclick=async()=>{if(!confirm('Delete this schedule? Sessions it already created are unaffected.'))return;try{await rpc('schedules.delete',{schedule_id:s.schedule_id});closeModal();toast('Deleted');settings()}catch(e){toast(e.message)}};
+}
+function newScheduleModal(){
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Add schedule</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Name</label><input class="input" id="nscName" placeholder="e.g. daily-health-check"></div><div class="field"><label>Agent</label><select class="select" id="nscAgent">${state.agents.map(a=>`<option value="${esc(a.agent_id)}">${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label>Goal (sent as a new message each run)</label><textarea class="textarea" id="nscGoal" style="min-height:80px" placeholder="What should the agent check or do each time?"></textarea></div><div class="grid2"><div class="field"><label>Every (seconds)</label><input class="input" id="nscInterval" value="3600" placeholder="e.g. 3600 = hourly, 86400 = daily"></div><div class="field"><label>Max runs (optional)</label><input class="input" id="nscMaxRuns" placeholder="unlimited"></div></div><div class="grid2"><div class="field"><label>Ends at (optional)</label><input type="datetime-local" class="input" id="nscEndsAt"></div><div class="field"><label>Max cost, USD (optional)</label><input class="input" id="nscMaxCost" placeholder="unlimited -- needs a price set for the model used"></div></div><button class="btn primary" id="saveNewSched">Add schedule</button></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#saveNewSched').onclick=async()=>{
+    try{
+      const body={name:$('#nscName').value,agent_id:$('#nscAgent').value,goal:$('#nscGoal').value,interval_seconds:$('#nscInterval').value};
+      const maxRuns=$('#nscMaxRuns').value.trim();if(maxRuns)body.max_runs=maxRuns;
+      const endsAt=$('#nscEndsAt').value;if(endsAt)body.ends_at=new Date(endsAt).toISOString();
+      const maxCost=$('#nscMaxCost').value.trim();if(maxCost)body.max_cost_usd=maxCost;
+      await rpc('schedules.create',body);closeModal();toast('Schedule added');settings()
+    }catch(e){toast(e.message)}
+  };
+}
+
+// --- Users (item 45: folded into Settings, admin-only): real accounts,
+// roles, and per-user agent assignment -- see README, "Model configuration
+// and conversations". ---
+async function usersPage(target){
+  target=target||$('#view');
+  const d=await rpc('users.list'); state.users=d.users||[];
+  if(!state.agents.length){const da=await api('/api/v1/agents');state.agents=da.agents||[]}
+  target.innerHTML=`<div class="panel"><h3>Create user</h3><div class="grid2"><div class="field"><label>Username</label><input class="input" id="nuUser"></div><div class="field"><label>Password</label><input type="password" class="input" id="nuPass" autocomplete="new-password"></div></div><div class="field"><label>Role</label><select class="select" id="nuRole"><option value="user">user</option><option value="admin">admin</option></select></div><button class="btn primary" id="nuGo">${esc(t('create'))}</button></div>
+<div class="panel"><table class="table"><thead><tr><th>Username</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${state.users.map(u=>`<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.role)}</td><td>${u.is_active?status('running'):status('disabled')}</td><td><div class="row"><button class="btn small manageAssign" data-id="${esc(u.user_id)}">Agents</button><button class="btn small toggleActive" data-id="${esc(u.user_id)}" data-active="${u.is_active}">${u.is_active?'Deactivate':'Activate'}</button><button class="btn small toggleRole" data-id="${esc(u.user_id)}" data-role="${esc(u.role)}">Make ${u.role==='admin'?'user':'admin'}</button></div></td></tr>`).join('')||`<tr><td colspan="4" class="muted">${esc(t('noData'))}</td></tr>`}</tbody></table></div>`;
+  target.querySelector('#nuGo').onclick=async()=>{try{await rpc('users.create',{username:target.querySelector('#nuUser').value,password:target.querySelector('#nuPass').value,role:target.querySelector('#nuRole').value});toast('Created');usersPage(target)}catch(e){toast(e.message)}};
+  target.querySelectorAll('.toggleActive').forEach(b=>b.onclick=async()=>{try{await rpc('users.set_active',{user_id:b.dataset.id,is_active:b.dataset.active!=='true'});usersPage(target)}catch(e){toast(e.message)}});
+  target.querySelectorAll('.toggleRole').forEach(b=>b.onclick=async()=>{try{await rpc('users.set_role',{user_id:b.dataset.id,role:b.dataset.role==='admin'?'user':'admin'});usersPage(target)}catch(e){toast(e.message)}});
+  target.querySelectorAll('.manageAssign').forEach(b=>b.onclick=()=>assignmentsModal(b.dataset.id));
+}
+function assignmentsModal(userId){
+  rpc('assignments.list',{user_id:userId}).then(d=>{
+    const assigned=new Set(d.agent_ids||[]);
+    $('#modal').classList.remove('hidden');
+    $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Assigned agents</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div>${state.agents.length?state.agents.map(a=>`<div class="field"><label><input type="checkbox" class="assignChk" value="${esc(a.agent_id)}" ${assigned.has(a.agent_id)?'checked':''}> ${esc(a.name)}</label></div>`).join(''):'<div class="muted">No agents exist yet.</div>'}<button class="btn primary" id="saveAssign">Save</button></div>`;
+    $('#closeM').onclick=closeModal;
+    $('#saveAssign').onclick=async()=>{
+      const ids=[...document.querySelectorAll('.assignChk:checked')].map(c=>c.value);
+      try{await rpc('assignments.set',{user_id:userId,agent_ids:ids});closeModal();toast('Saved')}catch(e){toast(e.message)}
+    };
+  }).catch(e=>toast(e.message));
+}
+
+// --- Chat (item 43): General (plain 1:1), Messenger (Slack-style shared
+// channel), and Project (a preset system prompt + agent, item 42) as three
+// modes of one page, switched with buttons instead of three separate nav
+// entries. ---
+// Shared inline Provider/Model control for whichever single agent a chat
+// mode is currently talking to (General always talks to 'general'; Project
+// mode's bound agent -- see require_project_access's own comment: reaching
+// a project still requires that same agent be assigned to the user, so it
+// is always present in agents.mine too). Same fn_set_my_model surface My
+// Agents already exposed on its own page (agents.js's myAgentsPage), just
+// inline where the conversation actually happens instead of a separate
+// page -- messenger mode has no single agent to point this at (a mention
+// can route to any of several), so it stays out of that mode.
+function chatModelPicker(agent,providerOpts){
+  if(!agent)return '';
+  return `<div class="row wrap" style="margin-bottom:22px;gap:8px;align-items:flex-end"><div class="field" style="margin:0;min-width:180px"><label>Provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field" style="margin:0;min-width:180px"><label>Model</label><input class="input" id="cmModel" value="${esc(agent.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5" list="cmModelOptions">${modelDatalist('cmModelOptions',providerOpts.find(p=>p.name===agent.provider)?.available_models||[])}</div><button class="btn small" id="cmSave">Save</button></div>`;
+}
+function wireChatModelPicker(agent,providerOpts,onSaved){
+  if(!agent||!$('#cmProvider'))return;
+  $('#cmProvider').onchange=()=>{
+    const p=providerOpts.find(x=>x.name===$('#cmProvider').value);
+    $('#cmModelOptions').innerHTML=(p?.available_models||[]).map(m=>`<option value="${esc(m)}">`).join('')
+  };
+  $('#cmSave').onclick=async()=>{
+    try{
+      await rpc('agents.set_my_model',{agent_id:agent.agent_id,provider:$('#cmProvider').value,model:$('#cmModel').value.trim()});
+      toast('Saved');
+      if(onSaved)onSaved();
+    }catch(e){toast(e.message)}
+  };
+}
+async function chatPage(){
+  const modes=[['general','general'],['messenger','messenger'],['project','project']];
+  $('#view').innerHTML=`<div class="chatPanel"><div class="row" style="margin-bottom:22px">${modes.map(([m,k])=>`<button class="btn small chatModeBtn${state.chatMode===m?' primary':''}" data-mode="${m}">${esc(t(k))}</button>`).join('')}</div><div id="chatModeBody"></div></div>`;
+  document.querySelectorAll('.chatModeBtn').forEach(b=>b.onclick=()=>{state.chatMode=b.dataset.mode;chatPage()});
+  const body=$('#chatModeBody');
+  if(state.chatMode==='messenger')await messengerPage(body);
+  else if(state.chatMode==='project')await projectChatMode(body);
+  else await generalChatMode(body);
+}
+// General mode: no agent picker -- always the seeded 'general' agent (a
+// plain conversational partner, no view/function permissions), so this is just
+// "type and talk" rather than "pick an agent, then talk." Still
+// fn_chat_send/fn_chat_history underneath, one ongoing session per (user,
+// 'general') pair, same as any other agent in this same mode used to be.
+// An admin reaches 'general' the same way it reaches every other agent
+// here (agents.mine bypasses the assignment check for admin); a regular
+// user needs it explicitly assigned, same as any other agent -- if it
+// isn't, this degrades to the same "ask an admin" message an unassigned
+// user already saw before this change.
+async function generalChatMode(target){
+  target=target||$('#view');
+  const d=await rpc('agents.mine'); state.myAgents=d.agents||[];
+  const general=state.myAgents.find(a=>a.name==='general');
+  state.chatAgentId=general?general.agent_id:null;
+  const ds=await api('/api/v1/settings').catch(()=>({providers:[]}));
+  const providerOpts=(ds.providers||[]).filter(p=>p.is_enabled&&p.purpose!=='embedding');
+  target.innerHTML=`<div class="panel">${chatModelPicker(general,providerOpts)}<div id="chatThread" style="max-height:55vh;overflow:auto;margin-bottom:14px"></div><div class="row"><input class="input" id="chatInput" placeholder="Message…" ${general?'':'disabled'}><button class="btn primary" id="chatSend" ${general?'':'disabled'}>${esc(t('send'))}</button></div></div>`;
+  wireChatModelPicker(general,providerOpts,()=>generalChatMode(target));
+  $('#chatSend').onclick=sendChat;
+  $('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()};
+  await renderChatThread();
+}
+// Project mode: same shape as General, but keyed by project (its own
+// continuing session -- see user_project_chat_sessions) and against
+// whichever agent that project is bound to, with its preset_prompt
+// applied server-side (fn_next_step).
+async function projectChatMode(target){
+  target=target||$('#view');
+  const pd=await rpc('projects.list').catch(()=>({projects:[]}));
+  const opts_=(pd.projects||[]).filter(p=>p.is_active&&p.agent_id);
+  if((!state.chatProjectId||!opts_.some(p=>p.project_id===state.chatProjectId))&&opts_.length)
+    state.chatProjectId=opts_[0].project_id;
+  const opts=opts_.map(p=>`<option value="${esc(p.project_id)}" ${p.project_id===state.chatProjectId?'selected':''}>${esc(p.name)} (${esc(p.agent)})</option>`).join('');
+  // require_project_access's own comment: a project is only reachable once
+  // its bound agent is assigned to this user the same way General mode's
+  // agent would be, so that agent is always present in agents.mine too --
+  // no separate lookup needed for the provider/model picker below.
+  const md=await rpc('agents.mine').catch(()=>({agents:[]})); state.myAgents=md.agents||[];
+  const curProject=opts_.find(p=>p.project_id===state.chatProjectId);
+  const projectAgent=curProject?state.myAgents.find(a=>a.agent_id===curProject.agent_id):null;
+  const ds=await api('/api/v1/settings').catch(()=>({providers:[]}));
+  const providerOpts=(ds.providers||[]).filter(p=>p.is_enabled&&p.purpose!=='embedding');
+  target.innerHTML=`<div class="panel"><div class="row" style="margin-bottom:22px"><label class="muted" style="font-size:12px">Project</label><select class="select" id="chatProjectSel" style="max-width:300px">${opts||'<option value="">No project configured for chat yet</option>'}</select></div>${chatModelPicker(projectAgent,providerOpts)}<div id="projectChatThread" style="max-height:55vh;overflow:auto;margin-bottom:14px"></div><div class="row"><input class="input" id="projectChatInput" placeholder="Message…" ${opts_.length?'':'disabled'}><button class="btn primary" id="projectChatSend" ${opts_.length?'':'disabled'}>${esc(t('send'))}</button></div></div>`;
+  $('#chatProjectSel').onchange=()=>{state.chatProjectId=$('#chatProjectSel').value;projectChatMode(target)};
+  wireChatModelPicker(projectAgent,providerOpts,()=>projectChatMode(target));
+  $('#projectChatSend').onclick=sendProjectChat;
+  $('#projectChatInput').onkeydown=e=>{if(e.key==='Enter')sendProjectChat()};
+  await renderProjectChatThread();
+}
+async function renderProjectChatThread(){
+  if(!$('#projectChatThread'))return;
+  if(!state.chatProjectId){$('#projectChatThread').innerHTML=`<div class="muted">${esc(t('noData'))}</div>`;return}
+  try{ const h=await rpc('project_chat.history',{project_id:state.chatProjectId});
+    if(!$('#projectChatThread'))return;
+    $('#projectChatThread').innerHTML=(h.messages||[]).map(m=>msgBubble(m)).join('')||'<div class="muted">Say hello.</div>';
+    scrollBottom('#projectChatThread');
+  }catch(e){if($('#projectChatThread'))$('#projectChatThread').innerHTML=`<div class="muted">${esc(e.message)}</div>`}
+}
+let projectChatPollTimer=null;
+async function sendProjectChat(){
+  if(!state.chatProjectId)return;
+  const v=$('#projectChatInput').value.trim(); if(!v)return;
+  $('#projectChatInput').value='';
+  try{
+    await rpc('project_chat.send',{project_id:state.chatProjectId,message:v});
+    await renderProjectChatThread();
+    if(projectChatPollTimer)clearInterval(projectChatPollTimer);
+    let tries=0;
+    projectChatPollTimer=setInterval(async()=>{tries++;await renderProjectChatThread();if(tries>=10)clearInterval(projectChatPollTimer)},1500);
+  }catch(e){toast(e.message)}
+}
+async function renderChatThread(){
+  // A stray poll tick (loadPage clears the timer, but a call already in
+  // flight can still land after navigating away) must not throw on a
+  // #chatThread that no longer exists.
+  if(!$('#chatThread'))return;
+  if(!state.chatAgentId){$('#chatThread').innerHTML='<div class="muted">The \'general\' agent is not assigned to you yet -- ask an admin.</div>';return}
+  try{ const h=await rpc('chat.history',{agent_id:state.chatAgentId});
+    if(!$('#chatThread'))return;
+    $('#chatThread').innerHTML=(h.messages||[]).map(m=>msgBubble(m)).join('')||'<div class="muted">Say hello.</div>';
+    scrollBottom('#chatThread');
+  }catch(e){if($('#chatThread'))$('#chatThread').innerHTML=`<div class="muted">${esc(e.message)}</div>`}
+}
+let chatPollTimer=null;
+async function sendChat(){
+  if(!state.chatAgentId)return;
+  const v=$('#chatInput').value.trim(); if(!v)return;
+  $('#chatInput').value='';
+  try{
+    await rpc('chat.send',{agent_id:state.chatAgentId,message:v});
+    await renderChatThread();
+    if(chatPollTimer)clearInterval(chatPollTimer);
+    let tries=0;
+    chatPollTimer=setInterval(async()=>{tries++;await renderChatThread();if(tries>=10)clearInterval(chatPollTimer)},1500);
+  }catch(e){toast(e.message)}
+}
+
+// --- Messenger: the Slack-style shared channel. A plain post is just
+// stored; "@agent_name" additionally routes the message to that agent
+// (fn_messenger_post), sharing the same session chat.send/chat.history use
+// for that (user, agent) pair -- not a second, divergent conversation. ---
+async function messengerPage(target){
+  target=target||$('#view');
+  target.innerHTML=`<div class="panel"><div id="msgFeed" style="max-height:60vh;overflow:auto;margin-bottom:14px"></div><div class="row"><input class="input" id="msgInput" placeholder="Message… use @agent_name to address an agent, or several"><button class="btn primary" id="msgSend">${esc(t('send'))}</button></div></div>`;
+  $('#msgSend').onclick=sendMessenger;
+  $('#msgInput').onkeydown=e=>{if(e.key==='Enter')sendMessenger()};
+  await renderMessengerFeed();
+}
+async function renderMessengerFeed(){
+  const d=await rpc('messenger.list',{limit:200});
+  // Same stray-poll-tick guard as renderChatThread: a call already in
+  // flight can still land after navigating away from Messenger.
+  if(!$('#msgFeed'))return;
+  const oneReply=(agent,st,reply)=>{
+    const body=st==='completed'?esc(reply||''):st==='failed'?'(agent failed to respond)':'(waiting for reply…)';
+    return `<div class="msg-body mono" style="color:var(--accent2)">${agent?`<b>${esc(agent)}:</b> `:''}${body}</div>`;
+  };
+  // A multi-mention post (item 40) shows every mentioned agent's own reply,
+  // not just the first -- mentioned_agents is only present for those.
+  const replyLine=m=>{
+    if(Array.isArray(m.mentioned_agents)&&m.mentioned_agents.length)
+      return m.mentioned_agents.map(x=>oneReply(x.agent,x.reply_status,x.reply)).join('');
+    if(!m.mentioned_agent)return '';
+    return oneReply(null,m.reply_status,m.reply);
+  };
+  $('#msgFeed').innerHTML=(d.messages||[]).map(m=>`<div class="msg"><div class="row"><b>${esc(m.author)}</b>${m.mentioned_agent?`<span class="mono muted" style="font-size:11px">@${esc(m.mentioned_agent)}</span>`:''}<span class="spacer"></span><span class="mono muted" style="font-size:11px">${esc(m.created_at)}</span></div><div class="msg-body">${esc(m.content)}</div>${replyLine(m)}</div>`).join('')||'<div class="muted">No messages yet.</div>';
+  scrollBottom('#msgFeed');
+}
+let msgPollTimer=null;
+async function sendMessenger(){
+  const v=$('#msgInput').value.trim(); if(!v)return;
+  $('#msgInput').value='';
+  try{
+    await rpc('messenger.post',{text:v});
+    await renderMessengerFeed();
+    if(msgPollTimer)clearInterval(msgPollTimer);
+    let tries=0;
+    msgPollTimer=setInterval(async()=>{tries++;await renderMessengerFeed();if(tries>=10)clearInterval(msgPollTimer)},1500);
+  }catch(e){toast(e.message)}
+}
+
+// --- My Agents (regular users): the assigned-agents list plus, inline, the
+// one thing item 3's review asked for a regular user to be able to do --
+// pick a provider/model for an agent they were given -- via
+// fn_set_my_model, never the full agents.update surface. ---
+async function myAgentsPage(){
+  const d=await rpc('agents.mine'); state.myAgents=d.agents||[];
+  const ds=await api('/api/v1/settings').catch(()=>({providers:[]}));
+  const providerOpts=(ds.providers||[]).filter(p=>p.is_enabled);
+  $('#view').innerHTML=`<div class="panel"><h3>My agents</h3>${state.myAgents.length?state.myAgents.map(a=>`<div class="listrow"><div class="row"><b>${esc(a.name)}</b></div><div class="grid2" style="margin-top:8px"><div class="field"><label>Provider</label><select class="select myProv" data-agent="${esc(a.agent_id)}">${providerOpts.length?(!a.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===a.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field"><label>Model</label><input class="input myModel" data-agent="${esc(a.agent_id)}" value="${esc(a.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5"></div></div><button class="btn small saveMyModel" data-agent="${esc(a.agent_id)}">Save</button></div>`).join(''):'<div class="muted">No agents assigned yet -- ask an admin.</div>'}</div>`;
+  document.querySelectorAll('.saveMyModel').forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.agent;
+    const provider=document.querySelector(`.myProv[data-agent="${id}"]`).value;
+    const model=document.querySelector(`.myModel[data-agent="${id}"]`).value;
+    try{await rpc('agents.set_my_model',{agent_id:id,provider,model});toast('Saved');myAgentsPage()}catch(e){toast(e.message)}
+  });
+}
+// The event stream authenticates with a short-lived, single-use ticket
+// (POST /api/v1/events/ticket, gated by the real bearer token) instead of
+// carrying the durable dashboard token in the URL -- EventSource cannot set
+// headers, so something has to go in the query string, and this keeps it
+// out of proxy access logs, browser history, and the Referrer header. The
+// server closes the stream every ~30s on purpose (see stream_events in
+// src/lib.rs) and does not send a `retry:` field, so reconnection is driven
+// from here: mint a fresh ticket and open a new EventSource on every error,
+// rather than relying on the browser's native retry-with-the-same-URL,
+// which a single-use ticket cannot satisfy.
+let esRetryTimer=null;
+async function startEvents(){
+  if(esRetryTimer){clearTimeout(esRetryTimer);esRetryTimer=null}
+  let url='/api/v1/events';
+  try{
+    const t=await api('/api/v1/events/ticket',{method:'POST'});
+    if(t.ticket)url+='?ticket='+encodeURIComponent(t.ticket)
+  }catch(e){
+    $('#health').textContent='reconnecting';
+    esRetryTimer=setTimeout(startEvents,2000);
+    return;
+  }
+  const es=new EventSource(url);
+  es.addEventListener('snapshot',e=>{try{const d=JSON.parse(e.data);$('#health').textContent='workers online';const live=$('#live');if(live&&d.tasks){live.innerHTML=d.tasks.slice(0,8).map(t=>`<div class="row" style="padding:5px 0"><span>${esc(t.agent)}</span><span>${status(t.status)}</span><span class="mono muted">step ${esc(t.step_count)}</span></div>`).join('')||'No activity'} }catch{}});
+  es.onerror=()=>{$('#health').textContent='reconnecting';es.close();esRetryTimer=setTimeout(startEvents,1500)};
+}
+// If the page just loaded from a provider's OAuth redirect (?code=&state=),
+// complete the flow before anything else renders. The redirect_uri
+// registered with the provider is this dashboard's own URL, so this is the
+// only place a code/state pair can arrive -- there is no separate callback
+// route. providers.oauth_callback only ever queues the exchange (see
+// KNOWN_ISSUES.md, "a second-round external review of items 18 and 19"), so
+// nothing secret ever reaches this page: the runtime worker performs the
+// real token exchange in the background and settings.get's has_secret is
+// how a later Settings load finds out it landed.
+async function oauthCallbackOnLoad(){
+  const qs=new URLSearchParams(location.search);
+  const oauthCode=qs.get('code'), oauthState=qs.get('state');
+  if(!oauthCode||!oauthState)return;
+  history.replaceState({}, '', location.pathname);
+  try{
+    await rpc('providers.oauth_callback',{code:oauthCode,state:oauthState,redirect:location.origin+location.pathname});
+    toast('OAuth exchange queued -- check back in a moment for the connected status.');
+  }catch(e){toast('OAuth callback failed: '+e.message)}
+  state.page='Settings';
+}
+// A real per-user login gate in front of the whole app -- separate from,
+// and on top of, the dashboard token above: that token still decides
+// whether a browser reaches the HTTP surface at all; this decides, once it
+// has, who is using it and which pages/agents they may reach (see README,
+// "Model configuration and conversations").
+function renderLogin(err){
+  $('.app').classList.add('hidden');
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML=`<div class="dialog" style="max-width:360px"><div class="brand">Allgres</div><div class="tag" style="margin-bottom:20px">Postgres Is All You Need.</div><h3>${esc(t('signIn'))}</h3><div class="field"><label>${esc(t('username'))}</label><input class="input" id="liUser"></div><div class="field"><label>${esc(t('password'))}</label><input type="password" class="input" id="liPass"></div><button class="btn primary" id="liGo">${esc(t('signIn'))}</button>${err?`<div class="muted" style="font-size:12px;margin-top:10px;color:var(--bad)">${esc(err)}</div>`:''}</div>`;
+  const go=async()=>{
+    try{
+      const r=await rpc('auth.login',{username:$('#liUser').value,password:$('#liPass').value});
+      setSessTok(r.session_token);
+      state.me={user_id:r.user_id,username:r.username,role:r.role};
+      state.page=pagesForRole()[0];
+      $('#modal').classList.add('hidden');$('#modal').innerHTML='';
+      $('.app').classList.remove('hidden');
+      await boot(true);
+    }catch(e){renderLogin(e.message)}
+  };
+  $('#liGo').onclick=go;
+  $('#liPass').onkeydown=e=>{if(e.key==='Enter')go()};
+}
+$('#logoutBtn').onclick=async()=>{
+  try{await rpc('auth.logout')}catch{}
+  setSessTok('');state.me=null;
+  location.reload();
+};
+async function boot(skipOauth){
+  let me;
+  try{ me=await rpc('auth.me') }catch(e){ me={logged_in:false} }
+  if(!me.logged_in){ setSessTok(''); state.me=null; renderLogin(); return }
+  state.me={user_id:me.user_id,username:me.username,role:me.role};
+  if(!skipOauth) await oauthCallbackOnLoad();
+  nav();loadPage();startEvents();
+}
+boot();
+</script></body></html>
