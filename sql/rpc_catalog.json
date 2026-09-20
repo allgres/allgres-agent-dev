@@ -497,7 +497,8 @@
   {
     "action": "sessions.get",
     "guards": [
-      "require_agent_access_if_accounts_exist"
+      "require_agent_access_if_accounts_exist",
+      "session_user"
     ],
     "params": [
       "session_id",
@@ -784,6 +785,24 @@
   },
   {
     "action": "functions.list",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "capabilities.list",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "capabilities.reindex",
     "guards": [
       "require_admin_if_accounts_exist"
     ],

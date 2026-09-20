@@ -6,3 +6,8 @@
 .env
 .env.*
 !.env.example
+
+# Local PostgreSQL data directories created by nerdctl/compose on Windows.
+# They contain live database files and must never enter Git or an image build.
+*-pgdata/
+pgdata/

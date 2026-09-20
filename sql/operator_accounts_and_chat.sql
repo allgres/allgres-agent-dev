@@ -522,6 +522,12 @@ SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
 BEGIN
+  -- Serialize every operation that can reduce the active-admin set. Without
+  -- this lock, two concurrent transactions could each observe two admins
+  -- and both pass the last-admin check before either committed.
+  IF NOT p_is_active THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('allgres:last-active-admin',0));
+  END IF;
   IF NOT p_is_active
      AND EXISTS (SELECT 1 FROM allgres_private.users WHERE user_id = p_user_id AND role = 'admin' AND is_active)
      AND (SELECT count(*) FROM allgres_private.users WHERE role = 'admin' AND is_active) <= 1 THEN
@@ -542,6 +548,9 @@ AS $fn$
 BEGIN
   IF p_role NOT IN ('admin', 'user') THEN
     RAISE EXCEPTION 'invalid role: %', p_role USING ERRCODE = 'P0001';
+  END IF;
+  IF p_role <> 'admin' THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('allgres:last-active-admin',0));
   END IF;
   IF p_role <> 'admin'
      AND EXISTS (SELECT 1 FROM allgres_private.users WHERE user_id = p_user_id AND role = 'admin' AND is_active)

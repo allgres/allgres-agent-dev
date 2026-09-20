@@ -1614,7 +1614,8 @@ BEGIN
     RETURN jsonb_build_object('action', 'error', 'reason', 'no_embedding_in_response');
   END IF;
 
-  -- Exactly one of agent_id/memory_id is set (embedding_calls_target_check)
+  -- Exactly one of agent_id/memory_id/capability_id is set
+  -- (embedding_calls_target_check).
   -- -- an agent's own identity embedding writes to allgres_private.agents,
   -- a memory's semantic-recall embedding (queue_memory_embedding) writes
   -- to allgres_private.agent_memories instead. Same "<provider name>:
@@ -1626,12 +1627,19 @@ BEGIN
         embedding_updated_at = now(),
         updated_at = now()
     WHERE agent_id = c.agent_id;
-  ELSE
+  ELSIF c.memory_id IS NOT NULL THEN
     UPDATE allgres_private.agent_memories
     SET embedding = v_vec,
         embedding_model = (SELECT name FROM allgres_private.llm_providers WHERE provider_id = c.provider_id) || ':' || c.model,
         embedding_updated_at = now()
     WHERE memory_id = c.memory_id;
+  ELSE
+    UPDATE allgres_private.capability_index
+    SET embedding = v_vec,
+        embedding_model = (SELECT name FROM allgres_private.llm_providers WHERE provider_id = c.provider_id) || ':' || c.model,
+        embedding_updated_at = now(),
+        updated_at = now()
+    WHERE capability_id = c.capability_id;
   END IF;
 
   UPDATE allgres_private.embedding_calls
@@ -1641,9 +1649,12 @@ BEGIN
   IF c.agent_id IS NOT NULL THEN
     PERFORM allgres_private.ensure_vector_index();
     RETURN jsonb_build_object('action', 'stored', 'agent_id', c.agent_id, 'dims', array_length(v_vec, 1));
-  ELSE
+  ELSIF c.memory_id IS NOT NULL THEN
     PERFORM allgres_private.ensure_memory_vector_index();
     RETURN jsonb_build_object('action', 'stored', 'memory_id', c.memory_id, 'dims', array_length(v_vec, 1));
+  ELSE
+    PERFORM allgres_private.ensure_capability_vector_index();
+    RETURN jsonb_build_object('action', 'stored', 'capability_id', c.capability_id, 'dims', array_length(v_vec, 1));
   END IF;
 END;
 $fn$;

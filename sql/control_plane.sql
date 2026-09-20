@@ -451,7 +451,7 @@ CREATE TABLE IF NOT EXISTS allgres_private.procedure_history (
 CREATE INDEX IF NOT EXISTS procedure_history_procedure_idx
   ON allgres_private.procedure_history (procedure_id, generation DESC);
 
--- A Function is a named, reusable execution contract. Two handlers exist:
+-- A Function is a named, reusable execution contract. Three handlers exist:
 -- `http_get` (the original, narrowest form -- a fixed, operator-reviewed
 -- URL and nothing else, args_template holding only {"url":...}) and
 -- `plpgsql` (a real PL/pgSQL function body, dynamically CREATE OR
@@ -2122,7 +2122,7 @@ CREATE INDEX IF NOT EXISTS procedure_calls_queued_idx
 -- passing the raw HTTP response through.
 ALTER TABLE allgres_private.outbound_calls DROP CONSTRAINT IF EXISTS outbound_calls_kind_check;
 ALTER TABLE allgres_private.outbound_calls ADD CONSTRAINT outbound_calls_kind_check
-  CHECK (kind IN ('llm', 'function', 'embedding', 'recall', 'mcp'));
+  CHECK (kind IN ('llm', 'function', 'embedding', 'capability_search', 'recall', 'mcp'));
 
 -- Per-function model override/canary tracking. procedure_function_id is stamped on
 -- BOTH sides of the "function call, then the turn that processes its result"
@@ -4129,8 +4129,13 @@ BEGIN
       || v_views::text
       || E'\nfunctions: '
       || v_functions::text
-      || E'\nPick action from final_answer | execute_sql | call_function | run_procedure | create_function | update_function | delegate | await_children | await_human | propose_change | remember.'
+      || E'\nPick action from final_answer | execute_sql | call_function | run_procedure | create_function | update_function | delegate | search_agents | search_capabilities | recall | await_children | await_human | propose_change | remember.'
       || E'\nFor numeric questions, execute_sql first. Do not invent keys.'
+      || E'\nsearch_capabilities: {"action":"search_capabilities","query":"what you need to do"}'
+      || E' -- returns permission-filtered Agent, Function, and Procedure candidates. Search never executes a candidate;'
+      || E' inspect its description and input metadata, then explicitly use delegate, call_function, or run_procedure.'
+      || E'\nsearch_agents: {"action":"search_agents","query":"task to delegate"} -- finds only Agents you may delegate to.'
+      || E'\nrecall: {"action":"recall","query":"memory to find"} -- searches only your own semantic memories.'
       || E'\ncreate_function: {"action":"create_function","name":"...","description":"...","body":"...","param_schema":{...},"reason":"..."}'
       || E' -- authors a new real PL/pgSQL Function. body is only the statements inside the function, never a full'
       || E' CREATE FUNCTION: it becomes the body of `CREATE FUNCTION allgres_functions.<generated>(p_args jsonb) RETURNS jsonb'
@@ -4532,7 +4537,7 @@ BEGIN
 
   v_action := v_parsed->>'action';
   IF v_action IS NULL OR v_action NOT IN (
-    'final_answer', 'execute_sql', 'call_function', 'run_procedure', 'delegate', 'search_agents', 'recall', 'await_human', 'propose_change',
+    'final_answer', 'execute_sql', 'call_function', 'run_procedure', 'delegate', 'search_agents', 'search_capabilities', 'recall', 'await_human', 'propose_change',
     'remember', 'create_agent', 'propose_fix', 'await_children', 'create_function', 'update_function'
   ) THEN
     PERFORM allgres_private.append_log(
@@ -4621,6 +4626,27 @@ BEGIN
     v_orig_args := v_args;
     v_call_kind := 'function';
     v_allowed := allgres_private.agent_has_permission(t.agent_id, 'function', v_function);
+    -- A directly granted, operator-authored PL/pgSQL Function is callable
+    -- by its registered name just like a Procedure-bound one. Previously a
+    -- direct grant passed the permission check and then fell through to the
+    -- built-in handler-name check as "unknown_function".
+    IF v_allowed THEN
+      SELECT * INTO v_procedure_function FROM allgres_private.functions
+      WHERE lower(name)=lower(COALESCE(v_function,'')) AND is_active LIMIT 1;
+      IF FOUND AND v_procedure_function.handler='plpgsql' THEN
+        IF v_procedure_function.build_status<>'built' THEN
+          PERFORM allgres_private.append_log(p_task_id,t.step_count+1,'error',
+            jsonb_build_object('reason','function_not_built','function',v_function,'build_status',v_procedure_function.build_status));
+          UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
+          RETURN jsonb_build_object('action','continue');
+        END IF;
+        INSERT INTO allgres_private.function_calls(task_id,function_id,agent_id,args)
+        VALUES(p_task_id,v_procedure_function.function_id,t.agent_id,v_args) RETURNING call_id INTO v_call;
+        PERFORM allgres_private.mark_capability_selected(p_task_id,'function',v_procedure_function.name);
+        UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
+        RETURN jsonb_build_object('action','call_function','function',v_function,'call_id',v_call);
+      END IF;
+    END IF;
     IF NOT v_allowed THEN
       SELECT pt.* INTO v_procedure_function
       FROM allgres_private.functions pt
@@ -4663,6 +4689,7 @@ BEGIN
           INSERT INTO allgres_private.function_calls (task_id, function_id, agent_id, args)
           VALUES (p_task_id, v_procedure_function.function_id, t.agent_id, v_args)
           RETURNING call_id INTO v_call;
+          PERFORM allgres_private.mark_capability_selected(p_task_id,'function',v_procedure_function.name);
           UPDATE allgres_private.tasks SET step_count = step_count + 1, updated_at = now() WHERE task_id = p_task_id;
           RETURN jsonb_build_object('action', 'call_function', 'function', v_function, 'call_id', v_call);
         END IF;
@@ -4993,6 +5020,46 @@ BEGIN
     SET step_count = step_count + 1, updated_at = now()
     WHERE task_id = p_task_id;
     RETURN jsonb_build_object('action', 'search_agents', 'query', v_parsed->>'query', 'call_id', v_call);
+  END IF;
+
+  -- Discover reusable Functions and Procedures without expanding authority.
+  -- The query is embedded asynchronously; completion ranks only capabilities
+  -- for which this agent already has the matching permission.  A candidate
+  -- list is advisory and the model must still choose call_function or
+  -- run_procedure, whose existing checks remain the execution boundary.
+  IF v_action = 'search_capabilities' THEN
+    IF NULLIF(trim(v_parsed->>'query'), '') IS NULL THEN
+      PERFORM allgres_private.append_log(p_task_id,t.step_count+1,'error',
+        jsonb_build_object('reason','search_capabilities_needs_query'));
+      UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
+      RETURN jsonb_build_object('action','continue');
+    END IF;
+    SELECT * INTO v_provider FROM allgres_private.llm_providers
+    WHERE purpose='embedding' AND is_enabled ORDER BY created_at LIMIT 1;
+    IF NOT FOUND THEN
+      PERFORM allgres_private.append_log(p_task_id,t.step_count+1,'error',
+        jsonb_build_object('reason','no_embedding_provider_configured'));
+      UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
+      RETURN jsonb_build_object('action','continue');
+    END IF;
+    v_url:=v_provider.base_url||'/embeddings';
+    v_reason:=allgres_private.check_outbound_url(v_url,v_provider.allow_private_network);
+    IF v_reason IS NOT NULL THEN
+      PERFORM allgres_private.append_log(p_task_id,t.step_count+1,'error',
+        jsonb_build_object('reason',v_reason,'url',v_url));
+      UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
+      RETURN jsonb_build_object('action','continue');
+    END IF;
+    INSERT INTO allgres_private.outbound_calls
+      (task_id,kind,url,request_headers,request_body,status,allow_private,provider_id,auth_kind)
+    VALUES (p_task_id,'capability_search',v_url,
+      jsonb_build_object('content-type','application/json'),
+      jsonb_build_object('model',v_provider.embedding_model,'input',left(v_parsed->>'query',8000)),
+      'queued',v_provider.allow_private_network,v_provider.provider_id,'authorization')
+    RETURNING call_id INTO v_call;
+    PERFORM allgres_private.mark_capability_selected(p_task_id,'procedure',v_procedure_name);
+    UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
+    RETURN jsonb_build_object('action','search_capabilities','query',v_parsed->>'query','call_id',v_call);
   END IF;
 
   -- Semantic memory recall (roadmap backlog item: the same embedding
@@ -6502,6 +6569,8 @@ BEGIN
 
   SELECT name INTO v_fname FROM allgres_private.functions WHERE function_id = c.function_id;
 
+  PERFORM allgres_private.mark_capability_outcome(c.task_id,'function',v_fname,COALESCE(p_ok,false));
+
   IF COALESCE(p_ok, false) THEN
     v_payload := jsonb_build_object(
       'type', 'function_result',
@@ -6671,6 +6740,8 @@ BEGIN
   WHERE call_id = p_call_id;
 
   SELECT name INTO v_pname FROM allgres_private.procedures WHERE procedure_id = c.procedure_id;
+
+  PERFORM allgres_private.mark_capability_outcome(c.task_id,'procedure',v_pname,COALESCE(p_ok,false));
 
   IF COALESCE(p_ok, false) THEN
     v_payload := jsonb_build_object(
@@ -6944,6 +7015,29 @@ BEGIN
             )::text
           )
         );
+      END IF;
+    END IF;
+  -- Capability discovery is deliberately separate from execution. Return
+  -- permission-filtered candidates; the next model step must explicitly
+  -- choose call_function/run_procedure, which re-checks authority.
+  ELSIF c.kind = 'capability_search' THEN
+    IF p_status IS NULL OR p_status < 200 OR p_status >= 300 THEN
+      v_payload := jsonb_build_object(
+        'type','error','message','embedding http '||COALESCE(p_status::text,'0')||': '||left(COALESCE(p_body,''),2000));
+    ELSE
+      BEGIN v_parsed:=p_body::jsonb; EXCEPTION WHEN others THEN v_parsed:=NULL; END;
+      SELECT array_agg((x)::double precision) INTO v_query_vec
+      FROM jsonb_array_elements_text(v_parsed->'data'->0->'embedding') AS x;
+      IF v_query_vec IS NULL OR array_length(v_query_vec,1) IS NULL THEN
+        v_payload:=jsonb_build_object('type','error','message','embedding response had no usable data[0].embedding');
+      ELSE
+        SELECT agent_id INTO v_requester FROM allgres_private.tasks WHERE task_id=c.task_id;
+        SELECT p.name||':'||(c.request_body->>'model') INTO v_expected_model
+        FROM allgres_private.llm_providers p WHERE p.provider_id=c.provider_id;
+        v_payload:=jsonb_build_object('type','function_result','content',jsonb_build_object(
+          'status',p_status,
+          'body',COALESCE(allgres_private.rank_capabilities_by_embedding(
+            v_query_vec,v_requester,v_expected_model,c.request_body->>'input',5,c.task_id),'[]'::jsonb)::text));
       END IF;
     END IF;
   -- The 'recall' agent action's own query embedding (semantic memory

@@ -173,6 +173,8 @@ working instance running.
 | [Security model](docs/security.md) | Exposure, CORS, SSRF, secrets at rest, privileges, per-agent roles, self-modification |
 | [The SQL sandbox](docs/sql-sandbox.md) | How an agent's `execute_sql` is analyzed and gated |
 | [Memory and semantic search](docs/memory-and-search.md) | `remember`/`recall`, search history, semantic delegate search |
+| [Capability search](docs/capability-search.md) | Permission-filtered Agent, Function, and Procedure discovery with pgvector acceleration |
+| [Open alpha readiness](docs/open-alpha-readiness.md) | Completed safeguards and the remaining release gates |
 | [Procedures](docs/procedures.md) | Operator-curated reusable instructions and Functions |
 | [System agents](docs/system-agents.md) | `health_monitor`, `creator`, `fixer`, `self_improve`, and the rest |
 | [Operator audit log](docs/audit-log.md) | Who did what, `operator_name` vs. a real verified account |

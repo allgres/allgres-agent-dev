@@ -1221,6 +1221,21 @@ BEGIN
         p_request->>'session_token',
         (SELECT agent_id FROM allgres_private.sessions WHERE session_id = v_id)
       );
+      -- Agent assignment is not conversation ownership.  A regular user
+      -- may inspect only the chat/project session mapped to that same user;
+      -- otherwise two people assigned to one Agent could read each other's
+      -- transcript by guessing or learning its UUID.  Admin monitoring keeps
+      -- its existing cross-user visibility.
+      v_user := allgres_private.session_user(p_request->>'session_token');
+      IF v_user.user_id IS NOT NULL AND v_user.role <> 'admin' AND NOT EXISTS (
+        SELECT 1 FROM allgres_private.user_agent_chat_sessions u
+        WHERE u.user_id=v_user.user_id AND u.session_id=v_id
+        UNION ALL
+        SELECT 1 FROM allgres_private.user_project_chat_sessions p
+        WHERE p.user_id=v_user.user_id AND p.session_id=v_id
+      ) THEN
+        RAISE EXCEPTION 'session access denied' USING ERRCODE='42501';
+      END IF;
       RETURN jsonb_build_object(
         'ok', true,
         'session', (
@@ -1704,6 +1719,24 @@ BEGIN
         ) ORDER BY pt.name)
         FROM allgres_private.functions pt
       ), '[]'::jsonb));
+
+    WHEN 'capabilities.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN jsonb_build_object(
+        'ok',true,
+        'capabilities',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'capability_id',c.capability_id,'type',c.capability_type,'name',c.name,
+          'description',c.description,'metadata',c.metadata,'lifecycle',c.lifecycle,
+          'content_hash',c.content_hash,'embedding_model',c.embedding_model,
+          'embedded',c.embedding IS NOT NULL,'embedding_updated_at',c.embedding_updated_at,
+          'updated_at',c.updated_at
+        ) ORDER BY c.capability_type,c.name) FROM allgres_private.capability_index c),'[]'::jsonb),
+        'metrics',allgres_public.fn_capability_metrics()
+      );
+
+    WHEN 'capabilities.reindex' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_private.sync_capability_index();
 
     WHEN 'functions.create' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');

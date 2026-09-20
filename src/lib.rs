@@ -114,14 +114,19 @@ extension_sql_file!(
     requires = ["control_plane"]
 );
 extension_sql_file!(
+    "../sql/capability_search.sql",
+    name = "capability_search",
+    requires = ["operator_agents_and_policies"]
+);
+extension_sql_file!(
     "../sql/operator_runtime_and_integrations.sql",
     name = "operator_runtime_and_integrations",
-    requires = ["operator_agents_and_policies"]
+    requires = ["capability_search"]
 );
 extension_sql_file!(
     "../sql/operator_accounts_and_chat.sql",
     name = "operator_accounts_and_chat",
-    requires = ["operator_runtime_and_integrations"]
+    requires = ["capability_search"]
 );
 extension_sql_file!(
     "../sql/seed_data.sql",

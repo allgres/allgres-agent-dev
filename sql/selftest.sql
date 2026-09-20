@@ -5068,6 +5068,33 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'search_agents_no_provider_is_a_friendly_continue', 'ok', ok));
   END;
 
+  -- Capability discovery is permission filtered before ranking. A vector
+  -- hit is only a candidate and never expands what this requester can run.
+  DECLARE
+    v_cap_id uuid;
+    v_source_id uuid:=gen_random_uuid();
+    v_ranked jsonb;
+  BEGIN
+    v_cap_id:=allgres_private.upsert_capability(
+      'function',v_source_id,'selftest_capability_search','selftest capability search',
+      '{}'::jsonb,'published');
+    UPDATE allgres_private.capability_index SET
+      embedding=ARRAY[1,0,0,0]::double precision[],embedding_model='selftest_provider:model-a'
+      WHERE capability_id=v_cap_id;
+    PERFORM allgres_public.fn_grant_permission(v_agent,'function','selftest_capability_search');
+    v_ranked:=allgres_private.rank_capabilities_by_embedding(
+      ARRAY[1,0,0,0]::double precision[],v_agent,'selftest_provider:model-a','selftest capability',5,NULL);
+    ok:=jsonb_array_length(v_ranked)=1
+      AND v_ranked->0->>'name'='selftest_capability_search'
+      AND v_ranked->0->>'type'='function';
+    v:=v||jsonb_build_array(jsonb_build_object(
+      'name','capability_search_returns_only_permitted_candidates','ok',ok));
+    PERFORM allgres_public.fn_revoke_permission(v_agent,'function','selftest_capability_search');
+    DELETE FROM allgres_private.capability_index WHERE capability_id=v_cap_id;
+    DELETE FROM allgres_private.capability_search_events
+    WHERE query_text='selftest capability';
+  END;
+
   -- Semantic memory recall (roadmap backlog item: the same embedding infra
   -- as agent-identity embeddings/search_agents just above, applied to
   -- allgres_private.agent_memories instead). No real HTTP round trip here
@@ -5175,7 +5202,7 @@ BEGIN
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'procedures.list', 'procedures.get',
-    'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list',
+    'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'capabilities.list', 'capabilities.reindex',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
     'providers.oauth_device_status', 'providers.oauth_callback', 'providers.probe_start', 'providers.probe_status',
@@ -5198,7 +5225,7 @@ BEGIN
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'procedures.list', 'procedures.get',
-    'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list',
+    'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'capabilities.list', 'capabilities.reindex',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
     'providers.oauth_device_status', 'providers.oauth_callback', 'providers.probe_start', 'providers.probe_status',
@@ -5217,8 +5244,11 @@ BEGIN
   UPDATE allgres_private.policies SET system_prompt = v_saved_prompt WHERE agent_id = v_agent;
 
   RETURN jsonb_build_object(
-    'passed', (SELECT count(*) FROM jsonb_array_elements(v) e WHERE (e->>'ok')::boolean),
-    'failed', (SELECT count(*) FROM jsonb_array_elements(v) e WHERE NOT (e->>'ok')::boolean),
+    'passed', (SELECT count(*) FROM jsonb_array_elements(v) e WHERE (e->>'ok')::boolean IS TRUE),
+    -- A missing/JSON-null/non-boolean result is not a pass. Treating SQL
+    -- NULL as neither passed nor failed made the old summary capable of
+    -- reporting a false green while an individual case was undecided.
+    'failed', (SELECT count(*) FROM jsonb_array_elements(v) e WHERE (e->>'ok')::boolean IS DISTINCT FROM TRUE),
     'cases', v
   );
 END;

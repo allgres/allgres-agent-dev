@@ -2,3 +2,7 @@
 .env
 .env.*
 target
+*-pgdata
+*-pgdata/**
+pgdata
+pgdata/**

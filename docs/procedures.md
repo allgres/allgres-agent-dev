@@ -48,7 +48,7 @@ the callable half of a procedure: its name and description (and, for the
 `plpgsql` handler, its `param_schema`) are shown with the procedure in the
 agent's `functions` bounds (the `call_function` action).
 
-Two handlers exist:
+Three handlers exist:
 
 - **`http_get`** — deliberately narrow: one fixed, operator-reviewed HTTPS
   URL. An agent calls the function name (for example, `seoul_weather`) with
