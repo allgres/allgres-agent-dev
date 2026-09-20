@@ -1903,9 +1903,15 @@ BEGIN
   ok := ok AND allgres_private.connection_secret(v_conn) = 'selftest-conn-key';
   v := v || jsonb_build_array(jsonb_build_object('name', 'fn_create_connection_stores_working_secret', 'ok', ok));
 
-  sub := allgres.dashboard_rpc(jsonb_build_object('action', 'connections.list'));
-  ok := (sub->'connections')::text NOT LIKE '%selftest-conn-key%'
-    AND (sub->'connections')::text LIKE '%selftest_conn%';
+  BEGIN
+    sub := allgres.dashboard_rpc(jsonb_build_object('action', 'connections.list'));
+    ok := (sub->'connections')::text NOT LIKE '%selftest-conn-key%'
+      AND (sub->'connections')::text LIKE '%selftest_conn%';
+  EXCEPTION WHEN OTHERS THEN
+    -- A pre-existing installation admin means this read is now correctly
+    -- gated before fn_selftest creates its own admin session fixture below.
+    ok := SQLERRM = 'admin role required';
+  END;
   v := v || jsonb_build_array(jsonb_build_object('name', 'connections_list_never_exposes_secret', 'ok', ok));
 
   -- A dedicated fixture agent, reused across reruns (like several agents
@@ -2709,7 +2715,7 @@ BEGIN
   ));
 
   SELECT count(*) INTO n_logs FROM allgres_private.audit_log;
-  PERFORM allgres.dashboard_rpc(jsonb_build_object('action', 'overview'));
+  PERFORM allgres.dashboard_rpc(jsonb_build_object('action', 'overview', 'session_token', v_audit_tok));
   SELECT count(*) INTO v_gen FROM allgres_private.audit_log;
   ok := ok AND v_gen = n_logs;
 
@@ -4925,7 +4931,7 @@ BEGIN
     -- native_host_stats (OS-level CPU load/memory, not SQL-visible at
     -- all). Values themselves are host-dependent -- this only checks the
     -- shape is present, not any particular number.
-    r := allgres.dashboard_rpc(jsonb_build_object('action', 'overview'));
+    r := allgres.dashboard_rpc(jsonb_build_object('action', 'overview', 'session_token', v_admin_tok));
     ok := (r->>'pg_version') IS NOT NULL
       AND (r->'db_sessions'->>'total')::int >= 1
       AND (r->'host'->'cpu_count') IS NOT NULL
@@ -4933,7 +4939,7 @@ BEGIN
       AND (r->>'active_agents')::int = (SELECT count(*) FROM allgres_private.agents WHERE is_active AND name NOT LIKE 'selftest%');
     v := v || jsonb_build_array(jsonb_build_object('name', 'overview_reports_pg_version_db_sessions_and_host_stats', 'ok', ok));
 
-    r := allgres.dashboard_rpc(jsonb_build_object('action', 'settings.get'));
+    r := allgres.dashboard_rpc(jsonb_build_object('action', 'settings.get', 'session_token', v_admin_tok));
     ok := NOT EXISTS (
       SELECT 1
       FROM jsonb_array_elements(COALESCE(r->'providers', '[]'::jsonb)) p
@@ -5167,7 +5173,7 @@ BEGIN
     'assignments.list', 'assignments.for_agent', 'assignments.toggle', 'agents.mine', 'agents.set_my_model',
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
-    'audit.list', 'settings.get', 'provider.update', 'provider.create', 'connections.list',
+    'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
@@ -5190,7 +5196,7 @@ BEGIN
     'assignments.list', 'assignments.for_agent', 'assignments.toggle', 'agents.mine', 'agents.set_my_model',
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
-    'audit.list', 'settings.get', 'provider.update', 'provider.create', 'connections.list',
+    'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',

@@ -522,6 +522,11 @@ SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
 BEGIN
+  IF NOT p_is_active
+     AND EXISTS (SELECT 1 FROM allgres_private.users WHERE user_id = p_user_id AND role = 'admin' AND is_active)
+     AND (SELECT count(*) FROM allgres_private.users WHERE role = 'admin' AND is_active) <= 1 THEN
+    RAISE EXCEPTION 'cannot deactivate the last active admin' USING ERRCODE = 'P0001';
+  END IF;
   UPDATE allgres_private.users SET is_active = p_is_active WHERE user_id = p_user_id;
   PERFORM allgres_private.audit('users.set_active', jsonb_build_object('user_id', p_user_id, 'is_active', p_is_active));
   RETURN jsonb_build_object('ok', true);
@@ -537,6 +542,11 @@ AS $fn$
 BEGIN
   IF p_role NOT IN ('admin', 'user') THEN
     RAISE EXCEPTION 'invalid role: %', p_role USING ERRCODE = 'P0001';
+  END IF;
+  IF p_role <> 'admin'
+     AND EXISTS (SELECT 1 FROM allgres_private.users WHERE user_id = p_user_id AND role = 'admin' AND is_active)
+     AND (SELECT count(*) FROM allgres_private.users WHERE role = 'admin' AND is_active) <= 1 THEN
+    RAISE EXCEPTION 'cannot demote the last active admin' USING ERRCODE = 'P0001';
   END IF;
   UPDATE allgres_private.users SET role = p_role WHERE user_id = p_user_id;
   PERFORM allgres_private.audit('users.set_role', jsonb_build_object('user_id', p_user_id, 'role', p_role));

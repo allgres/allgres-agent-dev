@@ -1,13 +1,21 @@
 [
   {
     "action": "overview",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "agents.list",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "agents.set_autonomy",
@@ -75,9 +83,12 @@
   },
   {
     "action": "policy.history",
-    "guards": [],
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
     "params": [
-      "agent_id"
+      "agent_id",
+      "session_token"
     ]
   },
   {
@@ -186,13 +197,21 @@
   },
   {
     "action": "permissions.options",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "allowlist.list",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "allowlist.add",
@@ -216,8 +235,12 @@
   },
   {
     "action": "projects.list",
-    "guards": [],
-    "params": []
+    "guards": [
+      "visible_agent_ids"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "projects.create",
@@ -474,7 +497,7 @@
   {
     "action": "sessions.get",
     "guards": [
-      "require_admin_if_accounts_exist"
+      "require_agent_access_if_accounts_exist"
     ],
     "params": [
       "session_id",
@@ -552,15 +575,31 @@
   },
   {
     "action": "audit.list",
-    "guards": [],
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
     "params": [
-      "limit"
+      "limit",
+      "session_token"
     ]
   },
   {
     "action": "settings.get",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "providers.available",
+    "guards": [
+      "session_user"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "sql.execute",
@@ -642,8 +681,12 @@
   },
   {
     "action": "connections.list",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "connections.create",
@@ -686,14 +729,21 @@
   },
   {
     "action": "procedures.list",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "procedures.get",
-    "guards": [],
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
     "params": [
-      "procedure_id"
+      "procedure_id",
+      "session_token"
     ]
   },
   {
@@ -734,8 +784,12 @@
   },
   {
     "action": "functions.list",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "functions.create",
@@ -779,8 +833,12 @@
   },
   {
     "action": "schedules.list",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "schedules.create",
@@ -903,8 +961,12 @@
   },
   {
     "action": "events",
-    "guards": [],
-    "params": []
+    "guards": [
+      "visible_agent_ids"
+    ],
+    "params": [
+      "session_token"
+    ]
   },
   {
     "action": "approvals.list",
@@ -930,7 +992,11 @@
   },
   {
     "action": "selftest",
-    "guards": [],
-    "params": []
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
   }
 ]

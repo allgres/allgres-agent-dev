@@ -33,27 +33,35 @@ pub(crate) struct WebConfig {
 
 static WEB_THREADS: AtomicUsize = AtomicUsize::new(0);
 
-pub(crate) static SSE_TICKETS: LazyLock<Mutex<HashMap<String, Instant>>> =
+pub(crate) static SSE_TICKETS: LazyLock<Mutex<HashMap<String, (Instant, String)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Mints a fresh single-use SSE ticket, sweeping expired ones first so this
 /// map cannot grow without bound from tickets nobody ever redeemed.
-pub(crate) fn mint_sse_ticket() -> String {
+pub(crate) fn mint_sse_ticket(session_token: &str) -> String {
     let ticket = nonce();
     let now = Instant::now();
     let mut tickets = SSE_TICKETS.lock().unwrap();
-    tickets.retain(|_, issued| now.duration_since(*issued) < SSE_TICKET_TTL);
-    tickets.insert(ticket.clone(), now);
+    tickets.retain(|_, (issued, _)| now.duration_since(*issued) < SSE_TICKET_TTL);
+    tickets.insert(ticket.clone(), (now, session_token.to_string()));
     ticket
 }
 
-/// Consumes a ticket if it exists and has not expired -- removing it either
-/// way, so the same ticket can never authorize a second connection.
-pub(crate) fn consume_sse_ticket(t: &str) -> bool {
+pub(crate) fn valid_sse_ticket(t: &str) -> bool {
     let now = Instant::now();
     let mut tickets = SSE_TICKETS.lock().unwrap();
-    tickets.retain(|_, issued| now.duration_since(*issued) < SSE_TICKET_TTL);
-    tickets.remove(t).is_some()
+    tickets.retain(|_, (issued, _)| now.duration_since(*issued) < SSE_TICKET_TTL);
+    tickets.contains_key(t)
+}
+
+/// Consumes a ticket and returns the account session captured when it was
+/// minted. The ticket remains single-use while SSE snapshots retain the same
+/// per-user scope as the dashboard request that created it.
+pub(crate) fn consume_sse_ticket(t: &str) -> Option<String> {
+    let now = Instant::now();
+    let mut tickets = SSE_TICKETS.lock().unwrap();
+    tickets.retain(|_, (issued, _)| now.duration_since(*issued) < SSE_TICKET_TTL);
+    tickets.remove(t).map(|(_, session)| session)
 }
 
 /// Per-IP request accounting for `rate_limited`.  Two independent windows:
@@ -190,7 +198,7 @@ pub(crate) fn authorized(r: &HttpRequest, cfg: &WebConfig) -> bool {
     // which is not exempted from the check above.
     if r.route() == "/api/v1/events" {
         if let Some(t) = query_param(r.query(), "ticket") {
-            return consume_sse_ticket(&t);
+            return valid_sse_ticket(&t);
         }
     }
     false
@@ -286,8 +294,12 @@ fn body_json(r: &HttpRequest) -> Value {
 fn api_route(cfg: &WebConfig, r: &HttpRequest) -> Option<Value> {
     let path = r.route();
     match (r.method.as_str(), path) {
-        ("GET", "/api/v1/status") => Some(rpc(cfg, &json!({"action": "overview"}))),
-        ("GET", "/api/v1/agents") => Some(rpc(cfg, &json!({"action": "agents.list"}))),
+        ("GET", "/api/v1/status") => Some(rpc(cfg, &json!({
+            "action": "overview", "session_token": r.header("x-allgres-session")
+        }))),
+        ("GET", "/api/v1/agents") => Some(rpc(cfg, &json!({
+            "action": "agents.list", "session_token": r.header("x-allgres-session")
+        }))),
         ("POST", "/api/v1/agents") => {
             let mut b = body_json(r);
             b["action"] = json!("agents.create");
@@ -314,8 +326,12 @@ fn api_route(cfg: &WebConfig, r: &HttpRequest) -> Option<Value> {
             "action": "logs.list", "limit": 250,
             "session_token": r.header("x-allgres-session")
         }))),
-        ("GET", "/api/v1/settings") => Some(rpc(cfg, &json!({"action": "settings.get"}))),
-        ("POST", "/api/v1/selftest") => Some(rpc(cfg, &json!({"action": "selftest"}))),
+        ("GET", "/api/v1/settings") => Some(rpc(cfg, &json!({
+            "action": "settings.get", "session_token": r.header("x-allgres-session")
+        }))),
+        ("POST", "/api/v1/selftest") => Some(rpc(cfg, &json!({
+            "action": "selftest", "session_token": r.header("x-allgres-session")
+        }))),
         ("POST", "/api/v1/settings/provider") => {
             let mut b = body_json(r);
             b["action"] = json!("provider.update");
@@ -350,7 +366,7 @@ fn api_route(cfg: &WebConfig, r: &HttpRequest) -> Option<Value> {
 /// A real event stream: one connection, a snapshot per second, no
 /// Content-Length.  The previous version sent a single framed snapshot and
 /// closed, which made `retry:` the actual polling mechanism.
-fn stream_events(s: &mut TcpStream, cfg: &WebConfig) {
+fn stream_events(s: &mut TcpStream, cfg: &WebConfig, session_token: &str) {
     let head = format!(
         "HTTP/1.1 200 OK\r\n\
          Content-Type: text/event-stream; charset=utf-8\r\n\
@@ -371,7 +387,7 @@ fn stream_events(s: &mut TcpStream, cfg: &WebConfig) {
 
     let deadline = Instant::now() + SSE_TOTAL;
     while Instant::now() < deadline {
-        let snapshot = rpc(cfg, &json!({"action": "events"}));
+        let snapshot = rpc(cfg, &json!({"action": "events", "session_token": session_token}));
         // serde_json never emits a raw newline, so this stays a single SSE frame.
         let frame = format!("event: snapshot\ndata: {snapshot}\n\n");
         if s.write_all(frame.as_bytes()).is_err() || s.flush().is_err() {
@@ -558,14 +574,20 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
                     "{\"ok\":false,\"error\":\"method_not_allowed\"}", "Allow: POST\r\n");
             return;
         }
-        let ticket = mint_sse_ticket();
+        let ticket = mint_sse_ticket(r.header("x-allgres-session").unwrap_or(""));
         let body = json!({"ok": true, "ticket": ticket, "expires_in": SSE_TICKET_TTL.as_secs()}).to_string();
         respond_json(&mut s, "200 OK", &body);
         return;
     }
 
     if path == "/api/v1/events" {
-        stream_events(&mut s, cfg);
+        let session = query_param(r.query(), "ticket")
+            .and_then(|ticket| consume_sse_ticket(&ticket));
+        let Some(session) = session else {
+            respond_json(&mut s, "401 Unauthorized", "{\"ok\":false,\"error\":\"invalid_ticket\"}");
+            return;
+        };
+        stream_events(&mut s, cfg, &session);
         return;
     }
 

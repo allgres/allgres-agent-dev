@@ -105,18 +105,20 @@ fn query_ticket_is_accepted_only_for_the_event_stream_and_only_once() {
     // authorize -- only a minted ticket does, and only for /api/v1/events.
     assert!(!authorized(&req("GET /api/v1/events?token=s3cr3t HTTP/1.1\r\n\r\n"), &cfg));
 
-    let ticket = mint_sse_ticket();
+    let ticket = mint_sse_ticket("session-a");
     assert!(authorized(
         &req(&format!("GET /api/v1/events?ticket={ticket} HTTP/1.1\r\n\r\n")),
         &cfg
     ));
-    // Single-use: the same ticket does not authorize a second time.
+    assert_eq!(consume_sse_ticket(&ticket), Some("session-a".into()));
+    // Single-use: once the stream consumes it, the same ticket cannot
+    // authorize a second connection.
     assert!(!authorized(
         &req(&format!("GET /api/v1/events?ticket={ticket} HTTP/1.1\r\n\r\n")),
         &cfg
     ));
     // Not accepted on any other route, even freshly minted.
-    let ticket2 = mint_sse_ticket();
+    let ticket2 = mint_sse_ticket("session-b");
     assert!(!authorized(
         &req(&format!("GET /api/v1/tasks?ticket={ticket2} HTTP/1.1\r\n\r\n")),
         &cfg
@@ -125,13 +127,13 @@ fn query_ticket_is_accepted_only_for_the_event_stream_and_only_once() {
 
 #[test]
 fn sse_ticket_expires() {
-    let ticket = mint_sse_ticket();
+    let ticket = mint_sse_ticket("session-a");
     {
         let mut tickets = SSE_TICKETS.lock().unwrap();
         let stale = Instant::now() - SSE_TICKET_TTL - Duration::from_secs(1);
-        tickets.insert(ticket.clone(), stale);
+        tickets.insert(ticket.clone(), (stale, "session-a".into()));
     }
-    assert!(!consume_sse_ticket(&ticket));
+    assert_eq!(consume_sse_ticket(&ticket), None);
 }
 
 #[test]

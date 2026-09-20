@@ -569,6 +569,7 @@ BEGIN
     -- only hidden) -- a headline metric or "recent" list is exactly where an
     -- operator would otherwise see fn_selftest's own fixtures.
     WHEN 'overview' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object(
         'ok', true,
         'server_time', now(),
@@ -638,6 +639,7 @@ BEGIN
       );
 
     WHEN 'agents.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'agents', COALESCE((
         SELECT jsonb_agg(
           jsonb_build_object(
@@ -741,6 +743,7 @@ BEGIN
       RETURN jsonb_build_object('ok', true, 'agent_id', v_id);
 
     WHEN 'policy.history' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'history', COALESCE((
         SELECT jsonb_agg(to_jsonb(q) ORDER BY q.generation DESC)
         FROM (
@@ -913,6 +916,7 @@ BEGIN
     -- function, other agents (delegate targets), and a note that http_host is
     -- free text -- there is no fixed list of allowed hosts to offer.
     WHEN 'permissions.options' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object(
         'ok', true,
         'views', COALESCE((
@@ -930,6 +934,7 @@ BEGIN
       );
 
     WHEN 'allowlist.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'allowlist', COALESCE((
         SELECT jsonb_agg(resource_ref ORDER BY resource_ref)
         FROM allgres_private.sql_sandbox_allowlist
@@ -944,6 +949,7 @@ BEGIN
       RETURN allgres_public.fn_allowlist_del(p_request->>'ref');
 
     WHEN 'projects.list' THEN
+      v_scope := allgres_private.visible_agent_ids(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'projects', COALESCE((
         SELECT jsonb_agg(to_jsonb(pr) ORDER BY pr.name)
         FROM (
@@ -951,6 +957,7 @@ BEGIN
                  p.agent_id, a.name AS agent, p.preset_prompt
           FROM allgres_private.projects p
           LEFT JOIN allgres_private.agents a ON a.agent_id = p.agent_id
+          WHERE v_scope IS NULL OR p.agent_id = ANY(v_scope)
         ) pr
       ), '[]'::jsonb));
 
@@ -1206,11 +1213,14 @@ BEGIN
       ), '[]'::jsonb));
 
     WHEN 'sessions.get' THEN
-      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       v_id := (p_request->>'session_id')::uuid;
       IF NOT EXISTS (SELECT 1 FROM allgres_private.sessions WHERE session_id = v_id) THEN
         RETURN jsonb_build_object('ok', false, 'error', 'session_not_found');
       END IF;
+      PERFORM allgres_private.require_agent_access_if_accounts_exist(
+        p_request->>'session_token',
+        (SELECT agent_id FROM allgres_private.sessions WHERE session_id = v_id)
+      );
       RETURN jsonb_build_object(
         'ok', true,
         'session', (
@@ -1417,6 +1427,7 @@ BEGIN
     -- details this function's own audit() calls always include a name/
     -- username/ref/goal for.
     WHEN 'audit.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'entries', COALESCE((
         SELECT jsonb_agg(to_jsonb(q) ORDER BY q.created_at DESC)
         FROM (
@@ -1429,6 +1440,7 @@ BEGIN
       ), '[]'::jsonb));
 
     WHEN 'settings.get' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object(
         'ok', true,
         'secret_storage', allgres_private.secret_storage_mode(),
@@ -1471,6 +1483,22 @@ BEGIN
           WHERE p.name NOT LIKE 'selftest%'
         ), '[]'::jsonb)
       );
+
+    -- Minimal provider catalog for assigned-user model pickers. Deliberately
+    -- excludes endpoint URLs, credential state, OAuth configuration, probe
+    -- errors, embedding-only providers, and disabled providers.
+    WHEN 'providers.available' THEN
+      v_user := allgres_private.session_user(p_request->>'session_token');
+      IF v_user.user_id IS NULL THEN
+        RAISE EXCEPTION 'not logged in' USING ERRCODE = 'P0001';
+      END IF;
+      RETURN jsonb_build_object('ok', true, 'providers', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'name', p.name, 'kind', p.kind, 'available_models', p.available_models
+        ) ORDER BY p.name)
+        FROM allgres_private.llm_providers p
+        WHERE p.is_enabled AND p.purpose = 'chat' AND p.name NOT LIKE 'selftest%'
+      ), '[]'::jsonb));
 
     WHEN 'sql.execute' THEN
       -- allgres_public.fn_admin_execute_sql's own comment covers the
@@ -1553,6 +1581,7 @@ BEGIN
     -- own comment). Never returns api_key -- only has_secret, the same as
     -- settings.get for llm_providers.
     WHEN 'connections.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'connections', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'connection_id', c.connection_id,
@@ -1605,6 +1634,7 @@ BEGIN
     -- create/update/rollback are admin-gated, matching provider.create/
     -- policy.rollback.
     WHEN 'procedures.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'procedures', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'procedure_id', p.procedure_id, 'name', p.name, 'content', p.content,
@@ -1616,6 +1646,7 @@ BEGIN
       ), '[]'::jsonb));
 
     WHEN 'procedures.get' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       v_id := (p_request->>'procedure_id')::uuid;
       RETURN jsonb_build_object(
         'ok', true,
@@ -1655,6 +1686,7 @@ BEGIN
       );
 
     WHEN 'functions.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'functions', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'function_id', pt.function_id, 'name', pt.name, 'description', pt.description,
@@ -1702,6 +1734,7 @@ BEGIN
     -- session and so is consequential the same way sessions.cancel is) is
     -- admin-gated once any account exists.
     WHEN 'schedules.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object('ok', true, 'schedules', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'schedule_id', sc.schedule_id, 'name', sc.name, 'agent_id', sc.agent_id, 'agent', a.name,
@@ -1790,6 +1823,7 @@ BEGIN
       RETURN allgres_public.fn_provider_probe_status((p_request->>'call_id')::uuid);
 
     WHEN 'events' THEN
+      v_scope := allgres_private.visible_agent_ids(p_request->>'session_token');
       RETURN jsonb_build_object(
         'ok', true,
         'server_time', now(),
@@ -1802,6 +1836,7 @@ BEGIN
             JOIN allgres_private.agents a USING (agent_id)
             JOIN allgres_private.sessions s USING (session_id)
             WHERE s.goal NOT LIKE 'selftest%'
+              AND (v_scope IS NULL OR t.agent_id = ANY(v_scope))
             ORDER BY t.updated_at DESC LIMIT 12
           ) q
         ), '[]'::jsonb),
@@ -1813,6 +1848,7 @@ BEGIN
             JOIN allgres_private.tasks t USING (task_id)
             JOIN allgres_private.sessions s USING (session_id)
             WHERE s.goal NOT LIKE 'selftest%'
+              AND (v_scope IS NULL OR t.agent_id = ANY(v_scope))
             ORDER BY l.created_at DESC LIMIT 15
           ) q
         ), '[]'::jsonb)
@@ -1853,6 +1889,7 @@ BEGIN
       );
 
     WHEN 'selftest' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_public.fn_selftest();
 
     ELSE
