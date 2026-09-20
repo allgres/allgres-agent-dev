@@ -1442,6 +1442,20 @@ CREATE TABLE IF NOT EXISTS allgres_private.user_agent_assignments (
   PRIMARY KEY (user_id, agent_id)
 );
 
+-- A user's model choice is a preference for that user's conversations, not
+-- a mutation of the shared Agent policy.  Provider credentials and endpoint
+-- configuration remain operator-owned in llm_providers; this row stores only
+-- the provider name and model selection allowed by sanitize_llm_config.
+CREATE TABLE IF NOT EXISTS allgres_private.user_agent_preferences (
+  user_id    uuid NOT NULL REFERENCES allgres_private.users(user_id) ON DELETE CASCADE,
+  agent_id   uuid NOT NULL REFERENCES allgres_private.agents(agent_id) ON DELETE CASCADE,
+  llm_config jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, agent_id),
+  CHECK (jsonb_typeof(llm_config) = 'object')
+);
+
 -- One continuing session per (user, agent) pair for the simple 1:1 chat
 -- page, and the same pair's session for a messenger @mention (see
 -- messenger.post): "chat with this agent" is one ongoing conversation per
@@ -3957,6 +3971,7 @@ DECLARE
   v_functions jsonb;
   v_input_text text;
   v_cfg jsonb;
+  v_user_cfg jsonb;
   v_memories jsonb;
   v_memory_ids uuid[];
   v_procedures jsonb;
@@ -4345,7 +4360,19 @@ BEGIN
     END IF;
   END IF;
 
-  v_cfg := p.llm_config;
+  -- Human chat preferences override only the shared Agent's provider/model.
+  -- A schedule, direct SQL session, or delegated child has no user mapping
+  -- and therefore continues to use the administrator-owned Agent default.
+  SELECT pref.llm_config INTO v_user_cfg
+  FROM allgres_private.user_agent_preferences pref
+  WHERE pref.agent_id=t.agent_id AND pref.user_id=(
+    SELECT owner_id FROM (
+      SELECT user_id owner_id FROM allgres_private.user_agent_chat_sessions WHERE session_id=t.session_id
+      UNION
+      SELECT user_id FROM allgres_private.user_project_chat_sessions WHERE session_id=t.session_id
+    ) owners LIMIT 1
+  );
+  v_cfg := p.llm_config || COALESCE(v_user_cfg,'{}'::jsonb);
   IF v_effective_override IS NOT NULL THEN
     v_cfg := v_cfg || jsonb_build_object(
       'provider', v_effective_override->>'provider', 'model', v_effective_override->>'model'

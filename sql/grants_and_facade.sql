@@ -1125,10 +1125,15 @@ BEGIN
       RETURN jsonb_build_object('ok', true, 'agents', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'agent_id', a.agent_id, 'name', a.name,
-          'provider', p.llm_config->>'provider', 'model', p.llm_config->>'model'
+          'provider', COALESCE(up.llm_config->>'provider',p.llm_config->>'provider'),
+          'model', COALESCE(up.llm_config->>'model',p.llm_config->>'model'),
+          'default_provider', p.llm_config->>'provider', 'default_model', p.llm_config->>'model',
+          'is_overridden', up.user_id IS NOT NULL
         ) ORDER BY a.name)
         FROM allgres_private.agents a
         JOIN allgres_private.policies p USING (agent_id)
+        LEFT JOIN allgres_private.user_agent_preferences up
+          ON up.user_id=v_user.user_id AND up.agent_id=a.agent_id
         WHERE a.is_active AND (
           v_user.role = 'admin'
           OR EXISTS (

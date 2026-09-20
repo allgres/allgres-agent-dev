@@ -2953,14 +2953,19 @@ BEGIN
     END;
     v := v || jsonb_build_array(jsonb_build_object('name', 'messenger_mention_of_unassigned_agent_rejected', 'ok', ok));
 
-    -- fn_set_my_model: the one thing a regular user may change on their
-    -- assigned agent's policy -- never max_steps/permissions/prompt, which
-    -- stay behind the operator-only agents.update surface.
-    comp := allgres_public.fn_set_my_model(v_user_tok, v_acct_agent, 'selftest_placeholder_provider', 'some-model');
+    -- A personal model selection is isolated from the shared Agent policy.
+    comp := allgres_public.fn_set_my_model(v_user_tok, v_acct_agent, 'openai', 'some-model');
     ok := (comp->>'ok')::boolean
-      AND (SELECT llm_config FROM allgres_private.policies WHERE agent_id = v_acct_agent)
-        = jsonb_build_object('provider', 'selftest_placeholder_provider', 'model', 'some-model');
-    v := v || jsonb_build_array(jsonb_build_object('name', 'fn_set_my_model_updates_assigned_agent', 'ok', ok));
+      AND EXISTS (SELECT 1 FROM allgres_private.user_agent_preferences
+        WHERE user_id=(allgres_private.session_user(v_user_tok)).user_id AND agent_id=v_acct_agent
+          AND llm_config=jsonb_build_object('provider','openai','model','some-model'))
+      AND (SELECT llm_config FROM allgres_private.policies WHERE agent_id=v_acct_agent)='{}'::jsonb;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'fn_set_my_model_is_user_scoped', 'ok', ok));
+    comp := allgres_public.fn_set_my_model(v_user_tok,v_acct_agent,NULL,NULL);
+    ok := (comp->>'overridden')::boolean=false AND NOT EXISTS (
+      SELECT 1 FROM allgres_private.user_agent_preferences
+      WHERE user_id=(allgres_private.session_user(v_user_tok)).user_id AND agent_id=v_acct_agent);
+    v := v || jsonb_build_array(jsonb_build_object('name','fn_set_my_model_reset_uses_agent_default','ok',ok));
 
     BEGIN
       PERFORM allgres_public.fn_set_my_model(

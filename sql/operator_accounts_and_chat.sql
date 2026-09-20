@@ -1095,10 +1095,9 @@ BEGIN
 END;
 $fn$;
 
--- Regular users can only reach this narrow slice of an agent's policy --
--- llm_config, through fn_set_policy the same way the operator-facing agent
--- editor already does -- never max_steps/permissions/prompt, which stay
--- admin-only via the existing agents.update surface.
+-- A user's Provider/Model choice is private to that user+Agent pair.  It must
+-- never rewrite policies.llm_config, which is the administrator-owned default
+-- shared by schedules and users without an override.
 CREATE OR REPLACE FUNCTION allgres_public.fn_set_my_model(
   p_session_token text,
   p_agent_id uuid,
@@ -1109,12 +1108,31 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = allgres_private, allgres_public, pg_temp
 AS $fn$
+DECLARE u allgres_private.users%ROWTYPE;
 BEGIN
-  PERFORM allgres_private.require_agent_access(p_session_token, p_agent_id);
-  RETURN allgres_public.fn_set_policy(
-    p_agent_id, NULL, NULL, NULL,
-    jsonb_build_object('provider', p_provider, 'model', p_model)
-  );
+  u := allgres_private.require_agent_access(p_session_token, p_agent_id);
+  IF p_provider IS NULL AND p_model IS NULL THEN
+    DELETE FROM allgres_private.user_agent_preferences
+    WHERE user_id=u.user_id AND agent_id=p_agent_id;
+    PERFORM allgres_private.audit('user_agent_preferences.reset',
+      jsonb_build_object('user_id',u.user_id,'agent_id',p_agent_id));
+    RETURN jsonb_build_object('ok',true,'overridden',false);
+  END IF;
+  IF p_provider IS NULL OR p_model IS NULL THEN
+    RAISE EXCEPTION 'provider and model are both required' USING ERRCODE='22023';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM allgres_private.llm_providers
+                 WHERE name=p_provider AND is_enabled AND purpose <> 'embedding') THEN
+    RAISE EXCEPTION 'provider is not configured or enabled' USING ERRCODE='P0001';
+  END IF;
+  INSERT INTO allgres_private.user_agent_preferences(user_id,agent_id,llm_config)
+  VALUES (u.user_id,p_agent_id,
+          allgres_private.sanitize_llm_config(jsonb_build_object('provider',p_provider,'model',p_model)))
+  ON CONFLICT (user_id,agent_id) DO UPDATE SET
+    llm_config=EXCLUDED.llm_config,updated_at=now();
+  PERFORM allgres_private.audit('user_agent_preferences.set',
+    jsonb_build_object('user_id',u.user_id,'agent_id',p_agent_id,'provider',p_provider,'model',p_model));
+  RETURN jsonb_build_object('ok',true,'overridden',true);
 END;
 $fn$;
 

@@ -1035,7 +1035,7 @@ function assignmentsModal(userId){
 // can route to any of several), so it stays out of that mode.
 function chatModelPicker(agent,providerOpts){
   if(!agent)return '';
-  return `<div class="row wrap" style="margin-bottom:22px;gap:8px;align-items:flex-end"><div class="field" style="margin:0;min-width:180px"><label>Provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field" style="margin:0;min-width:180px"><label>Model</label><input class="input" id="cmModel" value="${esc(agent.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5" list="cmModelOptions">${modelDatalist('cmModelOptions',providerOpts.find(p=>p.name===agent.provider)?.available_models||[])}</div><button class="btn small" id="cmSave">Save</button></div>`;
+  return `<div class="row wrap" style="margin-bottom:22px;gap:8px;align-items:flex-end"><div class="field" style="margin:0;min-width:180px"><label>My provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field" style="margin:0;min-width:180px"><label>My model</label><input class="input" id="cmModel" value="${esc(agent.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5" list="cmModelOptions">${modelDatalist('cmModelOptions',providerOpts.find(p=>p.name===agent.provider)?.available_models||[])}</div><button class="btn small" id="cmSave">Save for me</button>${agent.is_overridden?'<button class="btn small" id="cmReset">Use Agent default</button>':''}<div class="muted" style="font-size:11px">Agent default: ${esc(agent.default_provider||'—')} / ${esc(agent.default_model||'—')}</div></div>`;
 }
 function wireChatModelPicker(agent,providerOpts,onSaved){
   if(!agent||!$('#cmProvider'))return;
@@ -1050,6 +1050,7 @@ function wireChatModelPicker(agent,providerOpts,onSaved){
       if(onSaved)onSaved();
     }catch(e){toast(e.message)}
   };
+  if($('#cmReset'))$('#cmReset').onclick=async()=>{try{await rpc('agents.set_my_model',{agent_id:agent.agent_id,provider:'',model:''});toast('Using Agent default');if(onSaved)onSaved()}catch(e){toast(e.message)}};
 }
 async function chatPage(){
   if(!['general','sessions'].includes(state.chatMode))state.chatMode='general';
@@ -1169,13 +1170,14 @@ async function myAgentsPage(){
   const d=await rpc('agents.mine'); state.myAgents=d.agents||[];
   const ds=await rpc('providers.available').catch(()=>({providers:[]}));
   const providerOpts=ds.providers||[];
-  $('#view').innerHTML=`<div class="panel"><h3>My agents</h3>${state.myAgents.length?state.myAgents.map(a=>`<div class="listrow"><div class="row"><b>${esc(a.name)}</b></div><div class="grid2" style="margin-top:8px"><div class="field"><label>Provider</label><select class="select myProv" data-agent="${esc(a.agent_id)}">${providerOpts.length?(!a.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===a.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field"><label>Model</label><input class="input myModel" data-agent="${esc(a.agent_id)}" value="${esc(a.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5"></div></div><button class="btn small saveMyModel" data-agent="${esc(a.agent_id)}">Save</button></div>`).join(''):'<div class="muted">No agents assigned yet -- ask an admin.</div>'}</div>`;
+  $('#view').innerHTML=`<div class="panel"><h3>My agents</h3><div class="muted" style="font-size:12px;margin-bottom:10px">Your Provider and Model choices apply only to your conversations. They never change the shared Agent default.</div>${state.myAgents.length?state.myAgents.map(a=>`<div class="listrow"><div class="row"><b>${esc(a.name)}</b><span class="spacer"></span><span class="muted">Default: ${esc(a.default_provider||'—')} / ${esc(a.default_model||'—')}</span></div><div class="grid2" style="margin-top:8px"><div class="field"><label>My provider</label><select class="select myProv" data-agent="${esc(a.agent_id)}">${providerOpts.length?(!a.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===a.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field"><label>My model</label><input class="input myModel" data-agent="${esc(a.agent_id)}" value="${esc(a.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5"></div></div><div class="row"><button class="btn small saveMyModel" data-agent="${esc(a.agent_id)}">Save for me</button>${a.is_overridden?`<button class="btn small resetMyModel" data-agent="${esc(a.agent_id)}">Use Agent default</button>`:''}</div></div>`).join(''):'<div class="muted">No agents assigned yet -- ask an admin.</div>'}</div>`;
   document.querySelectorAll('.saveMyModel').forEach(b=>b.onclick=async()=>{
     const id=b.dataset.agent;
     const provider=document.querySelector(`.myProv[data-agent="${id}"]`).value;
     const model=document.querySelector(`.myModel[data-agent="${id}"]`).value;
     try{await rpc('agents.set_my_model',{agent_id:id,provider,model});toast('Saved');myAgentsPage()}catch(e){toast(e.message)}
   });
+  document.querySelectorAll('.resetMyModel').forEach(b=>b.onclick=async()=>{try{await rpc('agents.set_my_model',{agent_id:b.dataset.agent,provider:'',model:''});toast('Using Agent default');myAgentsPage()}catch(e){toast(e.message)}});
 }
 // The event stream authenticates with a short-lived, single-use ticket
 // (POST /api/v1/events/ticket, gated by the real bearer token) instead of
