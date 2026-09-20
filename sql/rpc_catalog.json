@@ -1017,5 +1017,15 @@
     "params": [
       "session_token"
     ]
+  },
+  {
+    "action": "capabilities.transition",
+    "guards": ["require_admin_if_accounts_exist"],
+    "params": ["capability_id", "lifecycle", "note", "session_token", "test_result"]
+  },
+  {
+    "action": "capabilities.rollback",
+    "guards": ["require_admin_if_accounts_exist"],
+    "params": ["capability_id", "session_token", "version"]
   }
 ]

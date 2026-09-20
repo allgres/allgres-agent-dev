@@ -30,6 +30,83 @@ CREATE INDEX IF NOT EXISTS capability_index_published_idx
   ON allgres_private.capability_index (updated_at DESC)
   WHERE lifecycle = 'published';
 
+ALTER TABLE allgres_private.capability_index
+  DROP CONSTRAINT IF EXISTS capability_index_lifecycle_check;
+ALTER TABLE allgres_private.capability_index
+  ADD CONSTRAINT capability_index_lifecycle_check CHECK
+    (lifecycle IN ('draft','testing','review_pending','published','deprecated','disabled'));
+
+CREATE TABLE IF NOT EXISTS allgres_private.capability_versions (
+  capability_version_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  capability_id uuid NOT NULL REFERENCES allgres_private.capability_index(capability_id) ON DELETE CASCADE,
+  version int NOT NULL,
+  lifecycle text NOT NULL,
+  snapshot jsonb NOT NULL,
+  test_result jsonb,
+  change_note text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(capability_id,version)
+);
+
+CREATE OR REPLACE FUNCTION allgres_private.transition_capability(
+  p_capability_id uuid,p_lifecycle text,p_test_result jsonb DEFAULT NULL,p_note text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+DECLARE c allgres_private.capability_index%ROWTYPE; v_version int;
+BEGIN
+  IF p_lifecycle NOT IN ('draft','testing','review_pending','published','deprecated','disabled') THEN
+    RAISE EXCEPTION 'invalid capability lifecycle' USING ERRCODE='22023';
+  END IF;
+  SELECT * INTO c FROM allgres_private.capability_index WHERE capability_id=p_capability_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'capability not found' USING ERRCODE='P0001'; END IF;
+  IF c.lifecycle='published' AND p_lifecycle IN ('draft','testing','review_pending') THEN
+    RAISE EXCEPTION 'published capabilities are immutable; create a new source version' USING ERRCODE='P0001';
+  END IF;
+  IF p_lifecycle='published' AND (p_test_result IS NULL OR COALESCE((p_test_result->>'passed')::boolean,false)=false) THEN
+    RAISE EXCEPTION 'a passing isolated test result is required to publish' USING ERRCODE='P0001';
+  END IF;
+  SELECT COALESCE(max(version),0)+1 INTO v_version FROM allgres_private.capability_versions
+  WHERE capability_id=p_capability_id;
+  INSERT INTO allgres_private.capability_versions
+    (capability_id,version,lifecycle,snapshot,test_result,change_note)
+  VALUES (p_capability_id,v_version,c.lifecycle,
+    jsonb_build_object('name',c.name,'description',c.description,'search_document',c.search_document,
+      'metadata',c.metadata,'lifecycle',c.lifecycle,'content_hash',c.content_hash),p_test_result,left(p_note,2000));
+  UPDATE allgres_private.capability_index SET lifecycle=p_lifecycle,updated_at=now()
+  WHERE capability_id=p_capability_id;
+  PERFORM allgres_private.audit('capability.transition',jsonb_build_object(
+    'capability_id',p_capability_id,'from',c.lifecycle,'to',p_lifecycle,'version',v_version));
+  RETURN jsonb_build_object('ok',true,'version',v_version,'lifecycle',p_lifecycle);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.rollback_capability(p_capability_id uuid,p_version int)
+RETURNS jsonb LANGUAGE plpgsql AS $fn$
+DECLARE v allgres_private.capability_versions%ROWTYPE; v_new int;
+BEGIN
+  SELECT * INTO v FROM allgres_private.capability_versions
+  WHERE capability_id=p_capability_id AND version=p_version;
+  IF NOT FOUND THEN RAISE EXCEPTION 'capability version not found' USING ERRCODE='P0001'; END IF;
+  SELECT COALESCE(max(version),0)+1 INTO v_new FROM allgres_private.capability_versions
+  WHERE capability_id=p_capability_id;
+  INSERT INTO allgres_private.capability_versions(capability_id,version,lifecycle,snapshot,change_note)
+  SELECT c.capability_id,v_new,c.lifecycle,
+    jsonb_build_object('name',c.name,'description',c.description,'search_document',c.search_document,
+      'metadata',c.metadata,'lifecycle',c.lifecycle,'content_hash',c.content_hash),
+    'rollback before restoring version '||p_version
+  FROM allgres_private.capability_index c WHERE c.capability_id=p_capability_id;
+  UPDATE allgres_private.capability_index SET
+    name=v.snapshot->>'name',description=v.snapshot->>'description',
+    search_document=v.snapshot->>'search_document',metadata=v.snapshot->'metadata',
+    content_hash=v.snapshot->>'content_hash',lifecycle='published',embedding=NULL,
+    embedding_model=NULL,embedding_updated_at=NULL,updated_at=now()
+  WHERE capability_id=p_capability_id;
+  PERFORM allgres_private.queue_capability_embedding(p_capability_id);
+  PERFORM allgres_private.audit('capability.rollback',jsonb_build_object(
+    'capability_id',p_capability_id,'restored_version',p_version,'saved_version',v_new));
+  RETURN jsonb_build_object('ok',true,'restored_version',p_version,'saved_version',v_new);
+END;
+$fn$;
+
 CREATE TABLE IF NOT EXISTS allgres_private.capability_search_events (
   event_id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id              uuid REFERENCES allgres_private.tasks(task_id) ON DELETE SET NULL,

@@ -1734,7 +1734,10 @@ BEGIN
           'description',c.description,'metadata',c.metadata,'lifecycle',c.lifecycle,
           'content_hash',c.content_hash,'embedding_model',c.embedding_model,
           'embedded',c.embedding IS NOT NULL,'embedding_updated_at',c.embedding_updated_at,
-          'updated_at',c.updated_at
+          'updated_at',c.updated_at,'versions',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'version',v.version,'lifecycle',v.lifecycle,'test_result',v.test_result,
+            'change_note',v.change_note,'created_at',v.created_at) ORDER BY v.version DESC)
+            FROM allgres_private.capability_versions v WHERE v.capability_id=c.capability_id),'[]'::jsonb)
         ) ORDER BY c.capability_type,c.name) FROM allgres_private.capability_index c),'[]'::jsonb),
         'metrics',allgres_public.fn_capability_metrics()
       );
@@ -1742,6 +1745,16 @@ BEGIN
     WHEN 'capabilities.reindex' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_private.sync_capability_index();
+
+    WHEN 'capabilities.transition' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_private.transition_capability((p_request->>'capability_id')::uuid,
+        p_request->>'lifecycle',p_request->'test_result',p_request->>'note');
+
+    WHEN 'capabilities.rollback' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_private.rollback_capability((p_request->>'capability_id')::uuid,
+        (p_request->>'version')::int);
 
     WHEN 'functions.create' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
