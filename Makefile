@@ -19,12 +19,18 @@
 
 PG_CONFIG ?= pg_config
 QUICKSTART_DB ?= postgres
+ALLGRES_BOOTSTRAP_ADMIN_USER ?=
+ALLGRES_BOOTSTRAP_ADMIN_PASSWORD ?=
+CARGO_BIN_DIR ?= $(HOME)/.cargo/bin
+
+.DEFAULT_GOAL := build
+export PATH := $(CARGO_BIN_DIR):$(PATH)
 
 CARGO_PGRX_VERSION := $(shell grep -E '^pgrx = ' Cargo.toml | sed -E 's/.*version = "=?([0-9.]+)".*/\1/')
 PG_MAJOR := $(shell $(PG_CONFIG) --version 2>/dev/null | sed -E 's/PostgreSQL ([0-9]+).*/\1/')
 PG_INCLUDEDIR_SERVER := $(shell $(PG_CONFIG) --includedir-server 2>/dev/null)
 
-.PHONY: build install quickstart clean check
+.PHONY: build install quickstart bootstrap-admin clean check tools
 
 check:
 ifeq ($(PG_MAJOR),)
@@ -89,15 +95,16 @@ endif
 # rustup's own official install method -- the same one-liner Dockerfile
 # already uses -- only runs when `cargo` isn't already on PATH, so this is
 # a no-op on any machine that already has Rust.
-build: check
+tools: check
 	@command -v cargo >/dev/null 2>&1 || { \
 	  echo "Rust not found -- installing via rustup"; \
 	  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal; \
-	  echo "Add \$$HOME/.cargo/bin to PATH (or open a new shell) and re-run make."; \
-	  exit 1; \
+	  command -v cargo >/dev/null 2>&1 || { echo "Rust installed but cargo is still unavailable; add $(CARGO_BIN_DIR) to PATH and retry."; exit 1; }; \
 	}
 	@command -v cargo-pgrx >/dev/null 2>&1 || cargo install --locked cargo-pgrx --version $(CARGO_PGRX_VERSION)
 	@cargo pgrx init --pg$(PG_MAJOR)=$(PG_CONFIG)
+
+build: tools
 	cargo pgrx package --pg-config $(PG_CONFIG) --no-default-features --features pg$(PG_MAJOR)
 
 # `-s`/`--sudo` only when not already root -- the extension directories
@@ -118,7 +125,7 @@ build: check
 #   sudo env "PATH=$PATH" make install
 # preserving PATH so root's shell still finds cargo/cargo-pgrx/pg_config
 # wherever the non-root account's own install put them.
-install: build
+install: tools
 	cargo pgrx install $(if $(filter 0,$(shell id -u)),,--sudo) \
 	  --pg-config $(PG_CONFIG) --release --no-default-features --features pg$(PG_MAJOR)
 	@echo ""
@@ -146,17 +153,45 @@ install: build
 # along with it, silently, since PostgreSQL's simple query protocol wraps
 # a multi-statement string in one implicit transaction block.
 quickstart:
-	@psql -d $(QUICKSTART_DB) -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null 2>&1 || \
-	  echo "pgcrypto not available on this system -- skipping it (optional; provider secrets are stored unencrypted without it)"
+	@psql -d $(QUICKSTART_DB) -c "SELECT 1" >/dev/null 2>&1 || { \
+	  echo "Cannot connect to database '$(QUICKSTART_DB)'. Set PGUSER/PGHOST/PGPORT (or QUICKSTART_DB) and retry."; \
+	  exit 1; \
+	}
+	@if psql -d $(QUICKSTART_DB) -tAc "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pgcrypto')" | grep -qx t; then \
+	  psql -v ON_ERROR_STOP=1 -d $(QUICKSTART_DB) -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;" >/dev/null; \
+	else \
+	  echo "pgcrypto not available on this system -- skipping it (optional; provider secrets are stored unencrypted without it)"; \
+	fi
 	psql -v ON_ERROR_STOP=1 -d $(QUICKSTART_DB) -c "SET allgres.reloadable = 'on'; \
 	  CREATE EXTENSION IF NOT EXISTS allgres; \
 	  SELECT allgres_public.fn_start_dynamic_workers();"
+	@if [ -n "$(ALLGRES_BOOTSTRAP_ADMIN_USER)$(ALLGRES_BOOTSTRAP_ADMIN_PASSWORD)" ]; then \
+	  $(MAKE) --no-print-directory bootstrap-admin; \
+	else \
+	  echo "No dashboard admin bootstrap requested. Re-run with ALLGRES_BOOTSTRAP_ADMIN_USER and ALLGRES_BOOTSTRAP_ADMIN_PASSWORD to create the first login."; \
+	fi
 	@echo ""
 	@echo "\"ok\": true above -- allgres just started with no restart; open http://127.0.0.1:8088"
 	@echo "\"ok\": false, already in shared_preload_libraries -- also fine, the static"
 	@echo "  (postmaster-managed) workers already cover it; open http://127.0.0.1:8088 the same way"
 	@echo "any other \"ok\": false -- dynamic start didn't happen; see"
 	@echo "  docs/deployment/source-install.md, 'Installing without a restart'"
+	@echo "Dynamic workers last until PostgreSQL restarts. Add allgres to shared_preload_libraries for a persistent installation."
+
+bootstrap-admin:
+	@[ -n "$(ALLGRES_BOOTSTRAP_ADMIN_USER)" ] && [ -n "$(ALLGRES_BOOTSTRAP_ADMIN_PASSWORD)" ] || { \
+	  echo "Set both ALLGRES_BOOTSTRAP_ADMIN_USER and ALLGRES_BOOTSTRAP_ADMIN_PASSWORD to create the first dashboard login."; \
+	  exit 1; \
+	}
+	@created=$$(printf '%s\n' "SELECT allgres_public.fn_create_user(:'bootstrap_user', :'bootstrap_password', 'admin') WHERE NOT EXISTS (SELECT 1 FROM allgres_private.users);" | \
+	psql -v ON_ERROR_STOP=1 -d $(QUICKSTART_DB) -tA \
+	  -v bootstrap_user="$(ALLGRES_BOOTSTRAP_ADMIN_USER)" \
+	  -v bootstrap_password="$(ALLGRES_BOOTSTRAP_ADMIN_PASSWORD)"); \
+	if [ -n "$$created" ]; then \
+	  echo "Dashboard admin '$(ALLGRES_BOOTSTRAP_ADMIN_USER)' is ready."; \
+	else \
+	  echo "An existing dashboard account was retained; bootstrap was skipped."; \
+	fi
 
 clean:
 	cargo clean

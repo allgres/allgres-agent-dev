@@ -208,22 +208,8 @@ jobs:
             ~/.cargo/git
           key: makefile-smoke-cargo-${{ hashFiles('Cargo.lock') }}
 
-      - name: make build, attempt 1 -- Rust hidden from PATH, expected to install rustup and stop there
-        id: first_attempt
-        continue-on-error: true
+      - name: make build from a clean shell -- installs Rust and cargo-pgrx in one command
         run: PATH=/usr/bin:/bin:/usr/sbin:/sbin make build PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config
-
-      - name: Confirm the first attempt failed the documented way, not some other way
-        if: steps.first_attempt.outcome != 'failure'
-        run: |
-          echo "make build succeeded on the very first try -- Rust must already have been on this runner, which defeats the point of this job" >&2
-          exit 1
-
-      - name: make build, attempt 2 -- same as opening a new shell after rustup finished, as the Makefile's own message says to
-        run: |
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.cargo/bin:$PATH"
-          make build PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config
 
       - name: make install
         run: make install PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config
@@ -232,7 +218,8 @@ jobs:
         run: |
           sudo pg_ctlcluster 16 main start || true
           for _ in $(seq 1 30); do sudo -u postgres pg_isready -q && break; sleep 1; done
-          sudo -u postgres make quickstart
+          sudo -u postgres env ALLGRES_BOOTSTRAP_ADMIN_USER=ci_admin ALLGRES_BOOTSTRAP_ADMIN_PASSWORD=ci-only-password make quickstart
+          sudo -u postgres psql -d postgres -tAc "SELECT count(*) FROM allgres_private.users WHERE username = 'ci_admin'" | grep -qx 1
           ok=0
           for _ in $(seq 1 15); do
             curl -sf -o /dev/null http://127.0.0.1:8088/ && { ok=1; break; }

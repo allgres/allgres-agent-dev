@@ -72,8 +72,13 @@ Rust and `cargo-pgrx` are handled for you if they aren't already there:
 git clone https://github.com/allgres/allgres-agent-dev.git
 cd allgres-agent-dev
 make install     # needs root? see the note just below, not a bare `sudo`
-make quickstart  # CREATE EXTENSION + start, no restart -- see below
+ALLGRES_BOOTSTRAP_ADMIN_USER=admin ALLGRES_BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-password' make quickstart
 ```
+
+`quickstart` creates the extension, starts it without a PostgreSQL restart,
+and creates the first dashboard admin. Set `PGUSER` (and, when needed,
+`PGHOST`, `PGPORT`, or `QUICKSTART_DB`) before running it against a different
+PostgreSQL instance or database.
 
 **If `lib`/`share` aren't writable by your own account** (the common
 case running as the `postgres` service account itself, which usually has
@@ -94,9 +99,10 @@ Four commands, and the last two are only two because `install` and
 this machine's PostgreSQL installation, the same as any extension's own
 `make install`; `quickstart` is the one step that touches a live database,
 so it stays opt-in rather than a side effect of building). `make` alone
-(no target) stages a build under `target/release/allgres-pgNN/` without
+(no target) builds a package under `target/release/allgres-pgNN/` without
 touching the system at all, if you just want to compile first and decide
-later. `make install` explains its own next steps when it finishes, in
+later. On a new machine, that first command installs Rust and cargo-pgrx as
+needed and finishes the build in the same invocation. `make install` explains its own next steps when it finishes, in
 case you'd rather run them by hand or against a different database than
 `quickstart`'s default of `postgres`.
 
@@ -214,8 +220,9 @@ CREATE EXTENSION allgres;
 SELECT allgres_public.fn_start_dynamic_workers();
 ```
 
-(exactly what `make quickstart` runs, against the `postgres` database, if
-`allgres` is already installed).
+(the database setup that `make quickstart` runs against `postgres`, after
+which it can create the first dashboard admin when both bootstrap environment
+variables are supplied).
 
 That last call registers both workers with PostgreSQL's own
 `RegisterDynamicBackgroundWorker`, the same mechanism `pg_cron` and similar

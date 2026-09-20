@@ -68,8 +68,12 @@ Rust and `cargo-pgrx` are handled for you if they aren't already there:
 git clone https://github.com/allgres/allgres-agent-dev.git
 cd allgres-agent-dev
 make install     # needs root? see Source install for why a bare `sudo` isn't enough
-make quickstart  # CREATE EXTENSION + start, no restart required
+ALLGRES_BOOTSTRAP_ADMIN_USER=admin ALLGRES_BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-password' make quickstart
 ```
+
+`quickstart` creates the extension, starts it without a restart, and creates
+the first dashboard admin. Set `PGUSER` (and, when needed, `PGHOST`,
+`PGPORT`, or `QUICKSTART_DB`) for the PostgreSQL instance to configure.
 
 See [Source install](docs/deployment/source-install.md) for what the
 Makefile is actually doing and the classic `shared_preload_libraries` +
