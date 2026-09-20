@@ -17,6 +17,7 @@ body{font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFon
 .app{grid-template-columns:216px minmax(0,1fr)}
 .side{background:var(--sidebar);min-width:0}
 .nav{display:grid;gap:4px;scrollbar-width:none}.nav::-webkit-scrollbar{display:none}.nav button{margin:0}
+.nav-group{margin:10px 0 2px;padding:0 12px;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.nav-sub{padding-left:24px!important;font-size:13px}.nav-top{font-weight:650}
 .main{min-width:0}.top{flex-wrap:wrap;gap:16px}.top>.row{justify-content:flex-end}
 .row{flex-wrap:wrap;min-width:0}.row>.input,.row>.select,.row>.textarea{flex:1 1 220px;width:auto;min-width:0}.spacer{flex:1 1 16px}
 .btn{min-height:36px;line-height:1.2;white-space:nowrap;transition:background .15s,border-color .15s,color .15s}.btn:hover{background:var(--line);border-color:var(--muted)}.btn.primary{color:var(--on-accent)}.btn.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}.btn.small{min-height:30px;padding:6px 9px}
@@ -56,14 +57,14 @@ a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}a:
 <script nonce="__CSP_NONCE__">
 const savedUi=(key,fallback)=>{try{return localStorage.getItem('allgres_ui_'+key)||fallback}catch{return fallback}};
 const saveUi=(key,value)=>{try{localStorage.setItem('allgres_ui_'+key,value)}catch{}};
-const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users:[],chatAgentId:null,chatMode:savedUi('chat_mode','general'),chatProjectId:null,projects:[],sessions:[],approvals:[],proposals:[],fixes:[],proposalAgentFilter:null,tasks:[],logs:[],memories:[],auditLog:[],settings:null,overview:null,auditTab:savedUi('audit_tab','Log'),approvalsTab:savedUi('approvals_tab','Approvals'),settingsTab:savedUi('settings_tab','Integrations')};
+const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users:[],chatAgentId:null,chatMode:savedUi('chat_mode','general'),projectView:savedUi('project_view','manage'),chatProjectId:null,projects:[],sessions:[],approvals:[],proposals:[],fixes:[],proposalAgentFilter:null,tasks:[],logs:[],memories:[],auditLog:[],settings:null,overview:null,auditTab:savedUi('audit_tab','Log'),approvalsTab:savedUi('approvals_tab','Approvals'),settingsTab:savedUi('settings_tab','Integrations')};
 // Sessions/Tasks/Logs folded into Audit (as tabs); Users folded into
 // Settings (as a section); Approvals/Proposals/Fixes folded into one
 // Approvals page (as tabs, open to regular users too -- item 41); Chat/
 // Messenger/Project folded into one Chat page (as a mode switch -- item
 // 43). Nav is simpler because of it, not because anything was removed.
-const adminPages=['Overview','Agents','Chat','Approvals','Projects','Run','Memories','Audit','SQL','Settings'];
-const userPages=['Chat','Approvals','My Agents'];
+const adminPages=['Overview','Chat','Projects','Approvals','SQL','Agents','Memories','Audit','Settings'];
+const userPages=['Chat','Projects','Approvals','My Agents'];
 function pagesForRole(){return state.me?.role==='admin'?adminPages:userPages}
 const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function toast(s){const t=$('#toast');t.textContent=s;t.style.display='block';setTimeout(()=>t.style.display='none',2200)}
@@ -103,7 +104,7 @@ function scrollBottom(id){const el=$(id);if(el)el.scrollTop=el.scrollHeight}
 // nav labels, page chrome, and common actions/empty-states, not because
 // more than one language is selectable.
 const I18N={
-  Overview:'Overview',Agents:'Agents',Chat:'Chat',Approvals:'Approvals',Projects:'Projects',Run:'Run',Memories:'Memories',Audit:'Audit',Settings:'Settings','My Agents':'My Agents',
+  Overview:'Dashboard',Agents:'Agents',Chat:'General',Approvals:'Approvals',Projects:'Projects',Run:'Run',Memories:'Memories',Audit:'Audit',Settings:'Settings','My Agents':'My agents',
   general:'General',messenger:'Messenger',project:'Project',
   save:'Save',cancel:'Cancel',close:'Close',edit:'Edit',create:'Create',approve:'Approve',reject:'Reject',send:'Send',delete:'Delete',
   signIn:'Sign in',signOut:'Sign out',username:'Username',password:'Password',
@@ -168,7 +169,14 @@ async function api(path,opt={}){
 const rpc=(action,body={})=>api('/api/v1/rpc',{method:'POST',body:JSON.stringify({action,operator_name:opName(),session_token:sessTok(),...body})});
 
 function openPage(page){if(!pagesForRole().includes(page))page=pagesForRole()[0];state.page=page;saveUi('page',page);nav();loadPage()}
-function nav(){const n=$('#nav');const list=pagesForRole();n.innerHTML=list.map(p=>`<button class="${state.page===p?'active':''}" data-p="${p}">${esc(t(p))}</button>`).join('');n.querySelectorAll('button').forEach(b=>b.onclick=()=>openPage(b.dataset.p));renderWhoami()}
+function nav(){
+  const n=$('#nav'),admin=state.me?.role==='admin';
+  const groups=admin?
+    [{label:'',items:[['Overview','Dashboard','top']]},{label:'Chat',items:[['Chat','General','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub']]},{label:'',items:[['SQL','SQL','top']]},{label:'Settings',items:[['Settings','Overview','sub'],['Agents','Agents','sub'],['Memories','Memories','sub'],['Audit','Audit','sub']]}]:
+    [{label:'Chat',items:[['Chat','General','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub']]},{label:'Settings',items:[['My Agents','My agents','sub']]}];
+  n.innerHTML=groups.map(g=>`${g.label?`<div class="nav-group">${esc(g.label)}</div>`:''}${g.items.map(([p,label,kind])=>`<button class="nav-${kind} ${state.page===p?'active':''}" data-p="${p}">${esc(label)}</button>`).join('')}`).join('');
+  n.querySelectorAll('button').forEach(b=>b.onclick=()=>openPage(b.dataset.p));renderWhoami()
+}
 function renderWhoami(){const el=$('#whoami');if(!el)return;el.textContent=state.me?`${state.me.username} (${state.me.role})`:'';const lb=$('#logoutBtn');if(lb)lb.textContent=t('signOut')}
 function status(s){return `<span class="status s-${esc(s)}">${esc(s)}</span>`}
 // A provider's is_enabled flag only ever meant "an operator turned this on",
@@ -212,14 +220,12 @@ async function loadPage(){
   // Chat/Messenger poll for an async reply on a setInterval; leaving the
   // page must stop it, or it keeps firing against DOM elements (#chatThread/
   // #msgFeed) that no longer exist once another page has rendered.
-  if(chatPollTimer){clearInterval(chatPollTimer);chatPollTimer=null}
   if(msgPollTimer){clearInterval(msgPollTimer);msgPollTimer=null}
   if(projectChatPollTimer){clearInterval(projectChatPollTimer);projectChatPollTimer=null}
   $('#pageTitle').textContent=t(state.page); try{
   if(state.page==='Overview')await overview();
   if(state.page==='Agents')await agents();
   if(state.page==='Projects')await projectsPage();
-  if(state.page==='Run')await runView();
   if(state.page==='Approvals')await approvalsPage();
   if(state.page==='Memories')await memoriesPage();
   if(state.page==='Audit')await auditPage();
@@ -394,12 +400,23 @@ function closeModal(){$('#modal').classList.add('hidden');$('#modal').innerHTML=
 
 // --- Projects ---
 async function projectsPage(){
+  if(state.me?.role!=='admin'){
+    $('#view').innerHTML='<div id="projectViewBody"></div>';
+    await projectChatMode($('#projectViewBody'));
+    return;
+  }
+  $('#view').innerHTML=`<div class="row" style="margin-bottom:22px"><button class="btn small projectViewBtn${state.projectView==='manage'?' primary':''}" data-view="manage">Manage</button><button class="btn small projectViewBtn${state.projectView==='chat'?' primary':''}" data-view="chat">Conversation</button></div><div id="projectViewBody"></div>`;
+  document.querySelectorAll('.projectViewBtn').forEach(b=>b.onclick=()=>{state.projectView=b.dataset.view;saveUi('project_view',state.projectView);projectsPage()});
+  if(state.projectView==='chat'){await projectChatMode($('#projectViewBody'));return}
+  await projectsManagementPage($('#projectViewBody'));
+}
+async function projectsManagementPage(target){
   const d=await rpc('projects.list');state.projects=d.projects||[];
   if(!state.agents.length){const da=await api('/api/v1/agents');state.agents=da.agents||[]}
-  $('#view').innerHTML=`<div class="row" style="margin-bottom:22px"><button class="btn primary" id="newProject">New project</button><span class="spacer"></span><span class="muted">${state.projects.length} projects</span></div><div class="panel"><table class="table"><thead><tr><th>Name</th><th>Description</th><th>Chat agent</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${state.projects.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.description||'—')}</td><td>${p.agent?esc(p.agent):'<span class="muted">not a chat target</span>'}</td><td>${p.is_active?status('open'):status('disabled')}</td><td class="mono muted">${esc(p.created_at)}</td><td><div class="row"><button class="btn small editProject" data-id="${esc(p.project_id)}">${esc(t('edit'))}</button><button class="btn small toggleProject" data-id="${esc(p.project_id)}" data-active="${p.is_active}">${p.is_active?'Disable':'Enable'}</button></div></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No projects yet.</td></tr>'}</tbody></table></div>`;
+  target.innerHTML=`<div class="row" style="margin-bottom:22px"><button class="btn primary" id="newProject">New project</button><span class="spacer"></span><span class="muted">${state.projects.length} projects</span></div><div class="panel"><table class="table"><thead><tr><th>Name</th><th>Description</th><th>Chat agent</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${state.projects.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.description||'—')}</td><td>${p.agent?esc(p.agent):'<span class="muted">not a chat target</span>'}</td><td>${p.is_active?status('open'):status('disabled')}</td><td class="mono muted">${esc(p.created_at)}</td><td><div class="row"><button class="btn small editProject" data-id="${esc(p.project_id)}">${esc(t('edit'))}</button><button class="btn small toggleProject" data-id="${esc(p.project_id)}" data-active="${p.is_active}">${p.is_active?'Disable':'Enable'}</button></div></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No projects yet.</td></tr>'}</tbody></table></div>`;
   $('#newProject').onclick=()=>projectModal();
   document.querySelectorAll('.editProject').forEach(b=>b.onclick=()=>projectModal(state.projects.find(p=>p.project_id===b.dataset.id)));
-  document.querySelectorAll('.toggleProject').forEach(b=>b.onclick=async()=>{try{await rpc('projects.update',{project_id:b.dataset.id,is_active:b.dataset.active!=='true'});toast('Saved');projectsPage()}catch(e){toast(e.message)}});
+  target.querySelectorAll('.toggleProject').forEach(b=>b.onclick=async()=>{try{await rpc('projects.update',{project_id:b.dataset.id,is_active:b.dataset.active!=='true'});toast('Saved');projectsPage()}catch(e){toast(e.message)}});
 }
 // agent_id/preset_prompt (item 42): what turns a plain session label into
 // a real Chat "Project" mode target -- see fn_next_step's own use of
@@ -415,14 +432,6 @@ function projectModal(p){
       closeModal();toast('Saved');projectsPage()
     }catch(e){toast(e.message)}
   };
-}
-
-// --- Run: fire a session, optionally scoped to a project ---
-async function runView(){
-  if(!state.agents.length){const d=await api('/api/v1/agents');state.agents=d.agents||[]}
-  const pd=await rpc('projects.list').catch(()=>({projects:[]}));state.projects=pd.projects||[];
-  $('#view').innerHTML=`<div class="grid2"><div class="panel"><h3>Run agent</h3><div class="field"><label>Agent</label><select class="select" id="runAgent">${state.agents.filter(a=>a.is_active).map(a=>`<option value="${esc(a.agent_id)}">${esc(a.name)}</option>`).join('')}</select></div><div class="field"><label>Project (optional)</label><select class="select" id="runProject"><option value="">— none —</option>${state.projects.filter(p=>p.is_active).map(p=>`<option value="${esc(p.project_id)}">${esc(p.name)}</option>`).join('')}</select></div><div class="field"><label>Goal / prompt</label><textarea class="textarea" id="runGoal" placeholder="Ask the agent to do something…"></textarea></div><button class="btn primary" id="runBtn">Run</button></div><div class="panel"><h3>Live activity</h3><div id="live" class="muted">Waiting for events…</div></div></div>`;
-  $('#runBtn').onclick=async()=>{try{const body={agent_id:$('#runAgent').value,goal:$('#runGoal').value,session_token:sessTok()};if($('#runProject').value)body.project_id=$('#runProject').value;const d=await api('/api/v1/run',{method:'POST',body:JSON.stringify(body)});toast('Task queued: '+d.task_id);$('#runGoal').value=''}catch(e){toast(e.message)}}
 }
 
 // --- Audit: Sessions/Tasks/Logs/the audit trail, as tabs of one page
@@ -1011,10 +1020,10 @@ function assignmentsModal(userId){
   }).catch(e=>toast(e.message));
 }
 
-// --- Chat (item 43): General (plain 1:1), Messenger (Slack-style shared
-// channel), and Project (a preset system prompt + agent, item 42) as three
-// modes of one page, switched with buttons instead of three separate nav
-// entries. ---
+// --- Chat: one General conversation surface. @agent-name routes work to an
+// assigned Agent; the former standalone Run and Messenger navigation paths
+// are intentionally represented here instead. Projects and Approvals are
+// sibling entries under the Chat navigation group. ---
 // Shared inline Provider/Model control for whichever single agent a chat
 // mode is currently talking to (General always talks to 'general'; Project
 // mode's bound agent -- see require_project_access's own comment: reaching
@@ -1043,13 +1052,13 @@ function wireChatModelPicker(agent,providerOpts,onSaved){
   };
 }
 async function chatPage(){
-  const modes=[['general','general'],['messenger','messenger'],['project','project']];
-  $('#view').innerHTML=`<div class="chatPanel"><div class="row" style="margin-bottom:22px">${modes.map(([m,k])=>`<button class="btn small chatModeBtn${state.chatMode===m?' primary':''}" data-mode="${m}">${esc(t(k))}</button>`).join('')}</div><div id="chatModeBody"></div></div>`;
+  if(!['general','sessions'].includes(state.chatMode))state.chatMode='general';
+  const modes=[['general','Conversation'],['sessions','Sessions']];
+  $('#view').innerHTML=`<div class="chatPanel"><div class="row" style="margin-bottom:22px">${modes.map(([m,label])=>`<button class="btn small chatModeBtn${state.chatMode===m?' primary':''}" data-mode="${m}">${esc(label)}</button>`).join('')}</div><div id="chatModeBody"></div></div>`;
   document.querySelectorAll('.chatModeBtn').forEach(b=>b.onclick=()=>{state.chatMode=b.dataset.mode;saveUi('chat_mode',state.chatMode);chatPage()});
   const body=$('#chatModeBody');
-  if(state.chatMode==='messenger')await messengerPage(body);
-  else if(state.chatMode==='project')await projectChatMode(body);
-  else await generalChatMode(body);
+  if(state.chatMode==='sessions')await sessionsPage(body);
+  else await messengerPage(body);
 }
 // General mode: no agent picker -- always the seeded 'general' agent (a
 // plain conversational partner, no view/function permissions), so this is just
@@ -1061,19 +1070,6 @@ async function chatPage(){
 // user needs it explicitly assigned, same as any other agent -- if it
 // isn't, this degrades to the same "ask an admin" message an unassigned
 // user already saw before this change.
-async function generalChatMode(target){
-  target=target||$('#view');
-  const d=await rpc('agents.mine'); state.myAgents=d.agents||[];
-  const general=state.myAgents.find(a=>a.name==='general');
-  state.chatAgentId=general?general.agent_id:null;
-  const ds=await rpc('providers.available').catch(()=>({providers:[]}));
-  const providerOpts=ds.providers||[];
-  target.innerHTML=`<div class="panel">${chatModelPicker(general,providerOpts)}<div id="chatThread" style="max-height:55vh;overflow:auto;margin-bottom:14px"></div><div class="row"><input class="input" id="chatInput" placeholder="Message…" ${general?'':'disabled'}><button class="btn primary" id="chatSend" ${general?'':'disabled'}>${esc(t('send'))}</button></div></div>`;
-  wireChatModelPicker(general,providerOpts,()=>generalChatMode(target));
-  $('#chatSend').onclick=sendChat;
-  $('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()};
-  await renderChatThread();
-}
 // Project mode: same shape as General, but keyed by project (its own
 // continuing session -- see user_project_chat_sessions) and against
 // whichever agent that project is bound to, with its preset_prompt
@@ -1122,38 +1118,13 @@ async function sendProjectChat(){
     projectChatPollTimer=setInterval(renderProjectChatThread,3000);
   }catch(e){toast(e.message)}
 }
-async function renderChatThread(){
-  // A stray poll tick (loadPage clears the timer, but a call already in
-  // flight can still land after navigating away) must not throw on a
-  // #chatThread that no longer exists.
-  if(!$('#chatThread'))return;
-  if(!state.chatAgentId){$('#chatThread').innerHTML='<div class="muted">The \'general\' agent is not assigned to you yet -- ask an admin.</div>';return}
-  try{ const h=await rpc('chat.history',{agent_id:state.chatAgentId});
-    if(!$('#chatThread'))return;
-    $('#chatThread').innerHTML=(h.messages||[]).map(m=>msgBubble(m)).join('')||'<div class="muted">Say hello.</div>';
-    scrollBottom('#chatThread');
-  }catch(e){if($('#chatThread'))$('#chatThread').innerHTML=`<div class="muted">${esc(e.message)}</div>`}
-}
-let chatPollTimer=null;
-async function sendChat(){
-  if(!state.chatAgentId)return;
-  const v=$('#chatInput').value.trim(); if(!v)return;
-  $('#chatInput').value='';
-  try{
-    await rpc('chat.send',{agent_id:state.chatAgentId,message:v});
-    await renderChatThread();
-    if(chatPollTimer)clearInterval(chatPollTimer);
-    chatPollTimer=setInterval(renderChatThread,3000);
-  }catch(e){toast(e.message)}
-}
-
 // --- Messenger: the Slack-style shared channel. A plain post is just
 // stored; "@agent_name" additionally routes the message to that agent
 // (fn_messenger_post), sharing the same session chat.send/chat.history use
 // for that (user, agent) pair -- not a second, divergent conversation. ---
 async function messengerPage(target){
   target=target||$('#view');
-  target.innerHTML=`<div class="panel"><div id="msgFeed" style="max-height:60vh;overflow:auto;margin-bottom:14px"></div><div class="row"><input class="input" id="msgInput" placeholder="Message… use @agent_name to address an agent, or several"><button class="btn primary" id="msgSend">${esc(t('send'))}</button></div></div>`;
+  target.innerHTML=`<div class="panel"><div class="muted" style="font-size:12px;margin-bottom:10px">Talk normally, or use <code>@agent-name</code> to assign work to one or more Agents. Runs and replies stay in the same conversation.</div><div id="msgFeed" style="max-height:60vh;overflow:auto;margin-bottom:14px"></div><div class="row"><input class="input" id="msgInput" placeholder="Message… use @agent-name to call an Agent"><button class="btn primary" id="msgSend">${esc(t('send'))}</button></div></div>`;
   $('#msgSend').onclick=sendMessenger;
   $('#msgInput').onkeydown=e=>{if(e.key==='Enter')sendMessenger()};
   await renderMessengerFeed();

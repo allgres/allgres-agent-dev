@@ -9,10 +9,10 @@
 - Capability execution continues through the existing permission and approval paths. Discovery never executes a candidate by itself.
 - The Settings UI exposes index, embedding, draft, and search status. Provider forms save before OAuth starts and enforce supported provider purposes.
 - The order-review example proves a generated Function and Procedure can build and execute under an Agent database role without an external service.
+- Navigation now follows Dashboard / Chat (General, Projects, Approvals) / SQL / Settings. General combines conversation, `@agent-name` routing, and session history; Projects combines management and conversation. Regular users receive only their scoped Chat and Agent settings surfaces.
 
 ## Remaining alpha gates
 
-- Finish the agreed Dashboard / Chat / SQL / Settings information-architecture migration, including replacing separate Messenger and Run modes with a single General chat and explicit session history.
 - Add browser-level role and three-click navigation regression tests for operator and regular-user accounts.
 - Expand Capability outcome linkage to HTTP and MCP calls; this batch records discovery and the built-in Function/Procedure path.
 - Add the reviewed Draft-to-Published promotion workflow, isolated evaluation comparison, version rollback controls, and operator approval screens. The schema deliberately prevents discovery from acting as automatic publication.
