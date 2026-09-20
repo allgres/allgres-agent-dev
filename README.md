@@ -176,6 +176,7 @@ working instance running.
 | [Capability search](docs/capability-search.md) | Permission-filtered Agent, Function, and Procedure discovery with pgvector acceleration |
 | [Open alpha readiness](docs/open-alpha-readiness.md) | Completed safeguards and the remaining release gates |
 | [Procedures](docs/procedures.md) | Operator-curated reusable instructions and Functions |
+| [Hermes Agent](docs/hermes-agent.md) | OpenAI-compatible Provider and stateless MCP connection patterns |
 | [System agents](docs/system-agents.md) | `health_monitor`, `creator`, `fixer`, `self_improve`, and the rest |
 | [Operator audit log](docs/audit-log.md) | Who did what, `operator_name` vs. a real verified account |
 | [Model configuration and chat](docs/chat-and-models.md) | Providers, test connection, sessions, General/Messenger/Project chat modes |

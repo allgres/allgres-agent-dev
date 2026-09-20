@@ -6932,6 +6932,7 @@ BEGIN
   WHERE call_id = p_call_id;
 
   IF c.kind = 'function' THEN
+    SELECT name INTO v_mcp_fname FROM allgres_private.functions WHERE function_id = c.procedure_function_id;
     -- procedure_function_id/procedure_id ride along in the logged content itself
     -- (not just this row) so fn_next_step's *next* call for this task can
     -- resolve a model override/experiment from the execution_logs entry
@@ -6947,6 +6948,10 @@ BEGIN
         'procedure_id', c.procedure_id
       )
     );
+    IF v_mcp_fname IS NOT NULL THEN
+      PERFORM allgres_private.mark_capability_outcome(c.task_id,'function',v_mcp_fname,
+        p_status IS NOT NULL AND p_status >= 200 AND p_status < 300);
+    END IF;
   -- 'mcp' (Phase 3d, an mcp_call Function's JSON-RPC 'tools/call'
   -- request): unlike 'function' above, an HTTP 200 alone does not mean
   -- success -- JSON-RPC and MCP both signal failure *inside* a
@@ -6960,6 +6965,7 @@ BEGIN
   -- past all four does `result.content` become a function_result, the
   -- same shape a plpgsql Function's own result already has.
   ELSIF c.kind = 'mcp' THEN
+    SELECT name INTO v_mcp_fname FROM allgres_private.functions WHERE function_id = c.procedure_function_id;
     IF p_status IS NULL OR p_status < 200 OR p_status >= 300 THEN
       v_payload := jsonb_build_object(
         'type', 'error',
@@ -6971,7 +6977,6 @@ BEGIN
       EXCEPTION WHEN others THEN
         v_parsed := NULL;
       END;
-      SELECT name INTO v_mcp_fname FROM allgres_private.functions WHERE function_id = c.procedure_function_id;
       IF v_parsed IS NULL THEN
         v_payload := jsonb_build_object(
           'type', 'error',
@@ -7067,6 +7072,8 @@ BEGIN
             v_query_vec,v_requester,v_expected_model,c.request_body->>'input',5,c.task_id),'[]'::jsonb)::text));
       END IF;
     END IF;
+    PERFORM allgres_private.mark_capability_outcome(
+      c.task_id,'function',v_mcp_fname,COALESCE(v_payload->>'type','error') <> 'error');
   -- The 'recall' agent action's own query embedding (semantic memory
   -- recall). Identical shape to the 'embedding' branch just above --
   -- same response parsing, same "<provider name>:<model>" staleness

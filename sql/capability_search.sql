@@ -361,6 +361,11 @@ RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path=allgres_private,pg_t
     'selected',count(*) FILTER (WHERE selected_capability_id IS NOT NULL),
     'succeeded',count(*) FILTER (WHERE outcome='succeeded'),
     'failed',count(*) FILTER (WHERE outcome='failed'),
+    'rejected',count(*) FILTER (WHERE outcome='rejected'),
+    'selection_rate',round((count(*) FILTER (WHERE selected_capability_id IS NOT NULL))::numeric /
+      NULLIF(count(*),0),4),
+    'execution_success_rate',round((count(*) FILTER (WHERE outcome='succeeded'))::numeric /
+      NULLIF(count(*) FILTER (WHERE outcome IN ('succeeded','failed')),0),4),
     'average_latency_ms',round(avg(latency_ms),2)
   ) FROM allgres_private.capability_search_events
 $fn$;
