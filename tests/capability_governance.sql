@@ -10,14 +10,19 @@ SELECT (allgres_public.fn_create_function(
   '{"type":"object","properties":{"value":{"type":"string"}}}'::jsonb
 )->>'function_id')::uuid AS function_id \gset
 
-SELECT pg_sleep(3);
-SELECT build_status='built' AS probe_built FROM allgres_private.functions
-WHERE function_id=:'function_id'::uuid \gset
-\if :probe_built
-\else
-  \echo 'governance probe did not build'
-  SELECT 1/0;
-\endif
+DO $wait$
+DECLARE v_status text;
+BEGIN
+  FOR i IN 1..30 LOOP
+    SELECT build_status INTO v_status FROM allgres_private.functions
+    WHERE name='alpha_governance_probe';
+    IF v_status='built' THEN RETURN; END IF;
+    IF v_status='failed' THEN RAISE EXCEPTION 'governance probe build failed'; END IF;
+    PERFORM pg_sleep(1);
+  END LOOP;
+  RAISE EXCEPTION 'governance probe did not build within 30 seconds';
+END;
+$wait$;
 
 SELECT allgres_private.sync_capability_index();
 SELECT capability_id FROM allgres_private.capability_index

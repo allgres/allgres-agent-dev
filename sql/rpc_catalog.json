@@ -40,17 +40,6 @@
     ]
   },
   {
-    "action": "agents.bulk_set_model",
-    "guards": [
-      "require_admin_if_accounts_exist"
-    ],
-    "params": [
-      "model",
-      "provider",
-      "session_token"
-    ]
-  },
-  {
     "action": "agents.create",
     "guards": [
       "require_admin_if_accounts_exist"

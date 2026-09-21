@@ -15,6 +15,71 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+#[test]
+fn mcp_streamable_http_negotiates_and_carries_session() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test listener");
+    let port = listener.local_addr().expect("address").port();
+    let server = std::thread::spawn(move || {
+        for step in 0..3 {
+            let (mut stream, _) = listener.accept().expect("MCP request");
+            stream.set_read_timeout(Some(Duration::from_secs(5))).expect("timeout");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("request line");
+            assert!(line.starts_with("POST /mcp HTTP/1.1"));
+            let mut content_length = 0;
+            let mut session = None;
+            loop {
+                line.clear();
+                reader.read_line(&mut line).expect("header");
+                if line == "\r\n" { break; }
+                let lower = line.to_ascii_lowercase();
+                if let Some(value) = lower.strip_prefix("content-length:") {
+                    content_length = value.trim().parse::<usize>().expect("length");
+                }
+                if let Some(value) = lower.strip_prefix("mcp-session-id:") {
+                    session = Some(value.trim().to_string());
+                }
+            }
+            let mut body = vec![0; content_length];
+            reader.read_exact(&mut body).expect("body");
+            let message: serde_json::Value = serde_json::from_slice(&body).expect("JSON-RPC");
+            let (status, response) = match step {
+                0 => {
+                    assert_eq!(message["method"], "initialize");
+                    assert_eq!(session, None);
+                    ("200 OK", r#"{"jsonrpc":"2.0","id":"allgres-initialize","result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"fixture","version":"1"}}}"#)
+                }
+                1 => {
+                    assert_eq!(message["method"], "notifications/initialized");
+                    assert_eq!(session.as_deref(), Some("test-session"));
+                    ("202 Accepted", "")
+                }
+                _ => {
+                    assert_eq!(message["method"], "tools/call");
+                    assert_eq!(session.as_deref(), Some("test-session"));
+                    ("200 OK", r#"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}"#)
+                }
+            };
+            let headers = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nMcp-Session-Id: test-session\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", response.len());
+            stream.write_all(headers.as_bytes()).expect("response headers");
+            stream.write_all(response.as_bytes()).expect("response body");
+        }
+    });
+    let call = serde_json::json!({
+        "kind": "mcp", "url": format!("http://127.0.0.1:{port}/mcp"),
+        "allow_private": true,
+        "body": {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ping","arguments":{}}}
+    });
+    let (status, body) = crate::outbound::perform_http("mcp-test", &call);
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"text\":\"ok\""));
+    server.join().expect("fixture server");
+}
+
 
 fn req(raw: &str) -> HttpRequest {
     parse_http_request(raw.as_bytes()).expect("parses")

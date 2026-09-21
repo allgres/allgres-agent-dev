@@ -486,12 +486,8 @@ $fn$;
 -- silent global fallback an agent with nothing configured would ever
 -- reach on its own: README has said from early on that "there is no
 -- fallback provider or model name baked in anywhere" and that stays true
--- here too -- this is one explicit, admin-initiated write touching every
--- row at once, the same as if an operator had opened each agent's editor
--- and typed the same two fields in, not a standing default new agents
--- inherit later. System agents are included -- they run turns the same
--- way any other agent does and would otherwise be the one thing this
--- can't reach in one pass.
+-- Kept as a rejecting compatibility stub so an upgrade cannot leave an old
+-- SECURITY DEFINER body capable of overwriting every user's Agent defaults.
 CREATE OR REPLACE FUNCTION allgres_public.fn_bulk_set_model(
   p_provider text,
   p_model text
@@ -500,30 +496,9 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = allgres_private, allgres_public, pg_temp
 AS $fn$
-DECLARE
-  v_agent record;
-  v_count int := 0;
 BEGIN
-  IF NULLIF(trim(p_provider), '') IS NULL OR NULLIF(trim(p_model), '') IS NULL THEN
-    RAISE EXCEPTION 'provider and model are both required' USING ERRCODE = 'P0001';
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM allgres_private.llm_providers WHERE name = p_provider AND is_enabled
-  ) THEN
-    RAISE EXCEPTION 'llm provider "%" is not configured or not enabled', p_provider
-      USING ERRCODE = 'P0001';
-  END IF;
-
-  FOR v_agent IN SELECT agent_id FROM allgres_private.agents WHERE is_active LOOP
-    PERFORM allgres_public.fn_set_policy(
-      v_agent.agent_id, NULL, NULL, NULL,
-      jsonb_build_object('provider', p_provider, 'model', p_model)
-    );
-    v_count := v_count + 1;
-  END LOOP;
-
-  PERFORM allgres_private.audit('agents.bulk_set_model', jsonb_build_object('provider', p_provider, 'model', p_model, 'updated_count', v_count));
-  RETURN jsonb_build_object('ok', true, 'updated_count', v_count);
+  RAISE EXCEPTION 'bulk model changes are disabled; set shared defaults per Agent or personal overrides per user'
+    USING ERRCODE = 'P0001';
 END;
 $fn$;
 

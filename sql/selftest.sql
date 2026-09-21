@@ -1837,47 +1837,23 @@ BEGIN
   );
   v := v || jsonb_build_array(jsonb_build_object('name', 'general_agent_seeded_with_seoul_weather_procedure', 'ok', ok));
 
-  -- 25g. fn_bulk_set_model: one call sets llm_config.provider/model on
-  -- every active agent, reusing fn_set_policy's own merge (nothing else on
-  -- any of those policies changes) rather than a hand-rolled UPDATE that
-  -- would bypass policy_history/generation the way every other agent
-  -- mutation in this file goes through.
-  -- fn_bulk_set_model is deliberately "every active agent", so exercising
-  -- it for real -- not against some carved-out subset -- means every real
-  -- seeded agent's llm_config changes too. Snapshotted here and restored
-  -- below before this function returns, the same idempotence-on-rerun
-  -- requirement every other fixture in this file already meets (a second
-  -- fn_selftest call on the same database must see the same starting
-  -- state, not one already bulk-set from the first run).
-  CREATE TEMP TABLE IF NOT EXISTS _selftest_bulk_snapshot (agent_id uuid PRIMARY KEY, llm_config jsonb);
-  DELETE FROM _selftest_bulk_snapshot;
-  INSERT INTO _selftest_bulk_snapshot
-  SELECT agent_id, llm_config FROM allgres_private.policies
-  WHERE agent_id IN (SELECT agent_id FROM allgres_private.agents WHERE is_active);
-
-  DELETE FROM allgres_private.agents WHERE name IN ('selftest_bulk_agent_a', 'selftest_bulk_agent_b');
-  INSERT INTO allgres_private.agents (name) VALUES ('selftest_bulk_agent_a'), ('selftest_bulk_agent_b');
-  r := allgres_public.fn_create_provider('selftest_bulk_provider', 'openai_compat', 'https://selftest.invalid/v1');
-  comp := allgres_public.fn_bulk_set_model('selftest_bulk_provider', 'selftest-model-x');
-  ok := COALESCE((comp->>'ok')::boolean, false) AND COALESCE((comp->>'updated_count')::int, 0) >= 2;
-  ok := ok AND NOT EXISTS (
-    SELECT 1 FROM allgres_private.agents a JOIN allgres_private.policies p USING (agent_id)
-    WHERE a.name IN ('selftest_bulk_agent_a', 'selftest_bulk_agent_b')
-      AND (p.llm_config->>'provider' <> 'selftest_bulk_provider' OR p.llm_config->>'model' <> 'selftest-model-x')
-  );
-  v := v || jsonb_build_array(jsonb_build_object('name', 'fn_bulk_set_model_updates_every_active_agent', 'ok', ok));
+  -- 25g. The legacy bulk mutation must fail closed, including direct SQL
+  -- calls left behind by an older client after upgrade.
+  BEGIN
+    PERFORM allgres_public.fn_bulk_set_model('selftest_bulk_provider', 'selftest-model-x');
+    ok := false;
+  EXCEPTION WHEN others THEN
+    ok := SQLERRM LIKE 'bulk model changes are disabled%';
+  END;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'fn_bulk_set_model_is_disabled', 'ok', ok));
 
   BEGIN
     PERFORM allgres_public.fn_bulk_set_model('selftest_nonexistent_provider_xyz', 'x');
     ok := false;
   EXCEPTION WHEN others THEN
-    ok := SQLERRM LIKE '%is not configured or not enabled%';
+    ok := SQLERRM LIKE 'bulk model changes are disabled%';
   END;
-  v := v || jsonb_build_array(jsonb_build_object('name', 'fn_bulk_set_model_rejects_unknown_provider', 'ok', ok));
-
-  UPDATE allgres_private.policies p SET llm_config = s.llm_config
-  FROM _selftest_bulk_snapshot s WHERE p.agent_id = s.agent_id;
-  DROP TABLE _selftest_bulk_snapshot;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'fn_bulk_set_model_rejects_every_request', 'ok', ok));
 
   DELETE FROM allgres_private.agents WHERE name IN ('selftest_bulk_agent_a', 'selftest_bulk_agent_b');
   DELETE FROM allgres_private.llm_providers WHERE name = 'selftest_bulk_provider';
@@ -4387,9 +4363,7 @@ BEGIN
     ok := (sub->>'ok')::boolean IS DISTINCT FROM true;
     v := v || jsonb_build_array(jsonb_build_object('name', 'permissions_grant_needs_admin_once_accounts_exist', 'ok', ok));
 
-    -- Same gate, for the new bulk provider/model action: touches every
-    -- active agent at once, so it needs the admin session at least as much
-    -- as any single-agent action above does.
+    -- The removed bulk action must never succeed through the RPC facade.
     sub := allgres.dashboard_rpc(jsonb_build_object(
       'action', 'agents.bulk_set_model', 'provider', 'analyst', 'model', 'should-not-apply'
     ));
@@ -5196,7 +5170,7 @@ BEGIN
   ) AS m;
   SELECT array_agg(a ORDER BY a) INTO v_missing_rpc_actions
   FROM unnest(ARRAY[
-    'overview', 'agents.list', 'agents.set_autonomy', 'agents.set_function_override_autonomy_preset', 'agents.bulk_set_model', 'agents.create',
+    'overview', 'agents.list', 'agents.set_autonomy', 'agents.set_function_override_autonomy_preset', 'agents.create',
     'agents.update', 'policy.history', 'policy.rollback', 'agents.evaluate', 'proposals.list',
     'proposals.decide', 'fixes.list', 'fixes.decide', 'permissions.list', 'permissions.grant',
     'permissions.revoke', 'permissions.options', 'allowlist.list', 'allowlist.add', 'allowlist.remove',
@@ -5219,7 +5193,7 @@ BEGIN
   SELECT array_agg(a ORDER BY a) INTO v_extra_rpc_actions
   FROM unnest(v_live_rpc_actions) a
   WHERE a <> ALL(ARRAY[
-    'overview', 'agents.list', 'agents.set_autonomy', 'agents.set_function_override_autonomy_preset', 'agents.bulk_set_model', 'agents.create',
+    'overview', 'agents.list', 'agents.set_autonomy', 'agents.set_function_override_autonomy_preset', 'agents.create',
     'agents.update', 'policy.history', 'policy.rollback', 'agents.evaluate', 'proposals.list',
     'proposals.decide', 'fixes.list', 'fixes.decide', 'permissions.list', 'permissions.grant',
     'permissions.revoke', 'permissions.options', 'allowlist.list', 'allowlist.add', 'allowlist.remove',

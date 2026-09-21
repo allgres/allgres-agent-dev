@@ -20,6 +20,8 @@ test('admin reaches every primary surface directly', async ({ page }) => {
     await button.click();
     await expect(button).toHaveClass(/active/);
   }
+  await page.locator('#nav button', { hasText: 'Overview' }).click();
+  await expect(page.locator('#bulkApply')).toHaveCount(0);
   await page.evaluate(async () => {
     const body={action:'users.create',username:'ui_regular',password:'ui-regular-password',role:'user',session_token:sessionStorage.getItem('allgres_session_token')};
     const r=await fetch('/api/v1/rpc',{method:'POST',headers:{'content-type':'application/json','x-allgres-client':'dashboard'},body:JSON.stringify(body)});
@@ -48,5 +50,9 @@ test('mobile navigation remains keyboard reachable', async ({ page }) => {
     await expect(page.locator('#nav button').nth(i)).toBeVisible();
     await page.locator('#nav button').nth(i).press('Enter');
   }
-  await expect(page.locator('body')).not.toHaveCSS('overflow-x','scroll');
+  const width = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    viewport: document.documentElement.clientWidth,
+  }));
+  expect(width.document).toBeLessThanOrEqual(width.viewport);
 });

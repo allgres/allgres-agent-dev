@@ -696,10 +696,6 @@ BEGIN
         (p_request->>'agent_id')::uuid, p_request->>'preset'
       );
 
-    WHEN 'agents.bulk_set_model' THEN
-      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
-      RETURN allgres_public.fn_bulk_set_model(p_request->>'provider', p_request->>'model');
-
     WHEN 'agents.create' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_public.fn_create_agent(p_request->>'name', p_request->>'system_prompt');

@@ -333,7 +333,7 @@ pub(crate) fn guarded_post_json(
     }
 }
 
-fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
+pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
     let cancel_guard = CancelGuard::register(call_id);
     let cancel_flag = cancel_guard.flag.clone();
     let Some(url) = call.get("url").and_then(Value::as_str) else {
