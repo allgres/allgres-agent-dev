@@ -109,6 +109,7 @@ jobs:
             "DELETE FROM allgres_private.web_sessions WHERE user_id IN (SELECT user_id FROM allgres_private.users WHERE username = 'ci_selftest_admin'); DELETE FROM allgres_private.users WHERE username = 'ci_selftest_admin';" >/dev/null
           sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/smoke.sql
           sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/e2e_mock.sql
+          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/capability_governance.sql
 
       - name: PostgreSQL log on failure
         if: failure()
@@ -125,6 +126,64 @@ jobs:
       - name: Container logs on failure
         if: failure()
         run: docker compose logs --no-color allgres | tail -300 || true
+
+  cnpg-image-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build CNPG extension image without publishing
+        run: docker build -f cnpg/Dockerfile -t allgres-cnpg-ci .
+      - name: Verify packaged extension files
+        run: |
+          id=$(docker create allgres-cnpg-ci)
+          docker cp "$id:/lib/allgres.so" /tmp/allgres.so
+          docker cp "$id:/share/extension/allgres.control" /tmp/allgres.control
+          docker rm "$id"
+          test -s /tmp/allgres.so
+          test -s /tmp/allgres.control
+
+  browser-role-navigation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - name: Start isolated dashboard
+        env:
+          ALLGRES_BOOTSTRAP_ADMIN_USER: ui_admin
+          ALLGRES_BOOTSTRAP_ADMIN_PASSWORD: ui-admin-password
+        run: |
+          docker compose up -d --build
+          for _ in $(seq 1 90); do curl -sf http://127.0.0.1:8088/ >/dev/null && exit 0; sleep 2; done
+          docker compose logs --no-color allgres
+          exit 1
+      - run: npm run test:ui
+      - if: always()
+        run: docker compose down -v
+
+  rpm-build:
+    runs-on: ubuntu-latest
+    container: fedora:42
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install RPM and PostgreSQL build dependencies
+        run: |
+          dnf install -y rpm-build rpmdevtools rpmlint curl cargo gcc clang openssl-devel pkgconf-pkg-config tar gzip
+          dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/F-42-x86_64/pgdg-fedora-repo-latest.noarch.rpm
+          dnf -qy module disable postgresql || true
+          dnf install -y postgresql17-devel postgresql17-server
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+      - name: Build and lint RPM
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rpmdev-setuptree
+          tar --exclude=.git --exclude=target --transform 's,^,allgres-0.1.0/,' -czf "$HOME/rpmbuild/SOURCES/allgres-0.1.0.tar.gz" .
+          rpmbuild -ba packaging/rpm/allgres.spec
+          rpmlint "$HOME"/rpmbuild/RPMS/*/allgres-*.rpm
+          rpm -qpl "$HOME"/rpmbuild/RPMS/*/allgres-*.rpm | grep -E 'allgres\.(so|control)|allgres--.*\.sql'
 
   fault-injection-drill:
     runs-on: ubuntu-latest

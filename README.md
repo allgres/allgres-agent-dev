@@ -94,7 +94,8 @@ docker pull ghcr.io/allgres/allgres-agent-dev-cnpg-ext:v0.1.0-alpha.1
 See [CNPG (CloudNativePG)](docs/deployment/cnpg.md) and
 `cnpg/cluster-example.yaml` for the full `Cluster`/`Database` wiring.
 
-*(A native RPM package is planned but not built yet.)*
+An alpha PostgreSQL 17 RPM spec and clean-build validation live under
+[`packaging/rpm`](packaging/rpm); see [`docs/deployment/rpm.md`](docs/deployment/rpm.md).
 
 ## What's inside
 
