@@ -17,7 +17,7 @@ Requires:       postgresql-server >= 18
 
 %description
 Allgres packages an agent runtime and control plane as a PostgreSQL extension.
-pgvector and pgcrypto remain optional runtime extensions.
+Vector search and cryptographic helpers remain optional runtime extensions.
 
 %prep
 %autosetup
