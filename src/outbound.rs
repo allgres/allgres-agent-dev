@@ -370,7 +370,72 @@ fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
         GuardedResolver { allow_private },
     );
 
-    let outcome = if kind == "function" {
+    let outcome = if kind == "mcp" {
+        // Streamable HTTP MCP servers may require the protocol handshake
+        // before tools/call. Keep the three requests on this one Agent so
+        // connection state is retained, propagate the negotiated session id,
+        // and return only the tool response to the SQL completion path.
+        let initialize = json!({
+            "jsonrpc": "2.0", "id": "allgres-initialize", "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "allgres", "version": env!("CARGO_PKG_VERSION")}
+            }
+        });
+        macro_rules! mcp_request {
+            ($session:expr) => {{
+                let mut req = agent.post(url);
+                if let Some(h) = headers {
+                    for (k, v) in h {
+                        if let Some(s) = v.as_str() { req = req.header(k, s); }
+                    }
+                }
+                if let Some(s) = $session { req = req.header("mcp-session-id", s); }
+                req
+            }};
+        }
+        match mcp_request!(None::<&str>).send_json(&initialize) {
+            Ok(mut init_response) if init_response.status().is_success() => {
+                let session = init_response.headers().get("mcp-session-id")
+                    .and_then(|h| h.to_str().ok()).map(str::to_string);
+                let init_body = init_response.body_mut().read_to_string().unwrap_or_default();
+                let init_json = serde_json::from_str::<Value>(&init_body).ok();
+                let init_valid = init_json.as_ref()
+                    .is_some_and(|v| v.get("result").is_some() && v.get("error").is_none());
+                if !init_valid {
+                    if init_json.as_ref().and_then(|v| v.pointer("/error/code")).and_then(Value::as_i64) == Some(-32601) {
+                        return match mcp_request!(None::<&str>).send_json(&body) {
+                            Ok(mut r) => (r.status().as_u16() as i32,
+                                truncate_utf8(&r.body_mut().read_to_string().unwrap_or_default(), MAX_RESPONSE_BYTES).to_string()),
+                            Err(e) => (0, e.to_string()),
+                        };
+                    }
+                    return (502, truncate_utf8(&format!("MCP initialize failed: {init_body}"), MAX_RESPONSE_BYTES).to_string());
+                }
+                let initialized = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
+                match mcp_request!(session.as_deref()).send_json(&initialized) {
+                    Ok(r) if r.status().is_success() =>
+                        mcp_request!(session.as_deref()).send_json(&body),
+                    Ok(r) => return (r.status().as_u16() as i32, "MCP initialized notification rejected".into()),
+                    Err(e) => return (0, format!("MCP initialized notification failed: {e}")),
+                }
+            }
+            Ok(mut r) => {
+                let status = r.status().as_u16() as i32;
+                let text = r.body_mut().read_to_string().unwrap_or_default();
+                if status == 400 || status == 404 || status == 405 {
+                    return match mcp_request!(None::<&str>).send_json(&body) {
+                        Ok(mut fallback) => (fallback.status().as_u16() as i32,
+                            truncate_utf8(&fallback.body_mut().read_to_string().unwrap_or_default(), MAX_RESPONSE_BYTES).to_string()),
+                        Err(e) => (0, e.to_string()),
+                    };
+                }
+                return (status, truncate_utf8(&format!("MCP initialize rejected: {text}"), MAX_RESPONSE_BYTES).to_string());
+            }
+            Err(e) => return (0, format!("MCP initialize failed: {e}")),
+        }
+    } else if kind == "function" {
         // http_get always queued "GET" here (the column defaults to it); the
         // 'http_request' function is the first caller that ever queues anything
         // else. GET/DELETE take no body (ureq's WithoutBody builder has no

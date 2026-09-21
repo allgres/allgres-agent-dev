@@ -811,6 +811,16 @@
     ]
   },
   {
+    "action": "capabilities.evaluate",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "capability_id",
+      "session_token"
+    ]
+  },
+  {
     "action": "functions.create",
     "guards": [
       "require_admin_if_accounts_exist"
@@ -1015,6 +1025,17 @@
       "require_admin_if_accounts_exist"
     ],
     "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "functions.rollback",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "function_id",
+      "generation",
       "session_token"
     ]
   },

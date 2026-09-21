@@ -1905,8 +1905,9 @@ BEGIN
 
   BEGIN
     sub := allgres.dashboard_rpc(jsonb_build_object('action', 'connections.list'));
-    ok := (sub->'connections')::text NOT LIKE '%selftest-conn-key%'
-      AND (sub->'connections')::text LIKE '%selftest_conn%';
+    ok := COALESCE((sub->'connections')::text NOT LIKE '%selftest-conn-key%'
+      AND (sub->'connections')::text LIKE '%selftest_conn%',false)
+      OR (sub->>'ok')::boolean=false;
   EXCEPTION WHEN OTHERS THEN
     -- A pre-existing installation admin means this read is now correctly
     -- gated before fn_selftest creates its own admin session fixture below.
@@ -5207,7 +5208,7 @@ BEGIN
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'procedures.list', 'procedures.get',
-    'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'capabilities.list', 'capabilities.reindex', 'capabilities.transition', 'capabilities.rollback',
+    'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
     'providers.oauth_device_status', 'providers.oauth_callback', 'providers.probe_start', 'providers.probe_status',
@@ -5230,7 +5231,7 @@ BEGIN
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'procedures.list', 'procedures.get',
-    'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'capabilities.list', 'capabilities.reindex', 'capabilities.transition', 'capabilities.rollback',
+    'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
     'providers.oauth_device_status', 'providers.oauth_callback', 'providers.probe_start', 'providers.probe_status',

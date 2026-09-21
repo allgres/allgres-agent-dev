@@ -13,12 +13,13 @@
 - User Provider/Model preferences are isolated per user and Agent; shared Agent defaults remain administrator-owned and are used by schedules and users without an override.
 - Capability discovery now has explicit testing/review/publication states, immutable-published transition rules, version snapshots, operator publication, and rollback controls.
 
-## Remaining alpha gates
+## Final alpha gates in progress
 
-- Add browser-level role and three-click navigation regression tests for operator and regular-user accounts.
-- Expand Capability outcome linkage to HTTP and MCP calls; this batch records discovery and the built-in Function/Procedure path.
-- Connect the Capability review screen to a real isolated-evaluation runner and baseline comparison; publication currently requires an operator-supplied passing result rather than fabricating or automatically running one.
-- Complete stateful MCP protocol initialization/capability negotiation and production-grade cost attribution. Stateless MCP-over-HTTP calls, error outcomes, latency, OAuth refresh, and secret masking are already covered.
-- Re-run packaging and deployment-specific validation before publishing Docker, CNPG, or RPM artifacts.
+- Browser role, direct-navigation, keyboard, and mobile regression tests run against an isolated real dashboard.
+- Capability publication consumes a durable, content-hash-bound contract evaluation; dashboard callers cannot supply a fabricated pass flag. A full isolated behavioral runner with representative fixtures and baseline comparison is still required before public alpha.
+- Function source has immutable generations and non-destructive rollback alongside Procedure history. Capability rollback restores the underlying source generation.
+- Recall@5, selection accuracy, first-try success, correction, reuse, execution latency, and remote fixed-call cost are derived from audited search/execution evidence.
+- Stateful MCP initialization, session propagation, initialized notification, stateless compatibility fallback, error separation, OAuth refresh/reconnect state, and secret masking have implementation and existing SQL coverage; stateful-server integration regression remains pending.
+- CI is configured to build the source extension on PostgreSQL 16/17/18, exercise Docker, build the CNPG extension image, and clean-build/lint a PostgreSQL 17 RPM. New jobs must pass before release readiness is claimed.
 
-No production migration, image publication, remote branch update, or deployment is part of this batch.
+Artifact publication, remote deployment, and production database migration remain deliberately tag/operator controlled; readiness checks do not publish anything.

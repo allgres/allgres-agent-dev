@@ -1494,6 +1494,17 @@ BEGIN
               WHERE s.provider_id=p.provider_id AND s.access_token IS NOT NULL
                 AND (s.expires_at IS NULL OR s.expires_at>now())
             ),
+            'oauth_status', CASE WHEN p.kind<>'oauth' THEN NULL
+              WHEN EXISTS (SELECT 1 FROM allgres_private.oauth_calls o
+                WHERE o.provider_id=p.provider_id AND o.status IN ('queued','in_flight')) THEN 'refreshing'
+              WHEN EXISTS (SELECT 1 FROM allgres_private.llm_secrets s
+                WHERE s.provider_id=p.provider_id AND s.access_token IS NOT NULL
+                  AND (s.expires_at IS NULL OR s.expires_at>now())) THEN 'connected'
+              WHEN EXISTS (SELECT 1 FROM allgres_private.llm_secrets s
+                WHERE s.provider_id=p.provider_id AND s.refresh_token IS NOT NULL) THEN 'refresh_pending'
+              ELSE 'reconnect_required' END,
+            'oauth_expires_at',(SELECT s.expires_at FROM allgres_private.llm_secrets s
+              WHERE s.provider_id=p.provider_id),
             'last_probe_status', p.last_probe_status,
             'last_probe_at', p.last_probe_at,
             'last_probe_error', p.last_probe_error,
@@ -1610,6 +1621,7 @@ BEGIN
           'auth_kind', c.auth_kind,
           'is_enabled', c.is_enabled,
           'allow_private_network', c.allow_private_network,
+          'cost_per_call_usd',c.cost_per_call_usd,
           'has_secret', EXISTS (
             SELECT 1 FROM allgres_private.api_connection_secrets s
             WHERE s.connection_id = c.connection_id AND NULLIF(s.api_key, '') IS NOT NULL
@@ -1625,7 +1637,8 @@ BEGIN
         p_request->>'base_url',
         COALESCE(NULLIF(p_request->>'auth_kind',''), 'none'),
         NULLIF(p_request->>'api_key',''),
-        COALESCE((p_request->>'allow_private_network')::boolean, false)
+        COALESCE((p_request->>'allow_private_network')::boolean, false),
+        COALESCE((p_request->>'cost_per_call_usd')::numeric,0)
       );
 
     WHEN 'connections.update' THEN
@@ -1637,7 +1650,8 @@ BEGIN
         NULLIF(p_request->>'auth_kind',''),
         CASE WHEN p_request ? 'is_enabled' THEN (p_request->>'is_enabled')::boolean ELSE NULL END,
         CASE WHEN p_request ? 'allow_private_network'
-             THEN (p_request->>'allow_private_network')::boolean ELSE NULL END
+             THEN (p_request->>'allow_private_network')::boolean ELSE NULL END,
+        CASE WHEN p_request ? 'cost_per_call_usd' THEN (p_request->>'cost_per_call_usd')::numeric ELSE NULL END
       );
       IF NULLIF(p_request->>'api_key','') IS NOT NULL THEN
         PERFORM allgres_public.fn_set_connection_secret(v_id, p_request->>'api_key');
@@ -1734,7 +1748,13 @@ BEGIN
           'description',c.description,'metadata',c.metadata,'lifecycle',c.lifecycle,
           'content_hash',c.content_hash,'embedding_model',c.embedding_model,
           'embedded',c.embedding IS NOT NULL,'embedding_updated_at',c.embedding_updated_at,
-          'updated_at',c.updated_at,'versions',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'updated_at',c.updated_at,'latest_evaluation',(SELECT jsonb_build_object(
+            'evaluation_id',e.evaluation_id,'status',e.status,'checks',e.checks,
+            'candidate_metrics',e.candidate_metrics,'baseline_metrics',e.baseline_metrics,
+            'regression',e.regression,'created_at',e.created_at)
+            FROM allgres_private.capability_evaluations e WHERE e.capability_id=c.capability_id
+            ORDER BY e.created_at DESC LIMIT 1),
+          'versions',COALESCE((SELECT jsonb_agg(jsonb_build_object(
             'version',v.version,'lifecycle',v.lifecycle,'test_result',v.test_result,
             'change_note',v.change_note,'created_at',v.created_at) ORDER BY v.version DESC)
             FROM allgres_private.capability_versions v WHERE v.capability_id=c.capability_id),'[]'::jsonb)
@@ -1745,6 +1765,10 @@ BEGIN
     WHEN 'capabilities.reindex' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_private.sync_capability_index();
+
+    WHEN 'capabilities.evaluate' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_private.evaluate_capability((p_request->>'capability_id')::uuid);
 
     WHEN 'capabilities.transition' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
@@ -1771,6 +1795,11 @@ BEGIN
         (p_request->>'function_id')::uuid, p_request->>'description',
         p_request->>'body', p_request->'param_schema'
       );
+
+    WHEN 'functions.rollback' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_rollback_function(
+        (p_request->>'function_id')::uuid,(p_request->>'generation')::int);
 
     WHEN 'functions.bind' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');

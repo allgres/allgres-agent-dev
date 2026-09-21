@@ -609,7 +609,8 @@ CREATE OR REPLACE FUNCTION allgres_public.fn_create_connection(
   p_base_url text,
   p_auth_kind text DEFAULT 'none',
   p_api_key text DEFAULT NULL,
-  p_allow_private_network boolean DEFAULT false
+  p_allow_private_network boolean DEFAULT false,
+  p_cost_per_call_usd numeric DEFAULT 0
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -640,8 +641,9 @@ BEGIN
   END IF;
 
   INSERT INTO allgres_private.api_connections
-    (name, base_url, auth_kind, is_enabled, allow_private_network)
-  VALUES (trim(p_name), v_url, v_auth, true, COALESCE(p_allow_private_network, false))
+    (name, base_url, auth_kind, is_enabled, allow_private_network,cost_per_call_usd)
+  VALUES (trim(p_name), v_url, v_auth, true, COALESCE(p_allow_private_network, false),
+    GREATEST(COALESCE(p_cost_per_call_usd,0),0))
   RETURNING connection_id INTO v_id;
 
   IF NULLIF(p_api_key, '') IS NOT NULL THEN
@@ -662,7 +664,8 @@ CREATE OR REPLACE FUNCTION allgres_public.fn_set_connection(
   p_base_url text DEFAULT NULL,
   p_auth_kind text DEFAULT NULL,
   p_enabled boolean DEFAULT NULL,
-  p_allow_private_network boolean DEFAULT NULL
+  p_allow_private_network boolean DEFAULT NULL,
+  p_cost_per_call_usd numeric DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -699,6 +702,7 @@ BEGIN
       auth_kind = v_auth,
       is_enabled = COALESCE(p_enabled, is_enabled),
       allow_private_network = v_allow,
+      cost_per_call_usd=COALESCE(GREATEST(p_cost_per_call_usd,0),cost_per_call_usd),
       updated_at = now()
   WHERE connection_id = p_connection_id;
 
@@ -884,7 +888,7 @@ AS $fn$
 DECLARE
   f allgres_private.functions%ROWTYPE;
 BEGIN
-  SELECT * INTO f FROM allgres_private.functions WHERE function_id = p_function_id;
+  SELECT * INTO f FROM allgres_private.functions WHERE function_id = p_function_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'function not found' USING ERRCODE = 'P0001';
   END IF;
@@ -895,16 +899,40 @@ BEGIN
     PERFORM allgres_private.validate_function_body(p_body);
   END IF;
 
+  IF COALESCE(NULLIF(trim(p_description),''),f.description) IS DISTINCT FROM f.description
+    OR COALESCE(p_body,f.body) IS DISTINCT FROM f.body
+    OR COALESCE(p_param_schema,f.param_schema) IS DISTINCT FROM f.param_schema THEN
+    INSERT INTO allgres_private.function_history
+      (function_id,generation,description,body,param_schema)
+    VALUES (f.function_id,f.generation,f.description,f.body,f.param_schema);
+  END IF;
+
   UPDATE allgres_private.functions
   SET description = COALESCE(NULLIF(trim(p_description), ''), description),
       body = COALESCE(p_body, body),
       param_schema = COALESCE(p_param_schema, param_schema),
       build_status = CASE WHEN p_body IS NOT NULL THEN 'pending' ELSE build_status END,
+      generation = generation + CASE WHEN COALESCE(NULLIF(trim(p_description),''),f.description) IS DISTINCT FROM f.description
+        OR COALESCE(p_body,f.body) IS DISTINCT FROM f.body
+        OR COALESCE(p_param_schema,f.param_schema) IS DISTINCT FROM f.param_schema THEN 1 ELSE 0 END,
       updated_at = now()
   WHERE function_id = p_function_id;
 
   PERFORM allgres_private.audit('functions.update', jsonb_build_object('function_id', p_function_id));
   RETURN jsonb_build_object('ok', true, 'function_id', p_function_id);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_public.fn_rollback_function(p_function_id uuid,p_generation int)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=allgres_private,pg_temp AS $fn$
+DECLARE h allgres_private.function_history%ROWTYPE;
+BEGIN
+  SELECT * INTO h FROM allgres_private.function_history
+  WHERE function_id=p_function_id AND generation=p_generation;
+  IF NOT FOUND THEN RAISE EXCEPTION 'function version not found' USING ERRCODE='P0001'; END IF;
+  PERFORM allgres_private.audit('functions.rollback',jsonb_build_object(
+    'function_id',p_function_id,'restored_generation',p_generation));
+  RETURN allgres_public.fn_update_function(p_function_id,h.description,h.body,h.param_schema);
 END;
 $fn$;
 

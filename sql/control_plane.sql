@@ -494,6 +494,7 @@ CREATE TABLE IF NOT EXISTS allgres_private.functions (
   is_active     boolean NOT NULL DEFAULT true,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
+  generation    int NOT NULL DEFAULT 1,
   CHECK (
     (handler = 'http_get' AND body IS NULL)
     OR (handler = 'plpgsql' AND body IS NOT NULL)
@@ -1442,6 +1443,17 @@ CREATE TABLE IF NOT EXISTS allgres_private.user_agent_assignments (
   PRIMARY KEY (user_id, agent_id)
 );
 
+CREATE TABLE IF NOT EXISTS allgres_private.function_history (
+  version_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  function_id uuid NOT NULL REFERENCES allgres_private.functions(function_id) ON DELETE CASCADE,
+  generation int NOT NULL,
+  description text NOT NULL,
+  body text,
+  param_schema jsonb NOT NULL,
+  changed_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(function_id,generation)
+);
+
 -- A user's model choice is a preference for that user's conversations, not
 -- a mutation of the shared Agent policy.  Provider credentials and endpoint
 -- configuration remain operator-owned in llm_providers; this row stores only
@@ -2013,6 +2025,7 @@ CREATE TABLE IF NOT EXISTS allgres_private.api_connections (
   auth_kind             text NOT NULL DEFAULT 'none'
                           CHECK (auth_kind IN ('none', 'authorization', 'x-api-key')),
   allow_private_network boolean NOT NULL DEFAULT false,
+  cost_per_call_usd numeric NOT NULL DEFAULT 0 CHECK (cost_per_call_usd >= 0),
   is_enabled            boolean NOT NULL DEFAULT true,
   created_at            timestamptz NOT NULL DEFAULT now(),
   updated_at            timestamptz NOT NULL DEFAULT now()
@@ -6951,6 +6964,9 @@ BEGIN
     IF v_mcp_fname IS NOT NULL THEN
       PERFORM allgres_private.mark_capability_outcome(c.task_id,'function',v_mcp_fname,
         p_status IS NOT NULL AND p_status >= 200 AND p_status < 300);
+      PERFORM allgres_private.record_capability_remote_cost(c.task_id,
+        COALESCE((SELECT cost_per_call_usd FROM allgres_private.api_connections
+          WHERE connection_id=c.connection_id),0));
     END IF;
   -- 'mcp' (Phase 3d, an mcp_call Function's JSON-RPC 'tools/call'
   -- request): unlike 'function' above, an HTTP 200 alone does not mean
@@ -6966,6 +6982,9 @@ BEGIN
   -- same shape a plpgsql Function's own result already has.
   ELSIF c.kind = 'mcp' THEN
     SELECT name INTO v_mcp_fname FROM allgres_private.functions WHERE function_id = c.procedure_function_id;
+    PERFORM allgres_private.record_capability_remote_cost(c.task_id,
+      COALESCE((SELECT cost_per_call_usd FROM allgres_private.api_connections
+        WHERE connection_id=c.connection_id),0));
     IF p_status IS NULL OR p_status < 200 OR p_status >= 300 THEN
       v_payload := jsonb_build_object(
         'type', 'error',

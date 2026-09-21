@@ -19,8 +19,10 @@ tool name targets the remote tool. Grant the Function (or its Procedure) to the
 Agent. Capability discovery can recommend it, but the normal Function permission
 and approval path still decides whether it runs.
 
-Allgres currently supports stateless MCP-over-HTTP `tools/call`. Servers that
-require `initialize`, negotiated capabilities, and a persistent MCP session are
-not yet compatible. This is an open-alpha blocker tracked explicitly rather than
-silently treating an uninitialized request as interoperable.
-
+Allgres negotiates streamable HTTP MCP in the protocol order `initialize`,
+`notifications/initialized`, then `tools/call`, and propagates the server's
+`Mcp-Session-Id` across that exchange. A server that explicitly reports that
+`initialize` is unsupported, or exposes only the older stateless HTTP shape,
+falls back to a direct `tools/call`. Transport, JSON-RPC, and tool-level errors
+remain distinct audited outcomes. Configure the connection's cost-per-call when
+the remote service is billable so Capability evaluation includes remote cost.

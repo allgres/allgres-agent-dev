@@ -48,10 +48,79 @@ CREATE TABLE IF NOT EXISTS allgres_private.capability_versions (
   UNIQUE(capability_id,version)
 );
 
+-- Evaluation is durable evidence, not a boolean supplied by the dashboard.
+-- The runner deliberately evaluates only immutable, already-recorded facts:
+-- build state, normalized contract/risk metadata, permission-scoped execution
+-- outcomes, and a comparison with the currently published version.  It never
+-- invokes a write-capable capability merely because an operator opened review.
+CREATE TABLE IF NOT EXISTS allgres_private.capability_evaluations (
+  evaluation_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  capability_id uuid NOT NULL REFERENCES allgres_private.capability_index(capability_id) ON DELETE CASCADE,
+  status text NOT NULL CHECK (status IN ('passed','failed')),
+  isolated boolean NOT NULL DEFAULT true,
+  checks jsonb NOT NULL,
+  candidate_metrics jsonb NOT NULL DEFAULT '{}'::jsonb,
+  baseline_metrics jsonb NOT NULL DEFAULT '{}'::jsonb,
+  regression boolean NOT NULL DEFAULT false,
+  content_hash text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS capability_evaluations_latest_idx
+  ON allgres_private.capability_evaluations(capability_id,created_at DESC);
+
+CREATE OR REPLACE FUNCTION allgres_private.evaluate_capability(p_capability_id uuid)
+RETURNS jsonb LANGUAGE plpgsql AS $fn$
+DECLARE c allgres_private.capability_index%ROWTYPE; v_checks jsonb; v_candidate jsonb;
+  v_baseline jsonb; v_passed boolean; v_regression boolean; v_id uuid;
+  v_runs bigint; v_success bigint; v_baseline_rate numeric; v_candidate_rate numeric;
+BEGIN
+  SELECT * INTO c FROM allgres_private.capability_index WHERE capability_id=p_capability_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'capability not found' USING ERRCODE='P0001'; END IF;
+
+  SELECT count(*),count(*) FILTER (WHERE e.outcome='succeeded') INTO v_runs,v_success
+  FROM allgres_private.capability_search_events e
+  WHERE e.selected_capability_id=p_capability_id AND e.outcome IN ('succeeded','failed');
+  v_candidate_rate:=CASE WHEN v_runs=0 THEN NULL ELSE v_success::numeric/v_runs END;
+  SELECT (v.test_result->'candidate_metrics'->>'success_rate')::numeric INTO v_baseline_rate
+  FROM allgres_private.capability_versions v
+  WHERE v.capability_id=p_capability_id AND v.lifecycle='published'
+    AND v.test_result IS NOT NULL ORDER BY v.version DESC LIMIT 1;
+  v_regression:=v_candidate_rate IS NOT NULL AND v_baseline_rate IS NOT NULL
+    AND v_candidate_rate < v_baseline_rate;
+  v_checks:=jsonb_build_object(
+    'source_present',c.source_id IS NOT NULL,
+    'description_present',length(trim(c.description))>0,
+    'input_contract_present',c.capability_type='agent' OR c.metadata ? 'param_schema'
+      OR c.metadata ? 'input_schema',
+    'risk_declared',c.metadata ? 'risk',
+    'build_ready',COALESCE(c.metadata->>'build_status','built')='built',
+    'permission_filtered',c.capability_type IN ('agent','function','procedure'),
+    'baseline_not_regressed',NOT v_regression
+  );
+  v_passed:=NOT (v_checks @> '{"source_present":false}'::jsonb)
+    AND NOT (v_checks @> '{"description_present":false}'::jsonb)
+    AND NOT (v_checks @> '{"input_contract_present":false}'::jsonb)
+    AND NOT (v_checks @> '{"risk_declared":false}'::jsonb)
+    AND NOT (v_checks @> '{"build_ready":false}'::jsonb)
+    AND NOT v_regression;
+  v_candidate:=jsonb_build_object('runs',v_runs,'successes',v_success,'success_rate',v_candidate_rate);
+  v_baseline:=jsonb_build_object('success_rate',v_baseline_rate);
+  INSERT INTO allgres_private.capability_evaluations
+    (capability_id,status,checks,candidate_metrics,baseline_metrics,regression,content_hash)
+  VALUES (p_capability_id,CASE WHEN v_passed THEN 'passed' ELSE 'failed' END,
+    v_checks,v_candidate,v_baseline,v_regression,c.content_hash) RETURNING evaluation_id INTO v_id;
+  PERFORM allgres_private.audit('capability.evaluate',jsonb_build_object(
+    'capability_id',p_capability_id,'evaluation_id',v_id,'passed',v_passed,'regression',v_regression));
+  RETURN jsonb_build_object('evaluation_id',v_id,'passed',v_passed,'checks',v_checks,
+    'candidate_metrics',v_candidate,'baseline_metrics',v_baseline,'regression',v_regression);
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_private.transition_capability(
   p_capability_id uuid,p_lifecycle text,p_test_result jsonb DEFAULT NULL,p_note text DEFAULT NULL
 ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
 DECLARE c allgres_private.capability_index%ROWTYPE; v_version int;
+  v_evaluation allgres_private.capability_evaluations%ROWTYPE;
 BEGIN
   IF p_lifecycle NOT IN ('draft','testing','review_pending','published','deprecated','disabled') THEN
     RAISE EXCEPTION 'invalid capability lifecycle' USING ERRCODE='22023';
@@ -61,8 +130,20 @@ BEGIN
   IF c.lifecycle='published' AND p_lifecycle IN ('draft','testing','review_pending') THEN
     RAISE EXCEPTION 'published capabilities are immutable; create a new source version' USING ERRCODE='P0001';
   END IF;
-  IF p_lifecycle='published' AND (p_test_result IS NULL OR COALESCE((p_test_result->>'passed')::boolean,false)=false) THEN
-    RAISE EXCEPTION 'a passing isolated test result is required to publish' USING ERRCODE='P0001';
+  IF p_lifecycle='published' AND c.lifecycle<>'review_pending' THEN
+    RAISE EXCEPTION 'only review_pending capabilities may be published' USING ERRCODE='P0001';
+  END IF;
+  IF p_lifecycle='published' THEN
+    SELECT * INTO v_evaluation FROM allgres_private.capability_evaluations
+    WHERE evaluation_id=NULLIF(p_test_result->>'evaluation_id','')::uuid
+      AND capability_id=p_capability_id AND status='passed' AND isolated
+      AND content_hash=c.content_hash;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'a current passing isolated evaluation is required to publish' USING ERRCODE='P0001';
+    END IF;
+    p_test_result:=jsonb_build_object('evaluation_id',v_evaluation.evaluation_id,
+      'passed',true,'checks',v_evaluation.checks,'candidate_metrics',v_evaluation.candidate_metrics,
+      'baseline_metrics',v_evaluation.baseline_metrics,'regression',v_evaluation.regression);
   END IF;
   SELECT COALESCE(max(version),0)+1 INTO v_version FROM allgres_private.capability_versions
   WHERE capability_id=p_capability_id;
@@ -81,11 +162,17 @@ $fn$;
 
 CREATE OR REPLACE FUNCTION allgres_private.rollback_capability(p_capability_id uuid,p_version int)
 RETURNS jsonb LANGUAGE plpgsql AS $fn$
-DECLARE v allgres_private.capability_versions%ROWTYPE; v_new int;
+DECLARE v allgres_private.capability_versions%ROWTYPE; v_new int; c allgres_private.capability_index%ROWTYPE;
 BEGIN
   SELECT * INTO v FROM allgres_private.capability_versions
   WHERE capability_id=p_capability_id AND version=p_version;
   IF NOT FOUND THEN RAISE EXCEPTION 'capability version not found' USING ERRCODE='P0001'; END IF;
+  SELECT * INTO c FROM allgres_private.capability_index WHERE capability_id=p_capability_id FOR UPDATE;
+  IF c.capability_type='procedure' AND v.snapshot->'metadata' ? 'generation' THEN
+    PERFORM allgres_public.fn_rollback_procedure(c.source_id,(v.snapshot->'metadata'->>'generation')::int);
+  ELSIF c.capability_type='function' AND v.snapshot->'metadata' ? 'generation' THEN
+    PERFORM allgres_public.fn_rollback_function(c.source_id,(v.snapshot->'metadata'->>'generation')::int);
+  END IF;
   SELECT COALESCE(max(version),0)+1 INTO v_new FROM allgres_private.capability_versions
   WHERE capability_id=p_capability_id;
   INSERT INTO allgres_private.capability_versions(capability_id,version,lifecycle,snapshot,change_note)
@@ -121,6 +208,12 @@ CREATE TABLE IF NOT EXISTS allgres_private.capability_search_events (
 );
 CREATE INDEX IF NOT EXISTS capability_search_events_requester_idx
   ON allgres_private.capability_search_events (requester_agent_id, created_at DESC);
+ALTER TABLE allgres_private.capability_search_events
+  ADD COLUMN IF NOT EXISTS expected_capability_id uuid REFERENCES allgres_private.capability_index(capability_id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS user_corrected boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS attempt_number int NOT NULL DEFAULT 1 CHECK (attempt_number > 0),
+  ADD COLUMN IF NOT EXISTS execution_latency_ms int CHECK (execution_latency_ms IS NULL OR execution_latency_ms >= 0),
+  ADD COLUMN IF NOT EXISTS cost_usd numeric CHECK (cost_usd IS NULL OR cost_usd >= 0);
 
 -- Add a third target to the existing background embedding queue.  The
 -- worker transports opaque HTTP calls and therefore needs no Rust change.
@@ -220,7 +313,8 @@ AS $fn$
 DECLARE r record; v_count int := 0;
 BEGIN
   FOR r IN SELECT a.agent_id id,a.name,COALESCE(p.system_prompt,'') description,
-      jsonb_build_object('is_system',a.is_system) metadata,a.is_active
+      jsonb_build_object('is_system',a.is_system,'input_schema',jsonb_build_object('message','string'),
+        'risk','delegation') metadata,a.is_active
     FROM allgres_private.agents a LEFT JOIN allgres_private.policies p USING(agent_id)
   LOOP
     PERFORM allgres_private.upsert_capability('agent',r.id,r.name,r.description,r.metadata,
@@ -228,7 +322,9 @@ BEGIN
   END LOOP;
   FOR r IN SELECT function_id id,name,description,
       jsonb_build_object('handler',handler,'param_schema',param_schema,'args_template',args_template,
-        'build_status',build_status) metadata,is_active
+        'build_status',build_status,'generation',generation,'risk',CASE handler WHEN 'plpgsql' THEN 'database_write'
+          WHEN 'http_get' THEN 'external_read' WHEN 'mcp_call' THEN 'external_call' ELSE 'normal' END,
+        'requires_approval',handler IN ('plpgsql','mcp_call')) metadata,is_active
     FROM allgres_private.functions
   LOOP
     PERFORM allgres_private.upsert_capability('function',r.id,r.name,r.description,r.metadata,
@@ -236,7 +332,9 @@ BEGIN
            WHEN r.is_active THEN 'draft' ELSE 'disabled' END); v_count:=v_count+1;
   END LOOP;
   FOR r IN SELECT procedure_id id,name,content description,
-      jsonb_build_object('generation',generation,'build_status',build_status) metadata,is_active
+      jsonb_build_object('generation',generation,'build_status',build_status,
+        'input_schema',jsonb_build_object('args','object'),'risk','database_write',
+        'requires_approval',true) metadata,is_active
     FROM allgres_private.procedures
   LOOP
     PERFORM allgres_private.upsert_capability('procedure',r.id,r.name,r.description,r.metadata,
@@ -366,8 +464,34 @@ RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path=allgres_private,pg_t
       NULLIF(count(*),0),4),
     'execution_success_rate',round((count(*) FILTER (WHERE outcome='succeeded'))::numeric /
       NULLIF(count(*) FILTER (WHERE outcome IN ('succeeded','failed')),0),4),
-    'average_latency_ms',round(avg(latency_ms),2)
+    'first_try_success_rate',round((count(*) FILTER (WHERE outcome='succeeded' AND attempt_number=1))::numeric /
+      NULLIF(count(*) FILTER (WHERE outcome IN ('succeeded','failed') AND attempt_number=1),0),4),
+    'recall_at_5',round((count(*) FILTER (WHERE expected_capability_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM jsonb_array_elements(candidates) x
+      WHERE x->>'capability_id'=expected_capability_id::text)))::numeric /
+      NULLIF(count(*) FILTER (WHERE expected_capability_id IS NOT NULL),0),4),
+    'selection_accuracy',round((count(*) FILTER (WHERE expected_capability_id=selected_capability_id))::numeric /
+      NULLIF(count(*) FILTER (WHERE expected_capability_id IS NOT NULL AND selected_capability_id IS NOT NULL),0),4),
+    'correction_rate',round((count(*) FILTER (WHERE user_corrected))::numeric/NULLIF(count(*),0),4),
+    'reuse_rate',round((count(*) FILTER (WHERE selected_capability_id IS NOT NULL))::numeric/NULLIF(count(*),0),4),
+    'average_search_latency_ms',round(avg(latency_ms),2),
+    'average_execution_latency_ms',round(avg(execution_latency_ms),2),
+    'total_cost_usd',COALESCE(round(sum(cost_usd),6),0)
   ) FROM allgres_private.capability_search_events
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.label_capability_search(
+  p_event_id uuid,p_expected_capability_id uuid,p_user_corrected boolean DEFAULT false
+) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+BEGIN
+  UPDATE allgres_private.capability_search_events SET
+    expected_capability_id=p_expected_capability_id,user_corrected=COALESCE(p_user_corrected,false)
+  WHERE event_id=p_event_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'capability search event not found' USING ERRCODE='P0001'; END IF;
+  PERFORM allgres_private.audit('capability.search_label',jsonb_build_object(
+    'event_id',p_event_id,'expected_capability_id',p_expected_capability_id,'user_corrected',p_user_corrected));
+  RETURN jsonb_build_object('ok',true);
+END;
 $fn$;
 
 CREATE OR REPLACE FUNCTION allgres_private.mark_capability_selected(
@@ -392,7 +516,8 @@ CREATE OR REPLACE FUNCTION allgres_private.mark_capability_outcome(
 ) RETURNS void LANGUAGE plpgsql AS $fn$
 BEGIN
   UPDATE allgres_private.capability_search_events e
-  SET outcome=CASE WHEN p_succeeded THEN 'succeeded' ELSE 'failed' END
+  SET outcome=CASE WHEN p_succeeded THEN 'succeeded' ELSE 'failed' END,
+      execution_latency_ms=GREATEST(0,(extract(epoch FROM clock_timestamp()-e.created_at)*1000)::int)
   WHERE e.event_id=(
     SELECT e2.event_id FROM allgres_private.capability_search_events e2
     JOIN allgres_private.capability_index c ON c.capability_id=e2.selected_capability_id
@@ -400,6 +525,16 @@ BEGIN
       AND e2.outcome='selected' ORDER BY e2.created_at DESC LIMIT 1
   );
 END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.record_capability_remote_cost(
+  p_task_id uuid,p_cost_usd numeric
+) RETURNS void LANGUAGE sql AS $fn$
+  UPDATE allgres_private.capability_search_events e
+  SET cost_usd=COALESCE(e.cost_usd,0)+GREATEST(COALESCE(p_cost_usd,0),0)
+  WHERE e.event_id=(SELECT e2.event_id FROM allgres_private.capability_search_events e2
+    WHERE e2.task_id=p_task_id AND e2.selected_capability_id IS NOT NULL
+    ORDER BY e2.created_at DESC LIMIT 1)
 $fn$;
 
 SELECT allgres_private.sync_capability_index();
