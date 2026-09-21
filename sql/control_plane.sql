@@ -5366,8 +5366,7 @@ BEGIN
           UPDATE allgres_private.tasks SET step_count = step_count + 1, updated_at = now() WHERE task_id = p_task_id;
           RETURN jsonb_build_object('action', 'continue');
         END IF;
-        -- Same fail-closed check fn_bulk_set_model already makes for its own
-        -- provider argument: a candidate must be a real, enabled provider at
+        -- A candidate must be a real, enabled provider at
         -- propose time, not discovered missing/disabled only when the
         -- canary first fires (build_llm_http would raise mid-turn, deep
         -- inside a real task, instead of here at propose time where the

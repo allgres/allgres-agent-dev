@@ -1820,7 +1820,7 @@ BEGIN
   -- llm_config is deliberately not asserted here because fn_selftest is a
   -- live diagnostic and an operator is expected to configure this agent.
   -- Treating that valid live setting as a failed seed test made selftest
-  -- report a false failure immediately after "Apply to all agents".
+  -- report a false failure after a legitimate shared Agent model edit.
   ok := EXISTS (
     SELECT 1 FROM allgres_private.agents a
     WHERE a.name = 'general' AND a.is_active AND NOT a.is_system
@@ -3677,8 +3677,7 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'model_experiments_registered_for_pg_dump', 'ok', ok));
 
     -- start_experiment must fail closed on a candidate provider that does
-    -- not exist or is disabled, the same as fn_bulk_set_model already does
-    -- for its own provider argument -- otherwise a typo'd/disabled
+    -- not exist or is disabled; otherwise a typo'd/disabled
     -- candidate sits "running" until the canary first fires, deep inside a
     -- real task's own turn.
     v_ovr_sid := (allgres_public.fn_create_session(v_self_id, 'selftest function_override bad provider')->>'session_id')::uuid;

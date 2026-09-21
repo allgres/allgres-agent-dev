@@ -555,8 +555,7 @@ BEGIN
   -- already required this when the experiment was proposed, but an operator
   -- (or, now, an autonomous decision) can disable a provider at any point
   -- while the experiment is running -- promoting it anyway would write a
-  -- dead provider straight into this function's live llm_override, exactly the
-  -- failure fn_bulk_set_model's own fail-closed check exists to avoid.
+  -- dead provider straight into this function's live llm_override.
   IF NOT EXISTS (
     SELECT 1 FROM allgres_private.model_experiments me
     JOIN allgres_private.llm_providers p ON p.name = me.candidate_provider AND p.is_enabled

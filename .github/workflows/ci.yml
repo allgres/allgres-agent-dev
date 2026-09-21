@@ -166,24 +166,11 @@ jobs:
 
   rpm-build:
     runs-on: ubuntu-latest
-    container: fedora:42
+    container: fedora:43
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install RPM and PostgreSQL build dependencies
-        run: |
-          dnf install -y rpm-build rpmdevtools rpmlint curl cargo gcc clang openssl-devel pkgconf-pkg-config tar gzip
-          dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/F-42-x86_64/pgdg-fedora-repo-latest.noarch.rpm
-          dnf -qy module disable postgresql || true
-          dnf install -y postgresql17-devel postgresql17-server
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
       - name: Build and lint RPM
-        run: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          rpmdev-setuptree
-          tar --exclude=.git --exclude=target --transform 's,^,allgres-0.1.0/,' -czf "$HOME/rpmbuild/SOURCES/allgres-0.1.0.tar.gz" .
-          rpmbuild -ba packaging/rpm/allgres.spec
-          rpmlint "$HOME"/rpmbuild/RPMS/*/allgres-*.rpm
-          rpm -qpl "$HOME"/rpmbuild/RPMS/*/allgres-*.rpm | grep -E 'allgres\.(so|control)|allgres--.*\.sql'
+        run: sh packaging/rpm/verify-fedora.sh
 
   fault-injection-drill:
     runs-on: ubuntu-latest
