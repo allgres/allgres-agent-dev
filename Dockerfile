@@ -1,5 +1,5 @@
 # Buildable MVP image: PostgreSQL 17 + one Allgres extension.
-FROM postgres:17-bookworm AS builder
+FROM postgres:18-bookworm AS builder
 
 # libssl-dev is also pulled in transitively here (postgresql-server-dev-17
 # depends on libpq-dev, which depends on libssl-dev, on Debian) -- listed
@@ -20,7 +20,7 @@ WORKDIR /src/allgres
 COPY . .
 RUN cargo pgrx install --release --features pg17
 
-FROM postgres:17-bookworm
+FROM postgres:18-bookworm
 # org.opencontainers.image.source is what GHCR (.github/workflows/publish-
 # image.yml) uses to link a pushed package back to this repository -- the
 # same label GitHub's own docs recommend for that, present in the image
