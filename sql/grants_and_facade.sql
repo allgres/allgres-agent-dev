@@ -398,6 +398,9 @@ GRANT EXECUTE ON FUNCTION allgres_private.fn_llm_complete(jsonb, jsonb) TO allgr
 -- several such gaps found only by testing under the actual role, not
 -- superuser or another SECURITY DEFINER function.
 GRANT EXECUTE ON FUNCTION allgres_private.current_agent_id() TO sandbox;
+GRANT EXECUTE ON FUNCTION allgres_private.assert_local_execution(text) TO sandbox;
+GRANT EXECUTE ON FUNCTION allgres_private.begin_local_execution(text, uuid) TO worker;
+REVOKE ALL ON allgres_private.local_execution_context FROM operator;
 
 -- SECURITY DEFINER changes what agent_may_read's own body runs as once
 -- it's allowed to start -- it does not waive the EXECUTE check needed to
@@ -540,6 +543,7 @@ AS $fn$
 DECLARE
   v_action text := COALESCE(p_request->>'action', '');
   v_id uuid;
+  v_created jsonb;
   v_user allgres_private.users%ROWTYPE;
   v_scope uuid[];
 BEGIN
@@ -600,6 +604,18 @@ BEGIN
           WHERE t.status = 'failed' AND s.goal NOT LIKE 'selftest%'
         ),
         'sessions', (SELECT count(*) FROM allgres_private.sessions WHERE goal NOT LIKE 'selftest%'),
+        -- Dashboard onboarding step 3: a completed General turn, not merely
+        -- a configured model. recent_tasks is a short window and can drop
+        -- the first hello; this count stays true for the life of the install.
+        'general_completed_tasks', (
+          SELECT count(*)
+          FROM allgres_private.tasks t
+          JOIN allgres_private.sessions s USING (session_id)
+          JOIN allgres_private.agents a ON a.agent_id = t.agent_id
+          WHERE a.name = 'general'
+            AND t.status = 'completed'
+            AND s.goal NOT LIKE 'selftest%'
+        ),
         'secret_storage', allgres_private.secret_storage_mode(),
         -- Overview's cluster monitoring (item 44): PostgreSQL version + this
         -- cluster's own session counts come straight from SQL; CPU load and
@@ -662,6 +678,13 @@ BEGIN
             'max_turn_seconds', p.max_turn_seconds,
             'max_delegation_depth', p.max_delegation_depth,
             'max_session_tasks', p.max_session_tasks,
+            'execution_rules', COALESCE((
+              SELECT jsonb_agg(jsonb_build_object(
+                'action', r.action, 'resource', r.resource, 'decision', r.decision,
+                'generation', r.generation
+              ) ORDER BY r.action, r.resource)
+              FROM allgres_private.execution_rules r WHERE r.agent_id = a.agent_id
+            ), '[]'::jsonb),
             'permissions', COALESCE((
               SELECT jsonb_agg(jsonb_build_object('type', x.resource_type, 'ref', x.resource_ref)
                      ORDER BY x.resource_type, x.resource_ref)
@@ -674,6 +697,11 @@ BEGIN
         LEFT JOIN allgres_private.agents pa ON pa.agent_id = a.parent_agent_id
         WHERE a.name NOT LIKE 'selftest%'
       ), '[]'::jsonb));
+
+    WHEN 'agents.set_execution_rule' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_set_execution_rule((p_request->>'agent_id')::uuid,
+        p_request->>'rule_action', p_request->>'resource', p_request->>'decision');
 
     WHEN 'agents.set_autonomy' THEN
       -- Relaxed from a bare require_admin: that alone made this the one
@@ -698,7 +726,15 @@ BEGIN
 
     WHEN 'agents.create' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
-      RETURN allgres_public.fn_create_agent(p_request->>'name', p_request->>'system_prompt');
+      v_created := allgres_public.fn_create_agent(p_request->>'name', p_request->>'system_prompt');
+      v_id := (v_created->>'agent_id')::uuid;
+      IF p_request ? 'llm_config' THEN
+        PERFORM allgres_public.fn_set_policy(v_id, NULL, NULL, NULL, p_request->'llm_config');
+      END IF;
+      IF p_request ? 'is_active' THEN
+        PERFORM allgres_public.fn_set_agent_active(v_id, (p_request->>'is_active')::boolean);
+      END IF;
+      RETURN v_created;
 
     WHEN 'agents.update' THEN
       v_id := (p_request->>'agent_id')::uuid;
@@ -785,6 +821,13 @@ BEGIN
         WHERE (NOT (p_request ? 'agent_id') OR cp.agent_id = (p_request->>'agent_id')::uuid)
           AND (NOT (p_request ? 'status') OR cp.status = p_request->>'status')
           AND COALESCE(cp.reason, '') NOT LIKE 'selftest%'
+          AND COALESCE(ta.name, '') NOT LIKE 'selftest%'
+          AND COALESCE(cp.proposed_changes->>'name', '') NOT LIKE '%selftest%'
+          AND NOT EXISTS (
+            SELECT 1 FROM allgres_private.tasks t
+            JOIN allgres_private.sessions s USING (session_id)
+            WHERE t.task_id = cp.task_id AND s.goal LIKE 'selftest%'
+          )
           -- create_agent has no existing target to scope by, so it stays
           -- admin-only in this inbox; a policy_change is visible to whoever
           -- may reach its actual target (COALESCE(target_agent_id, agent_id)).
@@ -953,7 +996,8 @@ BEGIN
                  p.agent_id, a.name AS agent, p.preset_prompt
           FROM allgres_private.projects p
           LEFT JOIN allgres_private.agents a ON a.agent_id = p.agent_id
-          WHERE v_scope IS NULL OR p.agent_id = ANY(v_scope)
+          WHERE p.name NOT LIKE 'selftest%'
+            AND (v_scope IS NULL OR p.agent_id = ANY(v_scope))
         ) pr
       ), '[]'::jsonb));
 
@@ -1936,7 +1980,7 @@ BEGIN
         SELECT jsonb_agg(to_jsonb(q) ORDER BY q.created_at)
         FROM (
           SELECT h.approval_id, h.task_id, t.session_id, a.name AS agent,
-                 s.goal, h.payload->>'reason' AS reason,
+                 s.goal, h.payload->>'reason' AS reason, h.payload,
                  h.created_at, h.expires_at
           FROM allgres_private.human_approvals h
           JOIN allgres_private.tasks t USING (task_id)

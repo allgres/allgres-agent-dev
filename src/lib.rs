@@ -108,10 +108,11 @@ pub(crate) const SSE_TICKET_TTL: Duration = Duration::from_secs(30);
 // const-eval copy loop pgrx's extension_sql_file! macro runs at compile
 // time finishes comfortably inside rustc's default budget.
 extension_sql_file!("../sql/control_plane.sql", name = "control_plane");
+extension_sql_file!("../sql/execution_guards.sql", name = "execution_guards", requires = ["control_plane"]);
 extension_sql_file!(
     "../sql/operator_agents_and_policies.sql",
     name = "operator_agents_and_policies",
-    requires = ["control_plane"]
+    requires = ["execution_guards"]
 );
 extension_sql_file!(
     "../sql/capability_search.sql",

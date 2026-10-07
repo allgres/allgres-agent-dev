@@ -28,7 +28,7 @@ extension does that a generic `pg_dump` would otherwise miss silently:
   `sql/seed_data.sql` register
   every table holding real operator/agent state via
   `pg_extension_config_dump()` (agents, sessions, tasks, policies and their
-  history, permissions, projects, execution logs, human approvals, change
+  history, permissions, execution rules, projects, execution logs, human approvals, change
   proposals, provider secrets, agent memories, and the outbound/SQL/OAuth
   call queues), so a plain
   `pg_dump` now actually includes this extension's data — it silently did

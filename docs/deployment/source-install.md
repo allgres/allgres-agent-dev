@@ -69,8 +69,8 @@ whichever piece is actually missing instead, before ever reaching that
 Rust and `cargo-pgrx` are handled for you if they aren't already there:
 
 ```bash
-git clone https://github.com/allgres/allgres-agent-dev.git
-cd allgres-agent-dev
+git clone https://github.com/allgres/allgres-agent.git
+cd allgres-agent
 make install     # needs root? see the note just below, not a bare `sudo`
 ALLGRES_BOOTSTRAP_ADMIN_USER=admin ALLGRES_BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-password' make quickstart
 ```

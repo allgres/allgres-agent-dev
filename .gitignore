@@ -1,4 +1,6 @@
 /target/
+/node_modules/
+/test-results/
 **/*.rs.bk
 
 # Local overrides for docker compose (POSTGRES_PASSWORD, ALLGRES_SECRET_KEY,

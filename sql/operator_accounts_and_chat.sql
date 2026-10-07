@@ -33,6 +33,10 @@ BEGIN
     RAISE EXCEPTION 'approval not pending' USING ERRCODE = 'P0001';
   END IF;
 
+  IF v.expires_at IS NOT NULL AND v.expires_at <= clock_timestamp() THEN
+    RAISE EXCEPTION 'approval expired';
+  END IF;
+
   UPDATE allgres_private.human_approvals
   SET status = CASE WHEN p_accept THEN 'approved' ELSE 'rejected' END,
       reply_text = p_reply,
@@ -53,7 +57,8 @@ BEGIN
 
   IF p_accept THEN
     UPDATE allgres_private.tasks
-    SET status = 'queued', step_count = step_count + 1, updated_at = now()
+    SET status = CASE WHEN v.payload ? 'queue' THEN 'running' ELSE 'queued' END,
+        step_count = step_count + 1, updated_at = now()
     WHERE task_id = t.task_id;
   ELSE
     UPDATE allgres_private.tasks
@@ -300,10 +305,10 @@ BEGIN
   -- see that trigger's comment. Deleting sql_calls/tasks/sessions instead
   -- and leaving orphaned execution_logs behind would either violate the
   -- tasks/sessions FK (nothing here cascades) or leave logs with no task to
-  -- belong to. So selftest fixtures are never deleted; instead this only
-  -- terminates anything left non-terminal by an interrupted run, and the
-  -- operator-facing views/listings filter out goal LIKE 'selftest%' (see
-  -- their own comments) so they never actually show up in the dashboard.
+  -- belong to. Older selftest runs left fixtures behind. Current
+  -- fn_selftest uses a rollback-only subtransaction, so it leaves no new
+  -- rows. Legacy normalization in this function is also rolled back by
+  -- fn_selftest; operator-facing listings filter those older rows.
   -- Some Messenger tests intentionally use a natural-language user message
   -- as the session goal, so the goal does not begin with `selftest` even
   -- though the target is one of the disposable selftest agents. Normalize
@@ -433,6 +438,20 @@ BEGIN
 
   -- Never log p_password/v_hash: audit_log.details is not a secrets store.
   PERFORM allgres_private.audit('users.create', jsonb_build_object('user_id', v_id, 'username', v_username, 'role', p_role));
+
+  -- Chat's first-run path is General. A regular user cannot reach an agent
+  -- without a user_agent_assignments row (require_agent_access); without
+  -- this seed they logged in to "The General agent is not assigned to your
+  -- account". Admins bypass assignment, so they do not get a row. An
+  -- operator can still revoke this from Users. Other seeded agents
+  -- (health_monitor, analyst, the system family) stay unassigned.
+  IF p_role = 'user' THEN
+    INSERT INTO allgres_private.user_agent_assignments (user_id, agent_id)
+    SELECT v_id, a.agent_id
+    FROM allgres_private.agents a
+    WHERE a.name = 'general' AND a.is_active
+    ON CONFLICT DO NOTHING;
+  END IF;
 
   RETURN jsonb_build_object('ok', true, 'user_id', v_id, 'username', v_username, 'role', p_role, 'pg_role', v_pg_role);
 END;

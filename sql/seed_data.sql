@@ -202,6 +202,9 @@ ON CONFLICT DO NOTHING;
 -- action any other agent has, no special case needed. There is no
 -- scheduler that runs this automatically; an operator (or an external cron
 -- hitting POST /api/v1/run) triggers it, the same as any other agent.
+-- The dashboard folds it with System agents (web/index.html isFoldedAgent)
+-- so a first-run operator does not see it next to general/analyst as if it
+-- were already a conversation agent with a model.
 DO $seed$
 DECLARE
   v_agent uuid;
@@ -560,3 +563,5 @@ SELECT pg_catalog.pg_extension_config_dump('allgres_private.model_experiments', 
 -- pg_dump that skipped it would silently come back with every cost_usd
 -- unpriced after restore.
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.llm_model_prices', '');
+
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.execution_rules', '');

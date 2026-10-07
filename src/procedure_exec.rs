@@ -13,15 +13,15 @@
 //! this session in the first place, not for every call made once inside
 //! it.
 
-use crate::function_exec::{dollar_quote, valid_sql_ident};
+use crate::function_exec::{run_guarded_build, valid_sql_ident, with_fixed_role};
 use crate::rpc::valid_uuid;
 use crate::runtime_worker::drop_privileges;
-use crate::sandbox::{run_in_subtransaction, valid_pg_role, PG_STATEMENT_TIMEOUT_ID};
+use crate::sandbox::{PG_STATEMENT_TIMEOUT_ID, run_in_subtransaction, valid_pg_role};
 use crate::{PROCEDURE_CALL_TIMEOUT_MS, SQL_CLAIM_LIMIT};
+use pgrx::JsonB;
 use pgrx::bgworkers::BackgroundWorker;
 use pgrx::prelude::*;
-use pgrx::JsonB;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 unsafe extern "C" {
     fn enable_timeout_after(id: std::ffi::c_int, delay_ms: std::ffi::c_int);
@@ -33,11 +33,14 @@ pub(crate) fn claim_procedure_build_jobs(limit: i32) -> Value {
         if !drop_privileges() {
             return json!({ "count": 0, "builds": [] });
         }
-        Spi::get_one_with_args::<JsonB>("SELECT allgres_public.fn_claim_procedure_builds($1)", &[limit.into()])
-            .ok()
-            .flatten()
-            .map(|j| j.0)
-            .unwrap_or_else(|| json!({ "count": 0, "builds": [] }))
+        Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_claim_procedure_builds($1)",
+            &[limit.into()],
+        )
+        .ok()
+        .flatten()
+        .map(|j| j.0)
+        .unwrap_or_else(|| json!({ "count": 0, "builds": [] }))
     })
 }
 
@@ -50,22 +53,7 @@ pub(crate) fn claim_procedure_build_jobs(limit: i32) -> Value {
 /// assigning it, the same convention a plpgsql Function's body ending in
 /// `RETURN` already establishes.
 fn run_procedure_build(sql_ident: &str, body: &str) -> Result<(), String> {
-    if !valid_sql_ident(sql_ident, "proc_") {
-        return Err("invalid sql_ident".to_string());
-    }
-    let (_tag, quoted_body) = dollar_quote(body);
-    let ddl = format!(
-        "CREATE OR REPLACE PROCEDURE allgres_functions.{sql_ident}(p_args jsonb, INOUT p_result jsonb) LANGUAGE plpgsql SECURITY INVOKER AS {quoted_body};"
-    );
-    BackgroundWorker::transaction(|| {
-        run_in_subtransaction(|| {
-            if !drop_privileges() || Spi::run("SET LOCAL ROLE allgres_function_admin").is_err() {
-                return Err("allgres_function_admin role unavailable".to_string());
-            }
-            Spi::run(&ddl).map(|_| Value::Null).map_err(|e| e.to_string())
-        })
-    })
-    .map(|_| ())
+    run_guarded_build(sql_ident, body, true)
 }
 
 fn submit_procedure_build_result(procedure_id: &str, outcome: Result<(), String>) {
@@ -85,7 +73,11 @@ fn submit_procedure_build_result(procedure_id: &str, outcome: Result<(), String>
             "SELECT allgres_public.fn_complete_procedure_build($1::uuid, $2, $3)",
             &[procedure_id.into(), ok.into(), error.into()],
         ) {
-            pgrx::warning!("Allgres: fn_complete_procedure_build failed for {}: {}", procedure_id, e);
+            pgrx::warning!(
+                "Allgres: fn_complete_procedure_build failed for {}: {}",
+                procedure_id,
+                e
+            );
         }
     });
 }
@@ -122,11 +114,14 @@ pub(crate) fn claim_procedure_call_jobs(limit: i32) -> Value {
         if !drop_privileges() {
             return json!({ "count": 0, "calls": [] });
         }
-        Spi::get_one_with_args::<JsonB>("SELECT allgres_public.fn_claim_procedure_calls($1)", &[limit.into()])
-            .ok()
-            .flatten()
-            .map(|j| j.0)
-            .unwrap_or_else(|| json!({ "count": 0, "calls": [] }))
+        Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_claim_procedure_calls($1)",
+            &[limit.into()],
+        )
+        .ok()
+        .flatten()
+        .map(|j| j.0)
+        .unwrap_or_else(|| json!({ "count": 0, "calls": [] }))
     })
 }
 
@@ -143,7 +138,12 @@ pub(crate) fn claim_procedure_call_jobs(limit: i32) -> Value {
 /// `SQL_STATEMENT_TIMEOUT_MS` a plain Function call uses: unlike a
 /// Function, a Procedure's body may call `allgres_private.fn_llm_complete`
 /// (Phase 3e), a real synchronous HTTP round trip on this same thread.
-fn run_procedure_call(sql_ident: &str, args: &Value, pg_role: Option<&str>) -> Result<Value, String> {
+fn run_procedure_call(
+    call_id: &str,
+    sql_ident: &str,
+    args: &Value,
+    pg_role: Option<&str>,
+) -> Result<Value, String> {
     if !valid_sql_ident(sql_ident, "proc_") {
         return Err("invalid sql_ident".to_string());
     }
@@ -153,20 +153,30 @@ fn run_procedure_call(sql_ident: &str, args: &Value, pg_role: Option<&str>) -> R
     BackgroundWorker::transaction(|| {
         run_in_subtransaction(|| {
             let dropped = drop_privileges()
+                && Spi::run_with_args(
+                    "SELECT allgres_private.begin_local_execution('procedure_calls', $1::uuid)",
+                    &[call_id.into()],
+                )
+                .is_ok()
                 && Spi::run(&format!("SET LOCAL ROLE {role}")).is_ok()
                 && Spi::run("SET LOCAL search_path = pg_temp").is_ok()
-                && Spi::run(&format!("SET LOCAL statement_timeout = '{PROCEDURE_CALL_TIMEOUT_MS}ms'")).is_ok();
+                && Spi::run(&format!(
+                    "SET LOCAL statement_timeout = '{PROCEDURE_CALL_TIMEOUT_MS}ms'"
+                ))
+                .is_ok();
             if !dropped {
                 return Err("procedure role unavailable".to_string());
             }
             unsafe {
                 enable_timeout_after(PG_STATEMENT_TIMEOUT_ID, PROCEDURE_CALL_TIMEOUT_MS);
             }
-            let r = match Spi::get_one_with_args::<JsonB>(&sql, &[JsonB(args).into()]) {
-                Ok(Some(JsonB(v))) => Ok(v),
-                Ok(None) => Ok(Value::Null),
-                Err(e) => Err(e.to_string()),
-            };
+            let r = with_fixed_role(|| {
+                match Spi::get_one_with_args::<JsonB>(&sql, &[JsonB(args).into()]) {
+                    Ok(Some(JsonB(v))) => Ok(v),
+                    Ok(None) => Ok(Value::Null),
+                    Err(e) => Err(e.to_string()),
+                }
+            });
             unsafe {
                 disable_timeout(PG_STATEMENT_TIMEOUT_ID, false);
             }
@@ -190,9 +200,18 @@ fn submit_procedure_call_result(call_id: &str, outcome: Result<Value, String>) {
         }
         if let Err(e) = Spi::get_one_with_args::<JsonB>(
             "SELECT allgres_public.fn_complete_procedure_call($1::uuid, $2, $3, $4)",
-            &[call_id.into(), ok.into(), result.map(JsonB).into(), error.into()],
+            &[
+                call_id.into(),
+                ok.into(),
+                result.map(JsonB).into(),
+                error.into(),
+            ],
         ) {
-            pgrx::warning!("Allgres: fn_complete_procedure_call failed for call {}: {}", call_id, e);
+            pgrx::warning!(
+                "Allgres: fn_complete_procedure_call failed for call {}: {}",
+                call_id,
+                e
+            );
         }
     });
 }
@@ -217,7 +236,7 @@ pub(crate) fn pump_procedure_calls() -> usize {
         }
         let args = call.get("args").cloned().unwrap_or_else(|| json!({}));
         let pg_role = call.get("pg_role").and_then(Value::as_str);
-        let outcome = run_procedure_call(sql_ident, &args, pg_role);
+        let outcome = run_procedure_call(call_id, sql_ident, &args, pg_role);
         submit_procedure_call_result(call_id, outcome);
         n += 1;
     }

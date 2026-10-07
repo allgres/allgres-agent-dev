@@ -1,6 +1,6 @@
 # Known limitations
 
-Allgres `0.1.0-alpha.1` is a public alpha. Use it for evaluation and
+Allgres `0.1.0-alpha.3` is a public alpha. Use it for evaluation and
 development, not as the only copy of production data.
 
 ## Upgrade compatibility
@@ -15,7 +15,8 @@ change between alpha versions.
 - The bundled Docker image uses PostgreSQL 17.
 - The CNPG example requires PostgreSQL 18 and Kubernetes Image Volume support.
   It is an example manifest, not a production-ready Helm chart.
-- Native RPM/DEB packages and general Kubernetes manifests are not available.
+- A Fedora 43 / PostgreSQL 18 RPM is published with the alpha release. DEB
+  packages and a general-purpose Kubernetes deployment chart are not available.
 
 ## Security posture
 

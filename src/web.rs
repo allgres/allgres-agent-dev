@@ -422,6 +422,30 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
+    if path == "/mock/models" || path == "/mock/v1/models" {
+        if !cfg.mock_enabled {
+            respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+            return;
+        }
+        // Settings' Test connection is GET {base_url}/models (openai_compat)
+        // or /v1/models (anthropic). The other /mock/* doubles already speak
+        // those providers' wire formats; without this, a first-run operator
+        // who pointed a provider at the built-in mock saw
+        // last_probe_status='error' with body {"ok":false,"error":"not_found"}
+        // even though /mock/chat/completions would have answered a turn.
+        // Same {"data":[{"id":...}]} shape fn_complete_provider_probe parses.
+        let body = json!({
+            "object": "list",
+            "data": [
+                { "id": "allgres-mock", "object": "model" },
+                { "id": "allgres-mock-embed", "object": "model" }
+            ]
+        })
+        .to_string();
+        respond_json(&mut s, "200 OK", &body);
+        return;
+    }
+
     if path == "/mock/chat/completions" || path == "/mock/slow/chat/completions" {
         if !cfg.mock_enabled {
             respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");

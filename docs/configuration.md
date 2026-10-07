@@ -11,5 +11,5 @@ Part of the [documentation index](../README.md). See also:
 | `ALLGRES_ALLOW_INSECURE_HTTP` | unset | Permit a public bind with no token |
 | `ALLGRES_SOCKET_DIR` | `$PGDATA/allgres` | RPC socket directory |
 | `ALLGRES_SECRET_KEY` | empty | Encrypts provider secrets at rest |
-| `ALLGRES_ENABLE_MOCK` | unset | Serve `/mock/chat/completions` and `/mock/oauth/token` (tests only) |
+| `ALLGRES_ENABLE_MOCK` | unset | Serve `/mock/models`, `/mock/chat/completions`, `/mock/embeddings`, and `/mock/oauth/token` (tests and local first-run) |
 | `ALLGRES_DROP_PRIVILEGES` | `1` | Runtime worker drops to the `worker` role |

@@ -6,11 +6,11 @@
 use crate::rpc::valid_uuid;
 use crate::runtime_worker::drop_privileges;
 use crate::{SQL_CLAIM_LIMIT, SQL_STATEMENT_TIMEOUT_MS};
+use pgrx::JsonB;
 use pgrx::bgworkers::BackgroundWorker;
 use pgrx::pg_sys::pg_try::PgTryBuilder;
 use pgrx::prelude::*;
-use pgrx::JsonB;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // ---------------------------------------------------------------------------
 // Sandboxed SQL.  sql/control_plane.sql's fn_validate_sql (SECURITY DEFINER)
@@ -105,7 +105,9 @@ where
             let message = match &caught {
                 pg_sys::panic::CaughtError::PostgresError(e)
                 | pg_sys::panic::CaughtError::ErrorReport(e) => e.message().to_string(),
-                pg_sys::panic::CaughtError::RustPanic { ereport, .. } => ereport.message().to_string(),
+                pg_sys::panic::CaughtError::RustPanic { ereport, .. } => {
+                    ereport.message().to_string()
+                }
             };
             unsafe {
                 pg_sys::MemoryContextSwitchTo(old_context);
@@ -157,7 +159,10 @@ fn run_sandboxed_sql(agent_id: &str, sql: &str, pg_role: Option<&str>) -> Result
                 && Spi::run(&format!("SET LOCAL ROLE {role}")).is_ok()
                 && Spi::run("SET LOCAL search_path = pg_temp").is_ok()
                 && Spi::run("SET LOCAL transaction_read_only = on").is_ok()
-                && Spi::run(&format!("SET LOCAL statement_timeout = '{SQL_STATEMENT_TIMEOUT_MS}ms'")).is_ok()
+                && Spi::run(&format!(
+                    "SET LOCAL statement_timeout = '{SQL_STATEMENT_TIMEOUT_MS}ms'"
+                ))
+                .is_ok()
                 && Spi::run_with_args(
                     "SELECT set_config('allgres.agent_id', $1, true)",
                     &[agent_id.into()],
@@ -184,14 +189,16 @@ fn run_sandboxed_sql(agent_id: &str, sql: &str, pg_role: Option<&str>) -> Result
             unsafe {
                 enable_timeout_after(PG_STATEMENT_TIMEOUT_ID, SQL_STATEMENT_TIMEOUT_MS);
             }
-            let r = match Spi::get_one_with_args::<JsonB>(
-                "SELECT allgres_public.fn_run_sandboxed_sql($1)",
-                &[sql.into()],
-            ) {
-                Ok(Some(JsonB(v))) => Ok(v),
-                Ok(None) => Err("sandboxed execution returned nothing".to_string()),
-                Err(e) => Err(e.to_string()),
-            };
+            let r = crate::function_exec::with_fixed_role(|| {
+                match Spi::get_one_with_args::<JsonB>(
+                    "SELECT allgres_public.fn_run_sandboxed_sql($1)",
+                    &[sql.into()],
+                ) {
+                    Ok(Some(JsonB(v))) => Ok(v),
+                    Ok(None) => Err("sandboxed execution returned nothing".to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            });
             unsafe {
                 disable_timeout(PG_STATEMENT_TIMEOUT_ID, false);
             }
@@ -246,7 +253,11 @@ fn submit_sql_result(call_id: &str, outcome: Result<Value, String>) {
                 error.into(),
             ],
         ) {
-            pgrx::warning!("Allgres: fn_complete_sql failed for call {}: {}", call_id, e);
+            pgrx::warning!(
+                "Allgres: fn_complete_sql failed for call {}: {}",
+                call_id,
+                e
+            );
         }
     });
 }

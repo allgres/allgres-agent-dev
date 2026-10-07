@@ -1,0 +1,49 @@
+name: Publish RPM
+
+on:
+  push:
+    tags: ['v*-alpha.*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: fedora:43
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and lint Fedora 43 PostgreSQL 18 RPM
+        run: sh packaging/rpm/verify-fedora.sh
+      - name: Stage installation RPM
+        run: |
+          mkdir -p release-assets
+          cp "$(rpm --eval '%{_topdir}')"/RPMS/x86_64/allgres-[0-9]*.rpm release-assets/
+          test "$(find release-assets -maxdepth 1 -name '*.rpm' | wc -l)" -eq 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: allgres-rpm-x86_64
+          path: release-assets/*.rpm
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: allgres-rpm-x86_64
+          path: release-assets
+      - name: Create alpha release and attach RPM
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "Allgres $GITHUB_REF_NAME" \
+              --prerelease --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-assets/*.rpm \
+            --repo "$GITHUB_REPOSITORY" --clobber

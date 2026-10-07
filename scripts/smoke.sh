@@ -100,4 +100,8 @@ curl -fsS -X POST "$BASE/mock/chat/completions" \
   -H 'content-type: application/json' \
   -d '{"model":"allgres-mock","messages":[]}' >/dev/null
 
+# Settings' Test connection is GET /models. The mock must speak that
+# shape or first-run onboarding never marks the provider step done.
+curl -fsS "$BASE/mock/models" | grep -q allgres-mock
+
 echo "Allgres dashboard MVP smoke test passed."
