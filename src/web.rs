@@ -6,7 +6,7 @@
 
 use crate::config::{configured_http_addr, rpc_socket_path};
 use crate::http_protocol::{parse_form_body, read_http_request, HttpRequest};
-use crate::{DASHBOARD_HTML, MAX_WEB_THREADS, SSE_INTERVAL, SSE_TICKET_TTL, SSE_TOTAL};
+use crate::{CANVAS_HTML, DASHBOARD_HTML, MAX_WEB_THREADS, SSE_INTERVAL, SSE_TICKET_TTL, SSE_TOTAL};
 use pgrx::bgworkers::{BackgroundWorker, SignalWakeFlags};
 use pgrx::prelude::*;
 use serde_json::{json, Value};
@@ -549,9 +549,12 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
-    if path == "/" {
+    // Both pages are static documents behind the same per-response nonce
+    // CSP; everything they show comes from /api/v1 after load.
+    if path == "/" || path == "/canvas" {
         let n = nonce();
-        let html = DASHBOARD_HTML.replace("__CSP_NONCE__", &n);
+        let page = if path == "/" { DASHBOARD_HTML } else { CANVAS_HTML };
+        let html = page.replace("__CSP_NONCE__", &n);
         let csp = format!(
             "Content-Security-Policy: default-src 'none'; \
              script-src 'nonce-{n}'; style-src 'nonce-{n}'; \

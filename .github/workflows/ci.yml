@@ -144,6 +144,22 @@ jobs:
           test -s /tmp/allgres.so
           test -s /tmp/allgres.control
 
+  canvas-bundle:
+    # web/canvas.html is committed so building the extension never needs
+    # Node.js; this keeps it from drifting from web/canvas/src.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+        working-directory: web/canvas
+      - run: npm run build
+        working-directory: web/canvas
+      - name: Committed bundle matches source
+        run: git diff --exit-code -- web/canvas.html
+
   browser-role-navigation:
     runs-on: ubuntu-latest
     steps:

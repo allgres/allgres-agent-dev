@@ -35,6 +35,24 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   });
 });
 
+test('admin opens the read-only canvas from the menu', async ({ page }) => {
+  const cspErrors=[];
+  page.on('console',message=>{if(message.type()==='error'&&/Content Security Policy|style-src|script-src/i.test(message.text()))cspErrors.push(message.text())});
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.locator('#nav button', { hasText: 'Canvas' }).click();
+  await expect(page).toHaveURL(/\/canvas$/);
+  const general = page.locator('.agent-node', { hasText: 'general' }).first();
+  await expect(general).toBeVisible();
+  await expect(page.getByText('System agents', { exact: true }).first()).toBeVisible();
+  await general.click();
+  await expect(page.locator('.inspector')).toContainText('Hierarchy');
+  await page.locator('#showSystem').uncheck();
+  await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
+  await page.getByRole('link', { name: '← Dashboard' }).click();
+  await expect(page.locator('#whoami')).toContainText('ui_admin');
+  expect(cspErrors).toEqual([]);
+});
+
 test('admin data tables fit a narrow viewport', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await login(page, 'ui_admin', 'ui-admin-password');
@@ -79,8 +97,10 @@ test('regular user sees only scoped chat and personal settings', async ({ page }
   await page.locator('#nav button', { hasText: 'General' }).click();
   await expect(page.locator('#generalChatThread')).toBeVisible();
   await expect(page.getByText('not assigned to your account')).toHaveCount(0);
-  for (const forbidden of ['Dashboard','SQL','Agents','Memories','Audit'])
+  for (const forbidden of ['Dashboard','Canvas','SQL','Agents','Memories','Audit'])
     await expect(page.locator('#nav').getByRole('button',{name:forbidden,exact:true})).toHaveCount(0);
+  await page.goto(baseURL + '/canvas');
+  await expect(page.getByText('Admins only')).toBeVisible();
 });
 
 test('mobile navigation remains keyboard reachable', async ({ page }) => {

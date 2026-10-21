@@ -81,6 +81,11 @@ csp_headers=$(curl -fsSD- -o /dev/null "$BASE/")
 grep -qi "content-security-policy:.*nonce-" <<<"$csp_headers"
 index_body=$(curl -fsS "$BASE/")
 grep -qv '__CSP_NONCE__' <<<"$index_body"
+csp_headers=$(curl -fsSD- -o /dev/null "$BASE/canvas")
+grep -qi "content-security-policy:.*nonce-" <<<"$csp_headers"
+canvas_body=$(curl -fsS "$BASE/canvas")
+grep -q '<title>Allgres Canvas</title>' <<<"$canvas_body"
+grep -qv '__CSP_NONCE__' <<<"$canvas_body"
 
 # CSRF: an API call without the client header, or with a foreign Origin, fails.
 [[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/agents")" == "403" ]]

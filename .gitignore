@@ -13,3 +13,5 @@
 # They contain live database files and must never enter Git or an image build.
 *-pgdata/
 pgdata/
+/web/canvas/node_modules/
+/web/canvas/dist/

@@ -41,6 +41,9 @@ pub(crate) const DEFAULT_DB: &str = "postgres";
 /// is refused unless the operator opts in explicitly (see `check_exposure`).
 pub(crate) const DEFAULT_HTTP_ADDR: &str = "127.0.0.1:8088";
 pub(crate) const DASHBOARD_HTML: &str = include_str!("../web/index.html");
+/// Built from web/canvas (React) and committed, so building the extension
+/// never needs Node.js -- see docs/canvas.md, "Building".
+pub(crate) const CANVAS_HTML: &str = include_str!("../web/canvas.html");
 
 /// Outbound HTTP threads, and therefore the maximum number of calls claimed
 /// per pump.  The SQL watchdog timeout must stay above `HTTP_TIMEOUT`.

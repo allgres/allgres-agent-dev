@@ -4,6 +4,8 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- Canvas (`/canvas`, admin menu → Canvas): a read-only board of every agent with its parent hierarchy, delegation grants, model, and permissions, built from `agents.list`. The React source lives in `web/canvas`; the built page is committed as `web/canvas.html`, so building the extension still needs no Node.js.
+
 ## 0.1.0-alpha.3
 
 - Built-in mock now answers `GET /mock/models` (and `/mock/v1/models`) so Settings → Test connection works against the same endpoint bootstrap uses for a first chat.

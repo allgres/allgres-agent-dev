@@ -233,10 +233,12 @@ function openPage(page){if(!pagesForRole().includes(page))page=pagesForRole()[0]
 function nav(){
   const n=$('#nav'),admin=state.me?.role==='admin';
   const groups=admin?
-    [{label:'',items:[['Overview','Dashboard','top']]},{label:'Chat',items:[['Chat','General','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub']]},{label:'',items:[['SQL','SQL','top']]},{label:'Settings',items:[['Settings','Settings','sub'],['Agents','Agents','sub'],['Memories','Memories','sub'],['Audit','Audit','sub']]}]:
+    [{label:'',items:[['Overview','Dashboard','top'],['Canvas','Canvas','top']]},{label:'Chat',items:[['Chat','General','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub']]},{label:'',items:[['SQL','SQL','top']]},{label:'Settings',items:[['Settings','Settings','sub'],['Agents','Agents','sub'],['Memories','Memories','sub'],['Audit','Audit','sub']]}]:
     [{label:'Chat',items:[['Chat','General','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub']]},{label:'Settings',items:[['My Agents','My agents','sub']]}];
   n.innerHTML=groups.map(g=>`${g.label?`<div class="nav-group">${esc(g.label)}</div>`:''}${g.items.map(([p,label,kind])=>`<button class="nav-${kind} ${state.page===p?'active':''}" data-p="${p}">${esc(label)}</button>`).join('')}`).join('');
-  n.querySelectorAll('button').forEach(b=>b.onclick=()=>openPage(b.dataset.p));renderWhoami()
+  // Canvas is its own document (/canvas, built from web/canvas), not a view
+  // inside this one. Same tab, so it reads the same sessionStorage login.
+  n.querySelectorAll('button').forEach(b=>b.onclick=()=>b.dataset.p==='Canvas'?location.assign('/canvas'):openPage(b.dataset.p));renderWhoami()
 }
 function renderWhoami(){const el=$('#whoami');if(!el)return;el.textContent=state.me?`${state.me.username} (${state.me.role})`:'';const lb=$('#logoutBtn');if(lb)lb.textContent=t('signOut')}
 function status(s){return `<span class="status s-${esc(s)}">${esc(s)}</span>`}
