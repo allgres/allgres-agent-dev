@@ -4,7 +4,7 @@ All notable changes will be documented here.
 
 ## Unreleased
 
-- Canvas (`/canvas`, admin menu → Canvas): a read-only board of every agent with its parent hierarchy, delegation grants, model, and permissions, built from `agents.list`. The React source lives in `web/canvas`; the built page is committed as `web/canvas.html`, so building the extension still needs no Node.js.
+- Canvas (`/canvas`, admin menu → Canvas): a board for building the organization. Create agents and nested groups (teams, divisions, projects) by drag and drop, draw delegation lines (`agent` grants), drag skills onto agents under a delegation ceiling, chat with any agent or the General dock, start tasks (optionally on a per-task model), save a group as a reusable configuration, and replay a session's hand-offs in the Flow view. New tables `agent_groups`, `agent_group_members`, `canvas_positions`, and `canvas_templates`, columns `agents.allow_task_model` and `tasks.llm_override`, and 15 `canvas.*`/`agents.set_task_model` RPC actions (sql/canvas.sql). The React source lives in `web/canvas`; the built page is committed as `web/canvas.html`, so building the extension still needs no Node.js.
 
 ## 0.1.0-alpha.3
 

@@ -121,7 +121,7 @@ The [RPM guide](docs/deployment/rpm.md) finds the newest published Fedora 43/Pos
 - [SQL sandbox](docs/sql-sandbox.md) — how agent queries are parsed and run under an unprivileged role.
 - [Memory and search](docs/memory-and-search.md) — agent discovery, `remember`/`recall`, and optional pgvector acceleration.
 - [Chat and model setup](docs/chat-and-models.md) — connect providers and work with agents in the dashboard.
-- [Canvas](docs/canvas.md) — see every agent, its hierarchy, delegation grants, and models on one board.
+- [Canvas](docs/canvas.md) — arrange agents into teams, draw who may delegate to whom, grant skills, chat, and replay sessions on one board.
 - [Audit log](docs/audit-log.md) — inspect consequential mutations and operator actions.
 
 `pgcrypto` and `pgvector` are optional extensions; see [configuration](docs/configuration.md) and [security](docs/security.md) for the tradeoffs.

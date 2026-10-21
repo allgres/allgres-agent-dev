@@ -53,6 +53,41 @@ test('admin opens the read-only canvas from the menu', async ({ page }) => {
   expect(cspErrors).toEqual([]);
 });
 
+test('admin builds a team on the canvas', async ({ page }) => {
+  const cspErrors=[];
+  page.on('console',message=>{if(message.type()==='error'&&/Content Security Policy|style-src|script-src/i.test(message.text()))cspErrors.push(message.text())});
+  const stamp=Date.now();
+  const lead=`ui_lead_${stamp}`, worker=`ui_worker_${stamp}`, team=`UI team ${stamp}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.locator('#nav button', { hasText: 'Canvas' }).click();
+  await expect(page.locator('.agent-node', { hasText: 'general' }).first()).toBeVisible();
+  for (const name of [lead, worker]) {
+    await page.locator('.pal-item', { hasText: 'Created where you drop it' }).click();
+    await page.locator('#dlg-name').fill(name);
+    await page.locator('#dlg-provider').selectOption('');
+    await page.getByRole('button', { name: 'Create agent' }).click();
+    await expect(page.locator(`.agent-node[data-agent="${name}"]`)).toBeVisible();
+  }
+  const leadNode=page.locator(`.react-flow__node:has(.agent-node[data-agent="${lead}"])`);
+  const workerNode=page.locator(`.react-flow__node:has(.agent-node[data-agent="${worker}"])`);
+  // A line from the lead's bottom dot to the worker is an `agent` grant.
+  await leadNode.locator('.react-flow__handle-bottom').dragTo(workerNode.locator('.react-flow__handle-top'));
+  await expect(page.locator('.react-flow__edge.edge-delegate')).not.toHaveCount(0);
+  await leadNode.click();
+  await expect(page.locator('.inspector')).toContainText(`Delegates to${worker}`);
+  // Shift+click selects both; Group selected puts them in one box.
+  await page.keyboard.down('Shift');
+  await workerNode.click();
+  await page.keyboard.up('Shift');
+  await page.getByRole('button', { name: 'Group selected (2)' }).click();
+  await page.locator('#dlg-name').fill(team);
+  await page.getByRole('button', { name: 'Create group' }).click();
+  await expect(page.locator(`.group-node[data-group="${team}"]`)).toContainText('2');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator(`.group-node[data-group="${team}"]`)).toHaveCount(0);
+  expect(cspErrors).toEqual([]);
+});
+
 test('admin data tables fit a narrow viewport', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await login(page, 'ui_admin', 'ui-admin-password');

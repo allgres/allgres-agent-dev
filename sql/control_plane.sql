@@ -4397,6 +4397,10 @@ BEGIN
     ) owners LIMIT 1
   );
   v_cfg := p.llm_config || COALESCE(v_user_cfg,'{}'::jsonb);
+  -- A model chosen for this one task (fn_canvas_run, sql/canvas.sql) beats
+  -- both the Agent default and the chat preference; a function/procedure
+  -- override below still beats it.
+  v_cfg := v_cfg || COALESCE(t.llm_override, '{}'::jsonb);
   IF v_effective_override IS NOT NULL THEN
     v_cfg := v_cfg || jsonb_build_object(
       'provider', v_effective_override->>'provider', 'model', v_effective_override->>'model'

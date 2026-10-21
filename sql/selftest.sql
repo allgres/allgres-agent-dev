@@ -5285,7 +5285,11 @@ BEGIN
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
     'providers.oauth_device_status', 'providers.oauth_callback', 'providers.probe_start', 'providers.probe_status',
     'events', 'approvals.list',
-    'approvals.decide', 'function_experiments.list', 'model_prices.list', 'model_prices.set', 'model_prices.delete', 'sql.execute', 'selftest'
+    'approvals.decide', 'function_experiments.list', 'model_prices.list', 'model_prices.set', 'model_prices.delete', 'sql.execute', 'selftest',
+    'canvas.state', 'canvas.layout.save', 'canvas.groups.create', 'canvas.groups.update', 'canvas.groups.delete',
+    'canvas.groups.merge', 'canvas.groups.set_member', 'canvas.delegation.add', 'canvas.delegation.remove',
+    'canvas.grant', 'canvas.templates.save', 'canvas.templates.delete', 'canvas.templates.instantiate',
+    'canvas.run', 'agents.set_task_model'
   ]::text[]) a
   WHERE a <> ALL(COALESCE(v_live_rpc_actions, ARRAY[]::text[]));
   SELECT array_agg(a ORDER BY a) INTO v_extra_rpc_actions
@@ -5308,13 +5312,19 @@ BEGIN
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
     'providers.oauth_device_status', 'providers.oauth_callback', 'providers.probe_start', 'providers.probe_status',
     'events', 'approvals.list',
-    'approvals.decide', 'function_experiments.list', 'model_prices.list', 'model_prices.set', 'model_prices.delete', 'sql.execute', 'selftest'
+    'approvals.decide', 'function_experiments.list', 'model_prices.list', 'model_prices.set', 'model_prices.delete', 'sql.execute', 'selftest',
+    'canvas.state', 'canvas.layout.save', 'canvas.groups.create', 'canvas.groups.update', 'canvas.groups.delete',
+    'canvas.groups.merge', 'canvas.groups.set_member', 'canvas.delegation.add', 'canvas.delegation.remove',
+    'canvas.grant', 'canvas.templates.save', 'canvas.templates.delete', 'canvas.templates.instantiate',
+    'canvas.run', 'agents.set_task_model'
   ]::text[]);
   ok := v_missing_rpc_actions IS NULL AND v_extra_rpc_actions IS NULL;
   v := v || jsonb_build_array(jsonb_build_object(
     'name', 'dashboard_rpc_actions_match_frozen_catalog', 'ok', ok,
     'missing_from_dispatch', to_jsonb(v_missing_rpc_actions), 'not_yet_cataloged', to_jsonb(v_extra_rpc_actions)
   ));
+
+  v := v || allgres_private.canvas_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -5337,3 +5347,112 @@ END;
 $fn$;
 
 REVOKE ALL ON FUNCTION allgres_public.fn_selftest() FROM PUBLIC;
+
+-- Canvas (sql/canvas.sql). Called from fn_selftest, so everything here is
+-- rolled back with the rest of the run.
+CREATE OR REPLACE FUNCTION allgres_private.canvas_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  v_lead uuid;
+  v_worker uuid;
+  v_sys uuid;
+  g_div uuid;
+  g_team uuid;
+  g_other uuid;
+  v_tpl uuid;
+BEGIN
+  v_lead := (allgres_public.fn_create_agent('selftest_canvas_lead', 'lead')->>'agent_id')::uuid;
+  v_worker := (allgres_public.fn_create_agent('selftest_canvas_worker', 'worker')->>'agent_id')::uuid;
+  SELECT agent_id INTO v_sys FROM allgres_private.agents WHERE is_system LIMIT 1;
+
+  g_div := (allgres_public.fn_canvas_create_group('selftest division', 'division')->>'group_id')::uuid;
+  g_team := (allgres_public.fn_canvas_create_group('selftest team', 'team', g_div,
+    '{"x": 10, "y": 20, "width": 400, "height": 300}')->>'group_id')::uuid;
+  g_other := (allgres_public.fn_canvas_create_group('selftest other')->>'group_id')::uuid;
+
+  BEGIN
+    PERFORM allgres_public.fn_canvas_update_group(g_div, NULL, NULL, g_team);
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%inside itself%';
+  END;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_group_refuses_nesting_cycle', 'ok', ok));
+
+  IF v_sys IS NOT NULL THEN
+    BEGIN
+      PERFORM allgres_public.fn_canvas_set_group_member(v_sys, g_team);
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      ok := SQLERRM LIKE '%system agents%';
+    END;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_system_agent_cannot_join_group', 'ok', ok));
+  END IF;
+
+  PERFORM allgres_public.fn_canvas_set_group_member(v_lead, g_team);
+  PERFORM allgres_public.fn_canvas_set_group_member(v_worker, g_team);
+  PERFORM allgres_public.fn_canvas_add_delegation(v_lead, v_worker);
+  ok := allgres_private.agent_has_permission(v_lead, 'agent', 'selftest_canvas_worker')
+    AND EXISTS (SELECT 1 FROM allgres_private.canvas_superiors(v_worker) s WHERE s.agent_id = v_lead);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_line_is_an_agent_grant', 'ok', ok));
+
+  -- The ceiling: the worker may not get what its lead lacks, unless the
+  -- lead is granted it too in the same call.
+  r := allgres_public.fn_canvas_grant(v_worker, 'http_host', 'Example.COM');
+  ok := (r->>'applied')::boolean IS FALSE
+    AND r->'missing' @> jsonb_build_array(jsonb_build_object('agent_id', v_lead))
+    AND NOT allgres_private.agent_has_permission(v_worker, 'http_host', 'example.com');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_grant_stops_at_ceiling', 'ok', ok, 'detail', r));
+
+  r := allgres_public.fn_canvas_grant(v_worker, 'http_host', 'example.com', true);
+  ok := (r->>'applied')::boolean
+    AND allgres_private.agent_has_permission(v_worker, 'http_host', 'example.com')
+    AND allgres_private.agent_has_permission(v_lead, 'http_host', 'example.com');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_grant_includes_superiors', 'ok', ok));
+
+  PERFORM allgres_public.fn_canvas_save_positions(jsonb_build_array(
+    jsonb_build_object('kind', 'agent', 'id', v_lead, 'x', 40, 'y', 60),
+    jsonb_build_object('kind', 'agent', 'id', v_worker, 'x', 40, 'y', 200)
+  ));
+  v_tpl := (allgres_public.fn_canvas_save_template('selftest canvas config', g_div)->>'template_id')::uuid;
+  r := allgres_public.fn_canvas_instantiate_template(v_tpl, 1000, 1000);
+  ok := jsonb_array_length(r->'agent_ids') = 2
+    AND EXISTS (SELECT 1 FROM allgres_private.agents WHERE name = 'selftest_canvas_lead_2')
+    AND allgres_private.agent_has_permission(
+      (SELECT agent_id FROM allgres_private.agents WHERE name = 'selftest_canvas_lead_2'), 'agent', 'selftest_canvas_worker_2')
+    AND allgres_private.agent_has_permission(
+      (SELECT agent_id FROM allgres_private.agents WHERE name = 'selftest_canvas_worker_2'), 'http_host', 'example.com')
+    AND (SELECT count(*) FROM allgres_private.agent_groups g
+         WHERE g.parent_group_id = (r->>'group_id')::uuid AND g.name = 'selftest team') = 1
+    AND (SELECT x FROM allgres_private.canvas_positions
+         WHERE item_kind = 'agent' AND item_id = (SELECT agent_id FROM allgres_private.agents WHERE name = 'selftest_canvas_worker_2')) = 1040;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_template_round_trip', 'ok', ok, 'detail', r));
+
+  PERFORM allgres_public.fn_canvas_delete_group(g_team);
+  ok := (SELECT group_id FROM allgres_private.agent_group_members WHERE agent_id = v_lead) = g_div;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delete_group_keeps_agents', 'ok', ok));
+
+  PERFORM allgres_public.fn_canvas_merge_groups(g_div, g_other);
+  ok := (SELECT group_id FROM allgres_private.agent_group_members WHERE agent_id = v_worker) = g_other
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.agent_groups WHERE group_id = g_div);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_merge_moves_members', 'ok', ok));
+
+  BEGIN
+    PERFORM allgres_public.fn_canvas_run(v_worker, 'selftest canvas run', NULL, 'some-model');
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%own model%';
+  END;
+  PERFORM allgres_public.fn_set_task_model_allowed(v_worker, true);
+  r := allgres_public.fn_canvas_run(v_worker, 'selftest canvas run', NULL, 'some-model');
+  ok := ok AND (SELECT llm_override->>'model' FROM allgres_private.tasks WHERE task_id = (r->>'task_id')::uuid) = 'some-model';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_task_model_needs_opt_in', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;

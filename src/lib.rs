@@ -137,7 +137,10 @@ extension_sql_file!(
     name = "seed_data",
     requires = ["operator_accounts_and_chat"]
 );
-extension_sql_file!("../sql/selftest.sql", requires = ["seed_data"]);
+// Not one of the original sections: Canvas's groups, positions, and saved
+// configurations (docs/canvas.md), after the seed data it lays out.
+extension_sql_file!("../sql/canvas.sql", name = "canvas", requires = ["seed_data"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["canvas"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]

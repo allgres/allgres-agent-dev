@@ -666,6 +666,7 @@ BEGIN
             'parent_agent_id', a.parent_agent_id,
             'parent_name', pa.name,
             'autonomy_level', a.autonomy_level,
+            'allow_task_model', a.allow_task_model,
             'agent_config', a.agent_config,
             'created_at', a.created_at,
             'updated_at', a.updated_at,
@@ -1295,8 +1296,11 @@ BEGIN
         'tasks', COALESCE((
           SELECT jsonb_agg(to_jsonb(q) ORDER BY q.created_at)
           FROM (
-            SELECT task_id, parent_task_id, status, step_count, output, error, created_at, updated_at
-            FROM allgres_private.tasks WHERE session_id = v_id
+            SELECT t.task_id, t.parent_task_id, t.agent_id, ta.name AS agent, t.delegation_depth,
+                   t.status, t.step_count, t.output, t.error, t.created_at, t.updated_at
+            FROM allgres_private.tasks t
+            JOIN allgres_private.agents ta ON ta.agent_id = t.agent_id
+            WHERE t.session_id = v_id
           ) q
         ), '[]'::jsonb),
         'logs', COALESCE((
@@ -2011,6 +2015,115 @@ BEGIN
     WHEN 'selftest' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_public.fn_selftest();
+
+    -- ---------------------------------------------------------------------
+    -- Canvas (/canvas, sql/canvas.sql, docs/canvas.md). Admin-only like the
+    -- Agents page it extends; every branch calls one fn_canvas_* function
+    -- that writes its own audit row, so psql gets the same behavior.
+    -- ---------------------------------------------------------------------
+
+    -- Carries agents.list's own payload too, so one request redraws the
+    -- whole board: the web listener's per-address request budget is shared
+    -- with any dashboard tab the operator has open.
+    WHEN 'canvas.state' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_state() || jsonb_build_object('agents', allgres.dashboard_rpc(
+        jsonb_build_object('action', 'agents.list', 'session_token', p_request->>'session_token')
+      )->'agents');
+
+    WHEN 'canvas.layout.save' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_save_positions(p_request->'items');
+
+    WHEN 'canvas.groups.create' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_create_group(
+        p_request->>'name', p_request->>'kind',
+        NULLIF(p_request->>'parent_group_id', '')::uuid, p_request->'position',
+        ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(COALESCE(p_request->'agent_ids', '[]'::jsonb)) x)
+      );
+
+    WHEN 'canvas.groups.update' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_update_group(
+        (p_request->>'group_id')::uuid, p_request->>'name', p_request->>'kind',
+        NULLIF(p_request->>'parent_group_id', '')::uuid,
+        COALESCE((p_request->>'clear_parent')::boolean, false)
+      );
+
+    WHEN 'canvas.groups.delete' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_delete_group((p_request->>'group_id')::uuid);
+
+    WHEN 'canvas.groups.merge' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_merge_groups(
+        (p_request->>'source_group_id')::uuid, (p_request->>'target_group_id')::uuid
+      );
+
+    WHEN 'canvas.groups.set_member' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_set_group_member(
+        (p_request->>'agent_id')::uuid, NULLIF(p_request->>'group_id', '')::uuid
+      );
+
+    -- The delegating agent's grants change, so it is the one that must not
+    -- be a system agent (same rule as permissions.grant).
+    WHEN 'canvas.delegation.add' THEN
+      PERFORM allgres_private.forbid_system_agent_edit((p_request->>'from_agent_id')::uuid);
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_add_delegation(
+        (p_request->>'from_agent_id')::uuid, (p_request->>'to_agent_id')::uuid
+      );
+
+    WHEN 'canvas.delegation.remove' THEN
+      PERFORM allgres_private.forbid_system_agent_edit((p_request->>'from_agent_id')::uuid);
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_remove_delegation(
+        (p_request->>'from_agent_id')::uuid, (p_request->>'to_agent_id')::uuid
+      );
+
+    WHEN 'canvas.grant' THEN
+      PERFORM allgres_private.forbid_system_agent_edit((p_request->>'agent_id')::uuid);
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_grant(
+        (p_request->>'agent_id')::uuid, p_request->>'type', p_request->>'ref',
+        COALESCE((p_request->>'include_superiors')::boolean, false)
+      );
+
+    WHEN 'canvas.templates.save' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_save_template(
+        p_request->>'name', (p_request->>'group_id')::uuid, v_user.user_id
+      );
+
+    WHEN 'canvas.templates.delete' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_delete_template((p_request->>'template_id')::uuid);
+
+    WHEN 'canvas.templates.instantiate' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_canvas_instantiate_template(
+        (p_request->>'template_id')::uuid,
+        COALESCE((p_request->>'x')::float8, 0), COALESCE((p_request->>'y')::float8, 0),
+        NULLIF(p_request->>'parent_group_id', '')::uuid
+      );
+
+    -- Same access rule as `run`; the per-task model needs the agent's own
+    -- allow_task_model, which only an admin can turn on.
+    WHEN 'canvas.run' THEN
+      v_id := (p_request->>'agent_id')::uuid;
+      PERFORM allgres_private.require_agent_access_if_accounts_exist(p_request->>'session_token', v_id);
+      RETURN allgres_public.fn_canvas_run(
+        v_id, p_request->>'goal', p_request->>'provider', p_request->>'model'
+      );
+
+    WHEN 'agents.set_task_model' THEN
+      PERFORM allgres_private.forbid_system_agent_edit((p_request->>'agent_id')::uuid);
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_set_task_model_allowed(
+        (p_request->>'agent_id')::uuid, (p_request->>'allowed')::boolean
+      );
 
     ELSE
       RETURN jsonb_build_object('ok', false, 'error', 'unknown_action', 'action', v_action);
