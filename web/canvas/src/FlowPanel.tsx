@@ -3,6 +3,7 @@ import { rpc, type SessionDetail, type SessionRow, type TaskRow } from './api';
 import type { RunMark } from './graph';
 import { timeAgo } from './ui';
 import { useT, type T } from './i18n';
+import { statusLabel } from './labels';
 
 export interface FlowOverlay {
   marks: Map<string, RunMark>;
@@ -43,7 +44,7 @@ function eventsOf(tr: T, d: SessionDetail): Event[] {
         text: t.status === 'failed' ? (t.error ? tr('Failed: {text}', { text: short(t.error, 120) }) : tr('Failed')) : tr('Finished in {n} steps', { n: t.step_count }),
       });
     else if (t.status.startsWith('waiting'))
-      ev.push({ at: t.updated_at, taskId: t.task_id, agentId: t.agent_id, agent: t.agent, kind: 'waiting', text: t.status.replace('_', ' ') });
+      ev.push({ at: t.updated_at, taskId: t.task_id, agentId: t.agent_id, agent: t.agent, kind: 'waiting', text: statusLabel(tr, t.status) });
   }
   return ev.sort((a, b) => a.at.localeCompare(b.at));
 }
@@ -193,7 +194,7 @@ export function FlowPanel({
             {sessions?.map((s) => (
               <li key={s.session_id}>
                 <button type="button" onClick={() => onSession(s.session_id)}>
-                  <span className={`status s-${s.status}`}>{s.status}</span>
+                  <span className={`status s-${s.status}`}>{statusLabel(t, s.status)}</span>
                   <span className="goal">
                     <b>{s.agent}</b> · {s.goal}
                   </span>
@@ -213,7 +214,7 @@ export function FlowPanel({
         <div className="in-title">
           <b>{detail?.session.goal || 'Session'}</b>
           <small>
-            {detail ? t('{agent} · {n} tasks · {state}', { agent: detail.session.agent, n: detail.tasks.length, state: running ? t('in progress') : detail.session.status }) : t('Loading…')}
+            {detail ? t('{agent} · {n} tasks · {state}', { agent: detail.session.agent, n: detail.tasks.length, state: running ? t('in progress') : statusLabel(t, detail.session.status) }) : t('Loading…')}
           </small>
         </div>
         <button type="button" className="icon-btn" onClick={() => onSession(null)} aria-label={t('Back to all work')}>

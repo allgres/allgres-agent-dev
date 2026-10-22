@@ -1312,7 +1312,7 @@ function Canvas() {
                   ?
                 </button>
               )}
-              {general && general.is_active && (
+              {general && general.is_active && general.llm_config?.model && (
                 <div className={`ask${chatOpen ? ' open' : ''}`}>
                   {chatOpen ? (
                     <section aria-label={t('Ask General')}>

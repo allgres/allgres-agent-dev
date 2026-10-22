@@ -4,7 +4,7 @@ import { agentByName, groupOf, type Board } from './board';
 import { Chat } from './Chat';
 import { groupNodeId, inheritedSkills } from './graph';
 import { useT, type T } from './i18n';
-import { abilityGroup, abilityLabel, modelName } from './labels';
+import { abilityGroup, abilityLabel, modelName, statusLabel } from './labels';
 import { KIND_LABEL } from './nodes';
 import { jobOf, withJob } from './prompt';
 import { timeAgo } from './ui';
@@ -581,7 +581,7 @@ function Activity({ board, agent }: { board: Board; agent: Agent }) {
           {tasks?.slice(0, 40).map((x) => (
             <li key={x.task_id}>
               <button type="button" onClick={() => board.openSession(x.session_id)}>
-                <span className={`status s-${x.status}`}>{x.status.replace('_', ' ')}</span>
+                <span className={`status s-${x.status}`}>{statusLabel(t, x.status)}</span>
                 <span className="goal">
                   {x.parent_task_id ? '↳ ' : ''}
                   {x.goal}

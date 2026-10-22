@@ -34,3 +34,19 @@ export function abilityGroup(t: T, type: GrantType | string) {
 export function modelName(cfg: { provider?: string; model?: string } | null) {
   return cfg?.model || null;
 }
+
+const STATUS: Record<string, string> = {
+  completed: 'Done',
+  failed: 'Failed',
+  running: 'Working',
+  queued: 'Waiting to start',
+  open: 'Working',
+  waiting_human: 'Needs your approval',
+  waiting_children: 'Waiting for others',
+  cancelled: 'Cancelled',
+};
+
+/** A task or session status in plain words. */
+export function statusLabel(t: T, status: string) {
+  return STATUS[status] ? t(STATUS[status]) : status.replace(/_/g, ' ');
+}
