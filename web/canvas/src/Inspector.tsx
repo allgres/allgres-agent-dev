@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { rpc, type Agent, type Group, type GroupKind, type Permission, type TaskRow } from './api';
 import { agentByName, groupOf, type Board } from './board';
 import { Chat } from './Chat';
-import { groupNodeId } from './graph';
+import { groupNodeId, inheritedSkills } from './graph';
 import { KIND_LABEL, SKILL_LABEL, modelLabel } from './nodes';
 import { timeAgo } from './ui';
 
@@ -60,14 +60,17 @@ function Hierarchy({ board, agent }: { board: Board; agent: Agent }) {
   const group = board.state.groups.find((g) => g.group_id === gid);
   const delegatesTo = agent.permissions.filter((p) => p.type === 'agent').map((p) => p.ref);
   const delegatedBy = board.agents.filter((a) => a.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === agent.name.toLowerCase()));
+  const chain: string[] = [];
+  for (let up = board.agents.find((a) => a.agent_id === agent.parent_agent_id); up && !chain.includes(up.name); up = board.agents.find((a) => a.agent_id === up!.parent_agent_id))
+    chain.push(up.name);
   return (
     <section>
       <h4>Hierarchy</h4>
       <dl className="kv">
         {agent.is_system && (
           <>
-            <dt>Parent</dt>
-            <dd>{agent.parent_name || 'None (top level)'}</dd>
+            <dt>Inherits from</dt>
+            <dd>{chain.length ? chain.join(' ← ') : 'Nothing (top of the chain)'}</dd>
           </>
         )}
         {!agent.is_system && (
@@ -84,9 +87,9 @@ function Hierarchy({ board, agent }: { board: Board; agent: Agent }) {
             </dd>
           </>
         )}
-        <dt>Delegates to</dt>
+        <dt>Can delegate to</dt>
         <dd>{delegatesTo.length ? delegatesTo.join(', ') : 'Nobody'}</dd>
-        <dt>Delegated from</dt>
+        <dt>Gets work from</dt>
         <dd>{delegatedBy.length ? delegatedBy.map((c) => c.name).join(', ') : 'Nobody'}</dd>
       </dl>
     </section>
@@ -305,6 +308,7 @@ function Skills({ board, agent }: { board: Board; agent: Agent }) {
   const [ref, setRef] = useState('');
   const choices = type === 'view' ? board.options.views : type === 'function' ? board.options.functions : type === 'procedure' ? board.options.procedures : [];
   const grouped = ORDER.map((t) => [t, agent.permissions.filter((p) => p.type === t)] as const).filter(([, l]) => l.length);
+  const inherited = inheritedSkills(agent, board.agents);
   const locked = agent.is_system;
 
   const revoke = (p: Permission) => {
@@ -330,7 +334,7 @@ function Skills({ board, agent }: { board: Board; agent: Agent }) {
     <>
       <section>
         <h4>Skills</h4>
-        {grouped.length ? (
+        {grouped.length || inherited.length ? (
           grouped.map(([t, list]) => (
             <div className="grant-group" key={t}>
               <div className="muted small">{SKILL_LABEL[t]}</div>
@@ -348,6 +352,19 @@ function Skills({ board, agent }: { board: Board; agent: Agent }) {
           ))
         ) : (
           <p className="muted">No skills. This agent can only answer from its prompt and memory.</p>
+        )}
+        {inherited.length > 0 && (
+          <div className="grant-group">
+            <div className="muted small">Inherited (from the agents it inherits from; change them there, in SQL)</div>
+            {inherited.map((p) => (
+              <div className="skill-row inherited" key={`${p.type}:${p.ref}`}>
+                <span className="mono">{p.ref}</span>
+                <small className="muted">
+                  {SKILL_LABEL[p.type as Permission['type']]} · from {p.from}
+                </small>
+              </div>
+            ))}
+          </div>
         )}
         {agent.execution_rules.length > 0 && <p className="muted small">{agent.execution_rules.length} execution rules apply.</p>}
       </section>

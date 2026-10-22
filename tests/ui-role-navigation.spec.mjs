@@ -67,7 +67,7 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   await leadNode.locator('.react-flow__handle-bottom').dragTo(workerNode.locator('.react-flow__handle-top'));
   await expect(page.locator('.react-flow__edge.edge-delegate')).not.toHaveCount(0);
   await leadNode.click();
-  await expect(page.locator('.inspector')).toContainText(`Delegates to${worker}`);
+  await expect(page.locator('.inspector')).toContainText(`Can delegate to${worker}`);
   // Shift+click selects both; Group selected puts them in one box.
   await page.keyboard.down('Shift');
   await workerNode.click();

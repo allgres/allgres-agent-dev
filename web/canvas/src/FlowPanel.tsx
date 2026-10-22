@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { rpc, type SessionDetail, type SessionRow } from './api';
+import { rpc, type SessionDetail, type SessionRow, type TaskRow } from './api';
 import type { RunMark } from './graph';
 import { timeAgo } from './ui';
 
 export interface FlowOverlay {
   marks: Map<string, RunMark>;
-  /** "fromAgentId>toAgentId" for every hand-off shown so far. */
-  handoffs: Set<string>;
+  /** "fromAgentId>toAgentId" -> how many times that hand-off happened. */
+  handoffs: Map<string, number>;
 }
 
 type Event = { at: string; taskId: string; agentId: string; agent: string; kind: 'start' | 'done' | 'failed' | 'waiting'; from?: string; text: string };
@@ -49,15 +49,40 @@ function eventsOf(d: SessionDetail): Event[] {
 
 function overlayAt(events: Event[], upto: number): FlowOverlay {
   const marks = new Map<string, RunMark>();
-  const handoffs = new Set<string>();
+  const handoffs = new Map<string, number>();
   for (const e of events.slice(0, upto + 1)) {
     if (e.kind === 'start') {
       marks.set(e.agentId, 'running');
-      if (e.from && e.from !== e.agentId) handoffs.add(`${e.from}>${e.agentId}`);
+      if (e.from && e.from !== e.agentId) handoffs.set(`${e.from}>${e.agentId}`, (handoffs.get(`${e.from}>${e.agentId}`) || 0) + 1);
     } else if (e.kind === 'waiting') marks.set(e.agentId, 'running');
     else marks.set(e.agentId, e.kind);
   }
   return { marks, handoffs };
+}
+
+// Every delegation in the most recent tasks, folded into one picture: the
+// parent task's agent handed work to the child task's agent.
+function recentFlow(tasks: TaskRow[]): FlowOverlay & { pairs: { from: string; to: string; n: number; failed: number }[] } {
+  const byId = new Map(tasks.map((t) => [t.task_id, t]));
+  const handoffs = new Map<string, number>();
+  const failed = new Map<string, number>();
+  const names = new Map<string, string>();
+  const marks = new Map<string, RunMark>();
+  for (const t of [...tasks].sort((a, b) => a.updated_at.localeCompare(b.updated_at))) {
+    names.set(t.agent_id, t.agent);
+    marks.set(t.agent_id, LIVE.has(t.status) ? 'running' : t.status === 'failed' ? 'failed' : t.status === 'completed' ? 'done' : marks.get(t.agent_id) || 'done');
+    const parent = t.parent_task_id ? byId.get(t.parent_task_id) : undefined;
+    if (!parent || parent.agent_id === t.agent_id) continue;
+    const key = `${parent.agent_id}>${t.agent_id}`;
+    names.set(parent.agent_id, parent.agent);
+    handoffs.set(key, (handoffs.get(key) || 0) + 1);
+    if (t.status === 'failed') failed.set(key, (failed.get(key) || 0) + 1);
+  }
+  const pairs = [...handoffs].map(([k, n]) => {
+    const [a, b] = k.split('>');
+    return { from: names.get(a) || a, to: names.get(b) || b, n, failed: failed.get(k) || 0 };
+  });
+  return { marks, handoffs, pairs: pairs.sort((x, y) => y.n - x.n) };
 }
 
 export function FlowPanel({
@@ -77,10 +102,15 @@ export function FlowPanel({
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [recent, setRecent] = useState<ReturnType<typeof recentFlow> | null>(null);
   useEffect(() => {
+    if (sessionId) return;
     rpc<{ sessions: SessionRow[] }>('sessions.list', { limit: 40 })
       .then((r) => setSessions(r.sessions))
       .catch((e) => setError(String(e.message || e)));
+    rpc<{ tasks: TaskRow[] }>('tasks.list', { limit: 500 })
+      .then((r) => setRecent(recentFlow(r.tasks)))
+      .catch(() => setRecent(null));
   }, [sessionId]);
 
   useEffect(() => {
@@ -111,8 +141,8 @@ export function FlowPanel({
   const at = step === null ? events.length - 1 : step;
 
   useEffect(() => {
-    onOverlay(detail ? overlayAt(events, at) : null);
-  }, [detail, events, at, onOverlay]);
+    onOverlay(sessionId ? (detail ? overlayAt(events, at) : null) : recent);
+  }, [sessionId, detail, events, at, recent, onOverlay]);
   useEffect(() => () => onOverlay(null), [onOverlay]);
 
   useEffect(() => {
@@ -131,11 +161,30 @@ export function FlowPanel({
         <header className="in-head">
           <div className="in-title">
             <b>Flow</b>
-            <small>Pick a session to see how work moved between agents</small>
+            <small>How work actually moved between agents</small>
           </div>
         </header>
         <div className="in-body">
           {error && <p className="error-text small">{error}</p>}
+          <section>
+            <h4>Hand-offs in the last 500 tasks</h4>
+            {recent && recent.pairs.length === 0 && (
+              <p className="muted small">No agent has handed work to another yet. Draw a “can delegate to” line, then give the first agent a task.</p>
+            )}
+            <ul className="handoffs">
+              {recent?.pairs.map((p) => (
+                <li key={`${p.from}>${p.to}`}>
+                  <b>{p.from}</b> <span className="arrow">→</span> <b>{p.to}</b>
+                  <span className="muted small">
+                    {' '}
+                    ×{p.n}
+                    {p.failed ? ` · ${p.failed} failed` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <h4>Sessions</h4>
           {sessions === null && !error && <p className="muted">Loading…</p>}
           {sessions?.length === 0 && <p className="muted">No sessions yet. Give an agent a task from its History tab, or chat with General below.</p>}
           <ul className="task-list">

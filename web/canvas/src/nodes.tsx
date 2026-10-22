@@ -40,12 +40,16 @@ export function AgentNode({ id, data, selected }: NodeProps<Node<AgentNodeData>>
     !a.is_active && 'is-inactive',
     dropTarget === id && 'is-drop-target',
     data.run && `run-${data.run}`,
+    data.connect && `cn-${data.connect}`,
   ]
     .filter(Boolean)
     .join(' ');
   return (
     <div className={cls} data-agent={a.name}>
-      <Handle type="target" position={Position.Top} isConnectable />
+      <Handle type="target" position={Position.Top} isConnectable={data.connect === 'valid'} />
+      {data.connect === 'valid' && <span className="cn-badge">Drop here: can delegate to {a.name}</span>}
+      {data.connect === 'already' && <span className="cn-badge muted">Already connected</span>}
+      {data.connect === 'source' && <span className="cn-badge src">Delegates from here</span>}
       <div className="an-head">
         <span className="an-avatar">{a.name.slice(0, 1).toUpperCase()}</span>
         <div className="an-title">
@@ -65,7 +69,12 @@ export function AgentNode({ id, data, selected }: NodeProps<Node<AgentNodeData>>
             {SKILL_LABEL[t]} {n}
           </span>
         ))}
-        {counts.size === 0 && <span className="chip chip-empty">No skills</span>}
+        {data.inherited.length > 0 && (
+          <span className="chip chip-inherit" title={`Inherited from ${[...new Set(data.inherited.map((x) => x.from))].join(', ')}`}>
+            +{data.inherited.length} inherited
+          </span>
+        )}
+        {counts.size === 0 && data.inherited.length === 0 && <span className="chip chip-empty">No skills</span>}
       </div>
       <div className="an-foot">
         <span>{a.allow_task_model ? 'model per task' : a.is_system ? a.autonomy_level.replace('_', ' ') : ''}</span>
@@ -75,7 +84,12 @@ export function AgentNode({ id, data, selected }: NodeProps<Node<AgentNodeData>>
           {data.delegatesTo ? `delegates to ${data.delegatesTo}` : ''}
         </span>
       </div>
-      <Handle type="source" position={Position.Bottom} isConnectable={!a.is_system} title="Drag to an agent this one may delegate to" />
+      {!a.is_system && (
+        <Handle type="source" position={Position.Bottom} isConnectable className="delegate-handle" title={`Drag to another agent to let ${a.name} hand work to it`}>
+          <span aria-hidden>+</span>
+        </Handle>
+      )}
+      {a.is_system && <Handle type="source" position={Position.Bottom} isConnectable={false} />}
     </div>
   );
 }

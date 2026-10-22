@@ -6,6 +6,7 @@ import {
   ReactFlowProvider,
   useNodesInitialized,
   useNodesState,
+  MarkerType,
   useReactFlow,
   useViewport,
   type Connection,
@@ -16,7 +17,7 @@ import { rpc, RpcError, type Agent, type CanvasState, type GrantOptions, type Gr
 import { agentByName, groupOf, type Board, type Undo } from './board';
 import { Chat } from './Chat';
 import { FlowPanel, type FlowOverlay } from './FlowPanel';
-import { buildGraph, groupIdOf, groupNodeId, isGroupNode, NODE_H, NODE_W, type RunMark } from './graph';
+import { buildGraph, groupIdOf, groupNodeId, isGroupNode, LINE, NODE_H, NODE_W, type ConnectMark, type RunMark } from './graph';
 import { AgentInspector, GroupInspector } from './Inspector';
 import { BoardEvents, nodeTypes } from './nodes';
 import { DRAG_MIME, Palette, type PaletteItem } from './Palette';
@@ -257,7 +258,29 @@ function Canvas() {
     for (const [k, v] of overlay.marks) m.set(k, v);
     return m;
   }, [view, overlay, agents]);
-  const graph = useMemo(() => buildGraph(agents, state, { showSystem, showInactive, run: runMarks }), [agents, state, showSystem, showInactive, runMarks]);
+  // While a line is being drawn from an agent: which agents can take it.
+  const [connectFrom, setConnectFrom] = useState<string | null>(null);
+  const connectMarks = useMemo(() => {
+    const from = agents.find((a) => a.agent_id === connectFrom);
+    if (!from) return undefined;
+    const m = new Map<string, ConnectMark>();
+    for (const a of agents)
+      m.set(
+        a.agent_id,
+        a.agent_id === from.agent_id
+          ? 'source'
+          : a.is_system
+            ? 'invalid'
+            : from.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === a.name.toLowerCase())
+            ? 'already'
+            : 'valid',
+      );
+    return m;
+  }, [agents, connectFrom]);
+  const graph = useMemo(
+    () => buildGraph(agents, state, { showSystem, showInactive, run: runMarks, connect: connectMarks }),
+    [agents, state, showSystem, showInactive, runMarks, connectMarks],
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const selectedRef = useRef<string[]>([]);
   selectedRef.current = selected;
@@ -271,17 +294,22 @@ function Canvas() {
 
   const edges = useMemo(() => {
     if (view !== 'flow' || !overlay) return graph.edges;
-    const seen = new Set<string>();
-    const out: Edge[] = graph.edges.map((e) => {
-      const key = `${e.source}>${e.target}`;
-      if (!overlay.handoffs.has(key)) return { ...e, className: `${e.className} edge-dim` };
-      seen.add(key);
-      return { ...e, className: `${e.className} edge-active`, animated: true };
-    });
-    for (const key of overlay.handoffs) {
-      if (seen.has(key)) continue;
+    // Flow: the permission lines fade, and every hand-off that actually
+    // happened is drawn in green with how many times it did.
+    const out: Edge[] = graph.edges.map((e) => ({ ...e, className: `${e.className} edge-dim`, label: undefined }));
+    for (const [key, n] of overlay.handoffs) {
       const [source, target] = key.split('>');
-      if (graph.abs.has(source) && graph.abs.has(target)) out.push({ id: `run:${key}`, source, target, className: 'edge-active edge-run', animated: true });
+      if (!graph.abs.has(source) || !graph.abs.has(target)) continue;
+      out.push({
+        id: `run:${key}`,
+        source,
+        target,
+        className: 'edge-active',
+        animated: true,
+        label: n > 1 ? `${LINE.handoff.label} ×${n}` : LINE.handoff.label,
+        markerEnd: { type: MarkerType.ArrowClosed, color: LINE.handoff.color, width: 18, height: 18 },
+        zIndex: 5,
+      });
     }
     return out;
   }, [graph, view, overlay]);
@@ -506,6 +534,10 @@ function Canvas() {
       const from = agents.find((a) => a.agent_id === c.source);
       const to = agents.find((a) => a.agent_id === c.target);
       if (!from || !to || from.agent_id === to.agent_id) return;
+      if (to.is_system) {
+        toast('System agents run the platform itself and do not take delegated work.', true);
+        return;
+      }
       if (from.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === to.name.toLowerCase())) {
         toast(`${from.name} can already delegate to ${to.name}`);
         return;
@@ -837,6 +869,18 @@ function Canvas() {
                 onNodeDrag={onNodeDrag}
                 onNodeDragStop={onNodeDragStop}
                 onConnect={onConnect}
+                onConnectStart={(_, p) => p.handleType === 'source' && p.nodeId && setConnectFrom(p.nodeId)}
+                onConnectEnd={(e, cs) => {
+                  // Released on a card rather than its dot: connect to that agent.
+                  const from = connectFrom;
+                  setConnectFrom(null);
+                  if (!from || cs.isValid) return;
+                  const pt = 'changedTouches' in e ? e.changedTouches[0] : (e as MouseEvent);
+                  const to = agentAt(flow.screenToFlowPosition({ x: pt.clientX, y: pt.clientY }));
+                  if (to && to.agent_id !== from) onConnect({ source: from, target: to.agent_id, sourceHandle: null, targetHandle: null });
+                }}
+                connectionRadius={36}
+                connectionLineStyle={{ stroke: LINE.delegate.color, strokeWidth: 2.4, strokeDasharray: '6 5' }}
                 onEdgeClick={onEdgeClick}
                 isValidConnection={(c) => c.source !== c.target && !isGroupNode(c.source) && !isGroupNode(c.target)}
                 deleteKeyCode={null}
@@ -856,21 +900,13 @@ function Canvas() {
                   <p>Drag an Agent block from the palette onto the board{general ? ', or ask General below to suggest a team' : ''}.</p>
                 </div>
               )}
-              <div className="legend" aria-label="Legend">
-                <span>
-                  <i className="lg-delegate" /> may delegate to
-                </span>
-                {showSystem && (
-                  <span>
-                    <i className="lg-parent" /> system parent
-                  </span>
-                )}
-                {view === 'flow' && (
-                  <span>
-                    <i className="lg-active" /> hand-off in this session
-                  </span>
-                )}
-              </div>
+              {connectFrom && (
+                <div className="connect-banner" role="status">
+                  Drop on a highlighted agent: <b>{agents.find((a) => a.agent_id === connectFrom)?.name}</b> will be able to hand tasks to it. Release
+                  anywhere else to cancel.
+                </div>
+              )}
+              <Legend view={view} showSystem={showSystem} />
               {general && general.is_active && (
                 <section className={`dock${dockOpen ? ' open' : ''}`} aria-label="Talk to General">
                   <header>
@@ -904,6 +940,64 @@ function Canvas() {
       {dialog}
       {toastEl}
     </div>
+  );
+}
+
+// What every mark on the board means, in plain words. Collapsible; the
+// choice is remembered per browser.
+function Legend({ view, showSystem }: { view: 'org' | 'flow'; showSystem: boolean }) {
+  const [open, setOpen] = useState(() => remembered('allgres_canvas_legend', true));
+  const toggle = () => setOpen((v) => (remember('allgres_canvas_legend', !v), !v));
+  return (
+    <aside className={`legend${open ? ' open' : ''}`} aria-label="How to read the board">
+      <button type="button" className="legend-toggle" aria-expanded={open} onClick={toggle}>
+        {open ? 'How to read the board ▾' : 'Legend ▸'}
+      </button>
+      {open && (
+        <dl>
+          {view === 'flow' ? (
+            <>
+              <dt>
+                <i className="lg-active" />
+              </dt>
+              <dd>
+                <b>Handed work</b> — A gave B a task (delegate) in recent sessions; ×N is how often. Pick a session on the right to replay one.
+              </dd>
+              <dt>
+                <i className="lg-delegate dim" />
+              </dt>
+              <dd>Permission lines, faded: who <em>may</em> delegate, used or not.</dd>
+            </>
+          ) : (
+            <>
+              <dt>
+                <i className="lg-delegate" />
+              </dt>
+              <dd>
+                <b>Can delegate to</b> — A may hand tasks to B. Drag from an agent's <span className="kbd">+</span> to another agent to add one; click a
+                line to remove it.
+              </dd>
+              {showSystem && (
+                <>
+                  <dt>
+                    <i className="lg-parent" />
+                  </dt>
+                  <dd>
+                    <b>Inherits</b> — the child gets the parent's skills and base prompt (system agents). Shown as “+N inherited” on the card.
+                  </dd>
+                </>
+              )}
+              <dt>
+                <i className="lg-box" />
+              </dt>
+              <dd>
+                <b>Group box</b> — a team or division. Only arranges agents; grants nothing.
+              </dd>
+            </>
+          )}
+        </dl>
+      )}
+    </aside>
   );
 }
 

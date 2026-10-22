@@ -17,17 +17,21 @@ selection and an undo list.
 - **Agents** are nodes. A node shows the model (`policies.llm_config`), how
   many views, functions, procedures, and HTTP hosts the agent holds, and
   whether it runs a model per task.
-- **Lines** mean *may delegate to*: an `agent` permission, exactly what
-  `delegate` checks at run time (`agent_has_permission`). Drag from an
-  agent's bottom dot to another agent to add one; click a line to remove it.
-  The line says where work *can* go, not a fixed route; the delegating agent
-  still decides at run time.
+- **Blue dashed arrows, "can delegate to"**, are an `agent` permission,
+  exactly what `delegate` checks at run time (`agent_has_permission`). Drag
+  from an agent's **+** dot and every agent that can take the line lights up;
+  release on one (its card or its dot) to add the line, and click a line to
+  remove it. The line says where work *can* go, not a fixed route; the
+  delegating agent still decides at run time. System agents cannot be
+  delegated to from Canvas.
 - **Groups** are boxes: teams, divisions, or projects (`agent_groups`).
   Groups nest, and each agent sits in at most one (`agent_group_members`).
   A group is how an operator arranges agents, not a security boundary; it
   carries no permissions.
-- **System agents** sit in their own frame, joined by their
-  `parent_agent_id` lines (solid). That column is their permission and
+- **System agents** sit in their own frame, joined by orange **"inherits"**
+  arrows from parent to child (`parent_agent_id`). A card shows "+N
+  inherited" for skills that come down that chain, and the Skills tab lists
+  them with where each comes from. That column is their permission and
   prompt inheritance edge, so Canvas never sets it, and their grants and
   prompts are changed only from SQL. Their autonomy level is the one dial
   Canvas offers for them.
@@ -53,7 +57,10 @@ first agent that may delegate to it, inside its group.
 | Tidy the board | **Arrange** lays every agent out under the agent that may delegate to it and sizes boxes to fit, then saves those positions. Undo puts the old ones back. |
 | Undo | **Undo** or ⌘/Ctrl+Z. Creating an agent is undone by deactivating it; agents are never deleted from Canvas. Merging and deleting groups and placing a saved configuration ask first instead. |
 
-**Flow** switches the side panel to sessions. Pick one to see which agents
+**Flow** fades the permission lines and draws, in green, every hand-off that
+actually happened in the last 500 tasks, with how many times ("handed work
+×3"); cards show whether each agent's latest task finished or failed. Pick a
+session to see which agents
 took part (working, done, failed), the hand-offs between them as moving
 lines, and a timeline of every task start and finish built from
 `sessions.get`. **Replay** steps through it.
