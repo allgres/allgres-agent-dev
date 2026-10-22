@@ -78,6 +78,8 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   await expect(page.locator(`.group-node[data-group="${team}"]`)).toContainText('2');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.locator(`.group-node[data-group="${team}"]`)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Arrange', exact: true }).click();
+  await expect(page.locator('.toast')).toContainText('Arranged');
   await page.locator('#showSystem').uncheck();
   await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
   await page.getByRole('link', { name: '← Dashboard' }).click();

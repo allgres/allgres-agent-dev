@@ -178,7 +178,9 @@ export function buildGraph(
     (taken.get(key) || []).some((q) => Math.abs(q.x - p.x) < NODE_W + GAP_X && Math.abs(q.y - p.y) < NODE_H + GAP_Y / 2);
   const placedFirst = (list: Agent[]) =>
     [...list].sort((x, y) => Number(!stored.has(`agent:${x.agent_id}`)) - Number(!stored.has(`agent:${y.agent_id}`)));
-  const agentNode = (a: Agent, parentNode: string | undefined, parentAbs: XY) => {
+  // inside: the top-left corner a card may not cross in its box (past the
+  // border and the title), so nothing drawn in a box straddles its edge.
+  const agentNode = (a: Agent, parentNode: string | undefined, parentAbs: XY, inside?: XY) => {
     const s = stored.get(`agent:${a.agent_id}`);
     const rel = autoRel.get(a.agent_id) || { x: 0, y: 0 };
     let p = s ? { x: s.x, y: s.y } : { x: parentAbs.x + rel.x, y: parentAbs.y + rel.y };
@@ -195,6 +197,7 @@ export function buildGraph(
       }
       if (!a.is_system) while (clashes(parentNode || '', p)) p = { x: p.x + NODE_W + GAP_X, y: p.y };
     }
+    if (inside) p = { x: Math.max(p.x, inside.x), y: Math.max(p.y, inside.y) };
     if (!a.is_system) taken.set(parentNode || '', [...(taken.get(parentNode || '') || []), p]);
     abs.set(a.agent_id, p);
     nodes.push({
@@ -212,23 +215,25 @@ export function buildGraph(
     });
     return p;
   };
-  const groupNode = (g: Group, parentNode: string | undefined, parentAbs: XY, depth: number) => {
+  const groupNode = (g: Group, parentNode: string | undefined, parentAbs: XY, depth: number, inside?: XY) => {
     const id = groupNodeId(g.group_id);
     const s = stored.get(`group:${g.group_id}`);
     const rel = autoRel.get(id) || { x: 0, y: 0 };
-    const p = s ? { x: s.x, y: s.y } : { x: parentAbs.x + rel.x, y: parentAbs.y + rel.y };
+    let p = s ? { x: s.x, y: s.y } : { x: parentAbs.x + rel.x, y: parentAbs.y + rel.y };
+    if (inside) p = { x: Math.max(p.x, inside.x), y: Math.max(p.y, inside.y) };
+    const within = { x: p.x + PAD, y: p.y + HEAD + 8 };
     abs.set(id, p);
     const index = nodes.length;
     nodes.push({ id, type: 'group', position: { x: p.x - parentAbs.x, y: p.y - parentAbs.y }, parentId: parentNode, data: {} });
     let maxX = 0;
     let maxY = 0;
     for (const a of placedFirst(membersOf(g.group_id))) {
-      const q = agentNode(a, id, p);
+      const q = agentNode(a, id, p, within);
       maxX = Math.max(maxX, q.x - p.x + NODE_W + PAD);
       maxY = Math.max(maxY, q.y - p.y + NODE_H + PAD);
     }
     for (const c of childGroups(g.group_id)) {
-      const q = groupNode(c, id, p, depth + 1);
+      const q = groupNode(c, id, p, depth + 1, within);
       const cs = size.get(groupNodeId(c.group_id))!;
       maxX = Math.max(maxX, q.x - p.x + cs.w + PAD);
       maxY = Math.max(maxY, q.y - p.y + cs.h + PAD);

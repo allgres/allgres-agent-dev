@@ -33,7 +33,8 @@ selection and an undo list.
   Canvas offers for them.
 
 Positions are stored in `canvas_positions` when you move or resize
-something. Anything never placed by hand is laid out on load: under the
+something. A card dropped on a box is pulled fully inside it; one that hangs
+over the right or bottom edge makes the box grow. Anything never placed by hand is laid out on load: under the
 first agent that may delegate to it, inside its group.
 
 ## Working on the board
@@ -49,6 +50,7 @@ first agent that may delegate to it, inside its group.
 | Give a task | The agent's **History** tab, **Start task**. |
 | Change model, prompt, limits | The agent's **Settings** tab (`agents.update`). |
 | Reuse a team | Select a group, **Save as configuration**, then drag it from the palette. |
+| Tidy the board | **Arrange** lays every agent out under the agent that may delegate to it and sizes boxes to fit, then saves those positions. Undo puts the old ones back. |
 | Undo | **Undo** or ⌘/Ctrl+Z. Creating an agent is undone by deactivating it; agents are never deleted from Canvas. Merging and deleting groups and placing a saved configuration ask first instead. |
 
 **Flow** switches the side panel to sessions. Pick one to see which agents

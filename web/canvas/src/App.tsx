@@ -376,6 +376,19 @@ function Canvas() {
       const all = [...new Set(moved.flatMap((id) => [id, ...descendants(id)]))].filter((id) => !id.startsWith('frame:'));
       const draggedGroups = moved.filter(isGroupNode).map(groupIdOf);
       const changes: { label: string; run: () => Promise<unknown>; back: () => Promise<unknown> }[] = [];
+      // Where each dropped node ends up: pulled fully inside the box it was
+      // dropped into (past the left and top edges and the title), never left
+      // straddling a border. Overhang to the right or below grows the box.
+      const shift = new Map<string, XY>();
+      const settleInto = (id: string, gid: string | null) => {
+        if (!gid) return;
+        const box = absOf(groupNodeId(gid));
+        const p = absOf(id);
+        if (!box || !p) return;
+        const dx = Math.max(0, box.x + 24 - p.x);
+        const dy = Math.max(0, box.y + 44 - p.y);
+        if (dx || dy) shift.set(id, { x: dx, y: dy });
+      };
       for (const id of moved) {
         const p = absOf(id)!;
         const s = sizeOf(id);
@@ -385,8 +398,12 @@ function Canvas() {
           const g = state.groups.find((x) => x.group_id === gid)!;
           // A moved box nests only if it was dragged alone into another one.
           const target = groupAt(centre, [gid, ...draggedGroups]);
-          if (target === g.parent_group_id || (target && draggedGroups.length > 1)) continue;
           if (g.parent_group_id && draggedGroups.includes(g.parent_group_id)) continue;
+          if (target === g.parent_group_id || (target && draggedGroups.length > 1)) {
+            settleInto(id, g.parent_group_id);
+            continue;
+          }
+          settleInto(id, target);
           changes.push({
             label: target ? 'nesting' : 'un-nesting',
             run: () => rpc('canvas.groups.update', target ? { group_id: gid, parent_group_id: target } : { group_id: gid, clear_parent: true }),
@@ -402,6 +419,7 @@ function Canvas() {
           const before = groupOf(state, id);
           if (before && draggedGroups.some((d) => groupWithin(before, d))) continue; // travelled with its box
           const target = groupAt(centre, draggedGroups);
+          settleInto(id, target);
           if (target === before) continue;
           changes.push({
             label: 'group change',
@@ -410,7 +428,17 @@ function Canvas() {
           });
         }
       }
-      const items = all.map((id) => posItem(id, absOf(id)!));
+      // A box's contents travel with it when it is pulled inside another.
+      const shiftOf = (id: string): XY => {
+        if (shift.has(id)) return shift.get(id)!;
+        const parent = nodes.find((n) => n.id === id)?.parentId;
+        return parent && all.includes(parent) ? shiftOf(parent) : { x: 0, y: 0 };
+      };
+      const items = all.map((id) => {
+        const p = absOf(id)!;
+        const d = shiftOf(id);
+        return posItem(id, { x: p.x + d.x, y: p.y + d.y });
+      });
       const back = restorePositions(all);
       act(
         changes.length ? 'Moved into place' : 'Moved',
@@ -672,6 +700,35 @@ function Canvas() {
     use(item, p, agentAt(p), groupAt(p));
   };
 
+  // Auto-arrange: the layout the board would draw if nothing had ever been
+  // placed by hand (each agent under the agent that delegates to it, boxes
+  // sized to fit), written back as positions in one save. Undo restores the
+  // previous ones.
+  const arrange = () => {
+    const fresh = buildGraph(agents, { ...state, positions: [] }, { showSystem, showInactive });
+    const items = fresh.nodes
+      .filter((n) => (n.type === 'agent' && !(n.data as { agent: Agent }).agent.is_system) || n.type === 'group')
+      .map((n) => posItem(n.id, fresh.abs.get(n.id)!, n.type === 'group' ? { w: Number(n.width), h: Number(n.height) } : undefined));
+    if (!items.length) return;
+    const prev = items
+      .filter((it) => graph.abs.has(it.kind === 'group' ? groupNodeId(it.id) : it.id))
+      .map((it) => {
+        const id = it.kind === 'group' ? groupNodeId(it.id) : it.id;
+        const n = graph.nodes.find((x) => x.id === id);
+        return posItem(id, graph.abs.get(id)!, it.kind === 'group' ? { w: Number(n?.width), h: Number(n?.height) } : undefined);
+      });
+    act(
+      'Arranged',
+      async () => {
+        await rpc('canvas.layout.save', { items });
+        applyPositions(items);
+        setTimeout(() => flow.fitView({ padding: 0.15, duration: 300 }), 50);
+        return { label: 'arrange', run: () => rpc('canvas.layout.save', { items: prev }) };
+      },
+      { layoutOnly: true },
+    );
+  };
+
   const groupSelected = () => {
     const ids = selected.filter((id) => !isGroupNode(id) && agents.find((a) => a.agent_id === id && !a.is_system));
     if (!ids.length) return;
@@ -714,6 +771,9 @@ function Canvas() {
             </div>
             <button type="button" className="btn" disabled={!groupable} onClick={groupSelected} title="Shift+click agents to select several">
               Group selected{groupable > 1 ? ` (${groupable})` : ''}
+            </button>
+            <button type="button" className="btn" onClick={arrange} title="Lay every agent out under the agent that delegates to it, boxes sized to fit">
+              Arrange
             </button>
             <button type="button" className="btn" disabled={!undoCount} onClick={undo} title="⌘/Ctrl+Z">
               Undo
