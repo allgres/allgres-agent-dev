@@ -169,6 +169,14 @@ export function buildGraph(
   const abs = new Map<string, XY>();
   const size = new Map<string, Size>();
   const nodes: Node[] = [];
+  // Cards already placed in each container, so an automatically laid out
+  // agent (one that just became visible, say) never lands on top of one
+  // placed by hand and hides its connection dots.
+  const taken = new Map<string, XY[]>();
+  const clashes = (key: string, p: XY) =>
+    (taken.get(key) || []).some((q) => Math.abs(q.x - p.x) < NODE_W + 40 && Math.abs(q.y - p.y) < NODE_H + 40);
+  const placedFirst = (list: Agent[]) =>
+    [...list].sort((x, y) => Number(!stored.has(`agent:${x.agent_id}`)) - Number(!stored.has(`agent:${y.agent_id}`)));
   const agentNode = (a: Agent, parentNode: string | undefined, parentAbs: XY) => {
     const s = stored.get(`agent:${a.agent_id}`);
     const rel = autoRel.get(a.agent_id) || { x: 0, y: 0 };
@@ -184,7 +192,9 @@ export function buildGraph(
           break;
         }
       }
+      while (clashes(parentNode || '', p)) p = { x: p.x + NODE_W + GAP_X, y: p.y };
     }
+    taken.set(parentNode || '', [...(taken.get(parentNode || '') || []), p]);
     abs.set(a.agent_id, p);
     nodes.push({
       id: a.agent_id,
@@ -211,7 +221,7 @@ export function buildGraph(
     nodes.push({ id, type: 'group', position: { x: p.x - parentAbs.x, y: p.y - parentAbs.y }, parentId: parentNode, data: {} });
     let maxX = 0;
     let maxY = 0;
-    for (const a of membersOf(g.group_id)) {
+    for (const a of placedFirst(membersOf(g.group_id))) {
       const q = agentNode(a, id, p);
       maxX = Math.max(maxX, q.x - p.x + NODE_W + PAD);
       maxY = Math.max(maxY, q.y - p.y + NODE_H + PAD);
@@ -238,7 +248,7 @@ export function buildGraph(
   };
 
   const origin = { x: 0, y: 0 };
-  for (const a of ungrouped) agentNode(a, undefined, origin);
+  for (const a of placedFirst(ungrouped)) agentNode(a, undefined, origin);
   for (const g of childGroups(null)) groupNode(g, undefined, origin, 0);
 
   if (opts.showSystem) {

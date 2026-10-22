@@ -532,14 +532,19 @@ function Canvas() {
         llm_config: draft ? undefined : { provider: v.provider, model: v.model.trim() },
         is_active: !draft,
       });
-      // Never on top of another agent: step right until the spot is free.
+      // Never on or against another card (measured size plus a gap, so its
+      // connection dots stay reachable): step right until the spot is free.
       let x = p.x - NODE_W / 2;
-      while (agents.some((a) => {
-        const q = absOf(a.agent_id);
-        return q && Math.abs(q.x - x) < NODE_W && Math.abs(q.y - (p.y - 30)) < NODE_H;
-      }))
-        x += NODE_W + 40;
-      await rpc('canvas.layout.save', { items: [{ kind: 'agent', id: r.agent_id, x: Math.round(x), y: Math.round(p.y - 30) }] });
+      const y = p.y - 30;
+      const clash = (cx: number) =>
+        agents.some((a) => {
+          const q = absOf(a.agent_id);
+          if (!q) return false;
+          const sz = sizeOf(a.agent_id);
+          return cx < q.x + sz.w + 40 && q.x < cx + NODE_W + 40 && y < q.y + sz.h + 40 && q.y < y + NODE_H + 40;
+        });
+      while (clash(x)) x += NODE_W + 40;
+      await rpc('canvas.layout.save', { items: [{ kind: 'agent', id: r.agent_id, x: Math.round(x), y: Math.round(y) }] });
       if (groupId) await rpc('canvas.groups.set_member', { agent_id: r.agent_id, group_id: groupId });
       if (draft) setShowInactive(true);
       created = r.agent_id;

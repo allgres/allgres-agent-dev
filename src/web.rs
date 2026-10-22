@@ -78,6 +78,16 @@ pub(crate) static RATE_LIMIT: LazyLock<Mutex<RateWindows>> = LazyLock::new(|| {
     Mutex::new(RateWindows { general: HashMap::new(), auth_fail: HashMap::new() })
 });
 pub(crate) const RATE_GENERAL_LIMIT: usize = 120;
+/// `RATE_GENERAL_LIMIT` unless ALLGRES_RATE_LIMIT_PER_MINUTE names another
+/// positive number, read once.  Only for a deployment whose clients really
+/// share one address (a browser test suite, a reverse proxy that does not
+/// forward the client address); the default is what everyone else gets.
+static RATE_GENERAL_CAP: LazyLock<usize> = LazyLock::new(|| {
+    crate::config::env_opt("ALLGRES_RATE_LIMIT_PER_MINUTE")
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(RATE_GENERAL_LIMIT)
+});
 pub(crate) const RATE_GENERAL_WINDOW: Duration = Duration::from_secs(60);
 pub(crate) const RATE_AUTH_FAIL_LIMIT: usize = 20;
 const RATE_AUTH_FAIL_WINDOW: Duration = Duration::from_secs(300);
@@ -113,7 +123,7 @@ fn rate_check(
 /// after a 401, for the tighter one.
 pub(crate) fn rate_limited(ip: IpAddr) -> bool {
     let mut w = RATE_LIMIT.lock().unwrap();
-    !rate_check(&mut w.general, ip, RATE_GENERAL_WINDOW, RATE_GENERAL_LIMIT)
+    !rate_check(&mut w.general, ip, RATE_GENERAL_WINDOW, *RATE_GENERAL_CAP)
 }
 
 pub(crate) fn auth_failures_exceeded(ip: IpAddr) -> bool {

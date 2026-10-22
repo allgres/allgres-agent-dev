@@ -12,4 +12,5 @@ Part of the [documentation index](../README.md). See also:
 | `ALLGRES_SOCKET_DIR` | `$PGDATA/allgres` | RPC socket directory |
 | `ALLGRES_SECRET_KEY` | empty | Encrypts provider secrets at rest |
 | `ALLGRES_ENABLE_MOCK` | unset | Serve `/mock/models`, `/mock/chat/completions`, `/mock/embeddings`, and `/mock/oauth/token` (tests and local first-run) |
+| `ALLGRES_RATE_LIMIT_PER_MINUTE` | `120` | Requests per minute per client address before `rate_limited`. Raise only when many clients really share one address (a browser test run, a proxy that hides client addresses) |
 | `ALLGRES_DROP_PRIVILEGES` | `1` | Runtime worker drops to the `worker` role |

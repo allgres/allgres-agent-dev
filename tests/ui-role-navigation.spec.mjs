@@ -35,9 +35,13 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   });
 });
 
-test('admin opens the read-only canvas from the menu', async ({ page }) => {
+// One test for the whole Canvas walk-through: the web listener allows 120
+// requests a minute per address, and this suite already runs from one.
+test('admin opens the canvas and builds a team', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/Content Security Policy|style-src|script-src/i.test(message.text()))cspErrors.push(message.text())});
+  const stamp=Date.now();
+  const lead=`ui_lead_${stamp}`, worker=`ui_worker_${stamp}`, team=`UI team ${stamp}`;
   await login(page, 'ui_admin', 'ui-admin-password');
   await page.locator('#nav button', { hasText: 'Canvas' }).click();
   await expect(page).toHaveURL(/\/canvas$/);
@@ -46,21 +50,6 @@ test('admin opens the read-only canvas from the menu', async ({ page }) => {
   await expect(page.getByText('System agents', { exact: true }).first()).toBeVisible();
   await general.click();
   await expect(page.locator('.inspector')).toContainText('Hierarchy');
-  await page.locator('#showSystem').uncheck();
-  await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
-  await page.getByRole('link', { name: '← Dashboard' }).click();
-  await expect(page.locator('#whoami')).toContainText('ui_admin');
-  expect(cspErrors).toEqual([]);
-});
-
-test('admin builds a team on the canvas', async ({ page }) => {
-  const cspErrors=[];
-  page.on('console',message=>{if(message.type()==='error'&&/Content Security Policy|style-src|script-src/i.test(message.text()))cspErrors.push(message.text())});
-  const stamp=Date.now();
-  const lead=`ui_lead_${stamp}`, worker=`ui_worker_${stamp}`, team=`UI team ${stamp}`;
-  await login(page, 'ui_admin', 'ui-admin-password');
-  await page.locator('#nav button', { hasText: 'Canvas' }).click();
-  await expect(page.locator('.agent-node', { hasText: 'general' }).first()).toBeVisible();
   for (const name of [lead, worker]) {
     await page.locator('.pal-item', { hasText: 'Created where you drop it' }).click();
     await page.locator('#dlg-name').fill(name);
@@ -70,6 +59,10 @@ test('admin builds a team on the canvas', async ({ page }) => {
   }
   const leadNode=page.locator(`.react-flow__node:has(.agent-node[data-agent="${lead}"])`);
   const workerNode=page.locator(`.react-flow__node:has(.agent-node[data-agent="${worker}"])`);
+  // Both agents on screen and clear of the General dock before dragging.
+  if (await page.getByRole('button', { name: 'Hide' }).isVisible()) await page.getByRole('button', { name: 'Hide' }).click();
+  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await page.waitForTimeout(400);
   // A line from the lead's bottom dot to the worker is an `agent` grant.
   await leadNode.locator('.react-flow__handle-bottom').dragTo(workerNode.locator('.react-flow__handle-top'));
   await expect(page.locator('.react-flow__edge.edge-delegate')).not.toHaveCount(0);
@@ -85,6 +78,10 @@ test('admin builds a team on the canvas', async ({ page }) => {
   await expect(page.locator(`.group-node[data-group="${team}"]`)).toContainText('2');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.locator(`.group-node[data-group="${team}"]`)).toHaveCount(0);
+  await page.locator('#showSystem').uncheck();
+  await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
+  await page.getByRole('link', { name: '← Dashboard' }).click();
+  await expect(page.locator('#whoami')).toContainText('ui_admin');
   expect(cspErrors).toEqual([]);
 });
 
