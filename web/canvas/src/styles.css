@@ -355,3 +355,5 @@ textarea { resize: vertical; }
 .help-keys { margin: 6px 0 0; }
 kbd { font: 600 11px -apple-system, system-ui, sans-serif; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--panel2); color: var(--text); }
 @media (max-width: 760px) { .guide { display: none; } }
+.edge-focus .react-flow__edge-text { font-weight: 650; }
+.edge-focus .react-flow__edge-textbg { fill: var(--panel); }

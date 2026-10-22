@@ -365,20 +365,33 @@ function Canvas() {
   // One agent selected: its lines and the agents on their other end stay
   // sharp, everything else fades, so "who does this one work with" reads
   // at a glance.
+  // Hovering a line does the same for that one line, and names both ends on
+  // it, so a line that passes behind another card still reads clearly.
+  const [hoverEdge, setHoverEdge] = useState<string | null>(null);
   const focus = useMemo(() => {
+    const he = hoverEdge ? graph.edges.find((e) => e.id === hoverEdge) : null;
+    if (view === 'org' && he) return { id: '', edge: he.id, near: new Set([he.source, he.target]) };
     if (view !== 'org' || selected.length !== 1 || isGroupNode(selected[0])) return null;
     const id = selected[0];
     const near = new Set([id]);
     for (const e of graph.edges) if (e.source === id || e.target === id) (near.add(e.source), near.add(e.target));
-    return near.size > 1 ? { id, near } : null;
-  }, [view, selected, graph]);
+    return near.size > 1 ? { id, edge: '', near } : null;
+  }, [view, selected, graph, hoverEdge]);
   const shownNodes = useMemo(
     () => (focus ? nodes.map((n) => (n.type === 'agent' && !focus.near.has(n.id) ? { ...n, className: 'faded' } : n)) : nodes),
     [nodes, focus],
   );
   const edges = useMemo(() => {
-    if (focus)
-      return graph.edges.map((e) => (e.source === focus.id || e.target === focus.id ? { ...e, className: `${e.className} edge-focus` } : { ...e, className: `${e.className} edge-dim`, label: undefined }));
+    if (focus) {
+      const name = (id: string) => agents.find((a) => a.agent_id === id)?.name || '';
+      return graph.edges.map((e) =>
+        e.id === focus.edge
+          ? { ...e, className: `${e.className} edge-focus`, label: `${name(e.source)} → ${name(e.target)}`, zIndex: 20 }
+          : !focus.edge && (e.source === focus.id || e.target === focus.id)
+            ? { ...e, className: `${e.className} edge-focus` }
+            : { ...e, className: `${e.className} edge-dim`, label: undefined },
+      );
+    }
     if (view !== 'flow' || !overlay) return graph.edges;
     // Flow: the permission lines fade, and every hand-off that actually
     // happened is drawn in green with how many times it did.
@@ -398,7 +411,7 @@ function Canvas() {
       });
     }
     return out;
-  }, [graph, view, overlay, t, focus]);
+  }, [graph, view, overlay, t, focus, agents]);
 
   const fitted = useRef(false);
   const measured = useNodesInitialized();
@@ -1187,6 +1200,8 @@ function Canvas() {
                 connectionRadius={36}
                 connectionLineStyle={{ stroke: LINE.delegate.color, strokeWidth: 2.4, strokeDasharray: '6 5' }}
                 onEdgeClick={onEdgeClick}
+                onEdgeMouseEnter={(_, e) => setHoverEdge(e.id)}
+                onEdgeMouseLeave={() => setHoverEdge(null)}
                 onNodeContextMenu={(e, n) => {
                   e.preventDefault();
                   if (n.type === 'frame') return;
