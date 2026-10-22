@@ -213,6 +213,30 @@ export function buildGraph(
   const taken = new Map<string, XY[]>();
   const clashes = (key: string, p: XY) =>
     (taken.get(key) || []).some((q) => Math.abs(q.x - p.x) < NODE_W + GAP_X && Math.abs(q.y - p.y) < NODE_H + GAP_Y / 2);
+  // Hand-placed cards and team boxes anywhere on the board, in absolute
+  // coordinates: an automatically placed card also stays off these, whatever
+  // container they are in (a turned-off agent shown for the first time must
+  // not land inside some other team's box). Its own box and the boxes around
+  // it are of course allowed.
+  const blocked: { x: number; y: number; w: number; h: number; group?: string; agent?: string }[] = [];
+  for (const sp of stored.values()) {
+    if (sp.kind === 'agent' && byId.has(sp.id)) blocked.push({ x: sp.x, y: sp.y, w: NODE_W, h: NODE_H, agent: sp.id });
+    if (sp.kind === 'group' && groups.has(sp.id)) blocked.push({ x: sp.x, y: sp.y, w: sp.width ?? EMPTY_GROUP.w, h: sp.height ?? EMPTY_GROUP.h, group: sp.id });
+  }
+  const around = (gid: string | undefined) => {
+    const out = new Set<string>();
+    for (let g = gid ? groups.get(gid) : undefined; g && !out.has(g.group_id); g = g.parent_group_id ? groups.get(g.parent_group_id) : undefined) out.add(g.group_id);
+    return out;
+  };
+  const blockedAt = (p: XY, self: string, gid: string | undefined) => {
+    const mine = around(gid);
+    return blocked.some(
+      (r) =>
+        r.agent !== self &&
+        !(r.group && mine.has(r.group)) &&
+        p.x < r.x + r.w + 24 && r.x < p.x + NODE_W + 24 && p.y < r.y + r.h + 24 && r.y < p.y + NODE_H + 24,
+    );
+  };
   const placedFirst = (list: Agent[]) =>
     [...list].sort((x, y) => Number(!stored.has(`agent:${x.agent_id}`)) - Number(!stored.has(`agent:${y.agent_id}`)));
   // inside: the top-left corner a card may not cross in its box (past the
@@ -232,7 +256,8 @@ export function buildGraph(
           break;
         }
       }
-      if (!a.is_system) while (clashes(parentNode || '', p)) p = { x: p.x + NODE_W + GAP_X, y: p.y };
+      const gid = parentNode ? groupIdOf(parentNode) : undefined;
+      if (!a.is_system) while (clashes(parentNode || '', p) || blockedAt(p, a.agent_id, gid)) p = { x: p.x + NODE_W + GAP_X, y: p.y };
     }
     if (inside) p = { x: Math.max(p.x, inside.x), y: Math.max(p.y, inside.y) };
     if (!a.is_system) taken.set(parentNode || '', [...(taken.get(parentNode || '') || []), p]);
