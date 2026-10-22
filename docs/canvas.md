@@ -6,7 +6,9 @@ Part of the [documentation index](../README.md). See also:
 the dashboard's CSP and authentication.
 
 Canvas is a board for arranging and running the agents the control plane
-knows about. Admins open it from the dashboard menu (**Canvas**) or at
+knows about. [`docs/mockups/agent-canvas.html`](mockups/agent-canvas.html)
+is the design mockup it was built from (open it in a browser; it is a
+standalone page with example data, not wired to the database). Admins open it from the dashboard menu (**Canvas**) or at
 `/canvas`. Everything on it is a row in PostgreSQL, and every change on it is
 an ordinary `dashboard_rpc` action that writes its own `audit_log` row, so
 psql can do anything the board can. The page itself keeps only the current
