@@ -169,12 +169,13 @@ export function buildGraph(
   const abs = new Map<string, XY>();
   const size = new Map<string, Size>();
   const nodes: Node[] = [];
-  // Cards already placed in each container, so an automatically laid out
-  // agent (one that just became visible, say) never lands on top of one
-  // placed by hand and hides its connection dots.
+  // Cards already placed in each container (hand-placed ones first), so an
+  // automatically laid out agent never lands on another card and hides its
+  // connection dots. The clash distance is just under the tree layout's own
+  // spacing, so cards the layout put side by side never push each other.
   const taken = new Map<string, XY[]>();
   const clashes = (key: string, p: XY) =>
-    (taken.get(key) || []).some((q) => Math.abs(q.x - p.x) < NODE_W + 40 && Math.abs(q.y - p.y) < NODE_H + 40);
+    (taken.get(key) || []).some((q) => Math.abs(q.x - p.x) < NODE_W + GAP_X && Math.abs(q.y - p.y) < NODE_H + GAP_Y / 2);
   const placedFirst = (list: Agent[]) =>
     [...list].sort((x, y) => Number(!stored.has(`agent:${x.agent_id}`)) - Number(!stored.has(`agent:${y.agent_id}`)));
   const agentNode = (a: Agent, parentNode: string | undefined, parentAbs: XY) => {
@@ -192,9 +193,9 @@ export function buildGraph(
           break;
         }
       }
-      while (clashes(parentNode || '', p)) p = { x: p.x + NODE_W + GAP_X, y: p.y };
+      if (!a.is_system) while (clashes(parentNode || '', p)) p = { x: p.x + NODE_W + GAP_X, y: p.y };
     }
-    taken.set(parentNode || '', [...(taken.get(parentNode || '') || []), p]);
+    if (!a.is_system) taken.set(parentNode || '', [...(taken.get(parentNode || '') || []), p]);
     abs.set(a.agent_id, p);
     nodes.push({
       id: a.agent_id,
@@ -256,7 +257,15 @@ export function buildGraph(
     if (system.length) {
       const t = layoutTree(system, agents);
       noteKids(t.kids);
-      const fx = cursor;
+      // Right of everything else, wherever it was dragged, so nothing ever
+      // sits on or inside the frame.
+      let right = cursor - CLUSTER_GAP;
+      for (const n of nodes) {
+        if (n.parentId) continue;
+        const q = abs.get(n.id);
+        if (q) right = Math.max(right, q.x + (n.type === 'group' ? Number(n.width) : NODE_W));
+      }
+      const fx = Math.max(cursor, right + CLUSTER_GAP);
       const fy = -HEAD - PAD;
       nodes.push({
         id: 'frame:system',

@@ -511,6 +511,28 @@ function Canvas() {
   );
 
   // ---------------------------------------------------------------- drops
+  // Never on or against another card (measured size plus a gap, so its
+  // connection dots stay reachable), nor, for a new box, on another box:
+  // step right until the spot is free. The group it goes into, and the
+  // groups around that one, are of course allowed to contain it.
+  const freeSpot = (x0: number, y: number, w: number, h: number, boxes: boolean, inside: string | null) => {
+    const rects: { x: number; y: number; w: number; h: number }[] = [];
+    for (const a of agents) {
+      const q = absOf(a.agent_id);
+      if (q) rects.push({ ...q, ...sizeOf(a.agent_id) });
+    }
+    if (boxes)
+      for (const g of state.groups) {
+        if (inside && groupWithin(inside, g.group_id)) continue;
+        const q = absOf(groupNodeId(g.group_id));
+        if (q) rects.push({ ...q, ...sizeOf(groupNodeId(g.group_id)) });
+      }
+    const hit = (x: number) => rects.some((r) => x < r.x + r.w + 40 && r.x < x + w + 40 && y < r.y + r.h + 40 && r.y < y + h + 40);
+    let x = x0;
+    while (hit(x)) x += 40;
+    return { x: Math.round(x), y: Math.round(y) };
+  };
+
   const createAgent = async (p: XY, groupId: string | null) => {
     const v = await ask({
       title: 'New agent',
@@ -532,18 +554,7 @@ function Canvas() {
         llm_config: draft ? undefined : { provider: v.provider, model: v.model.trim() },
         is_active: !draft,
       });
-      // Never on or against another card (measured size plus a gap, so its
-      // connection dots stay reachable): step right until the spot is free.
-      let x = p.x - NODE_W / 2;
-      const y = p.y - 30;
-      const clash = (cx: number) =>
-        agents.some((a) => {
-          const q = absOf(a.agent_id);
-          if (!q) return false;
-          const sz = sizeOf(a.agent_id);
-          return cx < q.x + sz.w + 40 && q.x < cx + NODE_W + 40 && y < q.y + sz.h + 40 && q.y < y + NODE_H + 40;
-        });
-      while (clash(x)) x += NODE_W + 40;
+      const { x, y } = freeSpot(p.x - NODE_W / 2, p.y - 30, NODE_W, NODE_H, false, groupId);
       await rpc('canvas.layout.save', { items: [{ kind: 'agent', id: r.agent_id, x: Math.round(x), y: Math.round(y) }] });
       if (groupId) await rpc('canvas.groups.set_member', { agent_id: r.agent_id, group_id: groupId });
       if (draft) setShowInactive(true);
@@ -569,7 +580,9 @@ function Canvas() {
         name: v.name.trim(),
         kind: v.kind,
         parent_group_id: parent,
-        position: rect ? { x: rect.x, y: rect.y, width: rect.w, height: rect.h } : { x: Math.round(p.x - 180), y: Math.round(p.y - 30), width: 360, height: 220 },
+        position: rect
+          ? { x: rect.x, y: rect.y, width: rect.w, height: rect.h }
+          : { ...freeSpot(p.x - 180, p.y - 30, 360, 220, true, parent), width: 360, height: 220 },
         agent_ids: members,
       });
       return {
