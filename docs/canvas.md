@@ -66,6 +66,18 @@ tasks") with the stored name in a tooltip. It speaks English and Korean
 | Tidy up | **⋯ → Tidy up layout** lays every agent out under the one that hands it work and sizes boxes to fit. |
 | Undo | **↶** or ⌘/Ctrl+Z. Creating an agent is undone by turning it off; agents are never deleted from Canvas. Merging and deleting teams ask first instead. |
 
+**Getting started** in the corner lists the four steps to a first working
+team (add an agent, choose its model, put one under another, give the top
+one a task), ticked from what is really there; each step is one click away.
+Selecting an agent fades everything it does not work with. Keys: **N** new
+agent, **T** new team, **F** fit to screen, **?** help, **⌘/Ctrl+Z** undo.
+
+**What it does** edits only the job. A new agent's stored prompt starts with
+the reply protocol the runtime needs (reply with one JSON object, the shape
+of each action; `ensure_policy`), and Canvas keeps that in front, adding the
+job under `# Your job`, rather than letting a plain sentence replace it. A
+prompt written whole by hand is shown and saved whole.
+
 System agents are hidden until **⋯ → Show system agents**. **?** in the
 corner explains every mark on the board. Right-click a card, a team box, or
 an empty spot for the same actions without dragging ("Put under…", turn on

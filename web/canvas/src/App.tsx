@@ -22,12 +22,15 @@ import { LangProvider, useLang, useT, type T } from './i18n';
 import { AgentInspector, GroupInspector } from './Inspector';
 import { abilityLabel } from './labels';
 import { BoardEvents, nodeTypes } from './nodes';
+import { withJob } from './prompt';
 import { useDialog, useToast } from './ui';
 
 type Fix = 'login' | 'token' | null;
 type Gate = { kind: 'loading' } | { kind: 'blocked'; title: string; body: string; fix: Fix } | { kind: 'ready' };
 type XY = { x: number; y: number };
 
+// Agents every install starts with; they do not count as "your first agent".
+const SEEDED = new Set(['general', 'analyst', 'health_monitor']);
 const EMPTY_STATE: CanvasState = { groups: [], members: [], positions: [], templates: [] };
 const NO_OPTIONS: GrantOptions = { views: [], functions: [], procedures: [] };
 
@@ -230,8 +233,19 @@ function Canvas() {
     await reload().catch(() => {});
   }, [reload, toast, t]);
 
+  // Single-key shortcuts (N, T, F, ?) call into handlers defined further
+  // down; the ref always holds this render's versions.
+  const keys = useRef<Record<string, () => void>>({});
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !inputFocused() && !document.querySelector('.modal')) {
+        const run = keys.current[e.key.toLowerCase()] || keys.current[e.key];
+        if (run) {
+          e.preventDefault();
+          run();
+          return;
+        }
+      }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !inputFocused()) {
         e.preventDefault();
         undo();
@@ -348,7 +362,23 @@ function Canvas() {
     setNodes((ns) => ns.map((n) => (n.selected === (n.id === id) ? n : { ...n, selected: n.id === id })));
   }
 
+  // One agent selected: its lines and the agents on their other end stay
+  // sharp, everything else fades, so "who does this one work with" reads
+  // at a glance.
+  const focus = useMemo(() => {
+    if (view !== 'org' || selected.length !== 1 || isGroupNode(selected[0])) return null;
+    const id = selected[0];
+    const near = new Set([id]);
+    for (const e of graph.edges) if (e.source === id || e.target === id) (near.add(e.source), near.add(e.target));
+    return near.size > 1 ? { id, near } : null;
+  }, [view, selected, graph]);
+  const shownNodes = useMemo(
+    () => (focus ? nodes.map((n) => (n.type === 'agent' && !focus.near.has(n.id) ? { ...n, className: 'faded' } : n)) : nodes),
+    [nodes, focus],
+  );
   const edges = useMemo(() => {
+    if (focus)
+      return graph.edges.map((e) => (e.source === focus.id || e.target === focus.id ? { ...e, className: `${e.className} edge-focus` } : { ...e, className: `${e.className} edge-dim`, label: undefined }));
     if (view !== 'flow' || !overlay) return graph.edges;
     // Flow: the permission lines fade, and every hand-off that actually
     // happened is drawn in green with how many times it did.
@@ -368,7 +398,7 @@ function Canvas() {
       });
     }
     return out;
-  }, [graph, view, overlay, t]);
+  }, [graph, view, overlay, t, focus]);
 
   const fitted = useRef(false);
   const measured = useNodesInitialized();
@@ -710,7 +740,7 @@ function Canvas() {
     const ok = await act(model ? t('Created {name}', { name }) : t('Created {name}, turned off until it has a model', { name }), async () => {
       const r = await rpc<{ agent_id: string }>('agents.create', {
         name,
-        system_prompt: v.prompt,
+        system_prompt: v.prompt.trim() ? withJob(v.prompt) : undefined,
         llm_config: model ? { provider, model } : undefined,
         is_active: !!model,
       });
@@ -772,7 +802,7 @@ function Canvas() {
     ];
     await act(t('Created an example team. Rename the agents and give them a model to start.'), async () => {
       const ids: string[] = [];
-      for (let i = 0; i < 3; i++) ids.push((await rpc<{ agent_id: string }>('agents.create', { name: names[i], system_prompt: prompts[i], is_active: false })).agent_id);
+      for (let i = 0; i < 3; i++) ids.push((await rpc<{ agent_id: string }>('agents.create', { name: names[i], system_prompt: withJob(prompts[i]), is_active: false })).agent_id);
       const box = freeSpot(p.x - 300, p.y - 140, 600, 330, true, null);
       const g = await rpc<{ group_id: string }>('canvas.groups.create', { name: t('Example team'), kind: 'team', position: { ...box, width: 600, height: 330 }, agent_ids: ids });
       await rpc('canvas.delegation.add', { from_agent_id: ids[0], to_agent_id: ids[1] });
@@ -969,6 +999,66 @@ function Canvas() {
   const general = agentByName(agents, 'general');
   const empty = agents.filter((a) => !a.is_system && a.name !== 'general').length === 0 && state.groups.length === 0;
   const closeHelp = () => (remember('allgres_canvas_help_seen', true), setHelpOpen(false));
+  // Opening the panel narrows the board; keep what was just selected in view
+  // instead of leaving it behind the panel or off the edge.
+  const dragging = useRef(false);
+  useEffect(() => {
+    if (!one || dragging.current) return;
+    const id = one;
+    const timer = setTimeout(() => {
+      const box = document.querySelector('.flow')?.getBoundingClientRect();
+      const p = absOf(id);
+      if (!box || !p) return;
+      const s = sizeOf(id);
+      const tl = flow.flowToScreenPosition(p);
+      const br = flow.flowToScreenPosition({ x: p.x + s.w, y: p.y + s.h });
+      if (tl.x < box.left + 16 || br.x > box.right - 16 || tl.y < box.top + 16 || br.y > box.bottom - 16)
+        flow.setCenter(p.x + s.w / 2, p.y + s.h / 2, { zoom: flow.getZoom(), duration: 250 });
+    }, 60);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [one]);
+  keys.current = {
+    n: () => view === 'org' && onAddClick({ kind: 'agent' }),
+    t: () => view === 'org' && onAddClick({ kind: 'group' }),
+    f: () => flow.fitView({ padding: 0.2, duration: 250, maxZoom: 1 }),
+    '?': () => setHelpOpen(true),
+  };
+
+  // "Getting started": the four things that make a first working team, each
+  // ticked from what is really in the database, each one click away.
+  const mine = agents.filter((a) => !a.is_system && !SEEDED.has(a.name));
+  const steps: { done: boolean; label: string; go: () => void }[] = [
+    { done: mine.length > 0, label: t('Add an agent'), go: () => onAddClick({ kind: 'agent' }) },
+    {
+      done: mine.some((a) => a.llm_config?.model),
+      label: t('Choose its model'),
+      go: () => {
+        const a = mine.find((x) => !x.llm_config?.model) || mine[0];
+        if (a) select(a.agent_id);
+        else onAddClick({ kind: 'agent' });
+      },
+    },
+    {
+      done: mine.some((a) => agents.some((b) => b.agent_id !== a.agent_id && delegates(a, b))),
+      label: t('Put one agent under another'),
+      go: () => {
+        const a = mine.find((x) => !agents.some((b) => delegates(b, x)));
+        if (a) askPutUnder(a);
+        else toast(t('Drag one card onto another to put it under that agent.'));
+      },
+    },
+    {
+      done: remembered('allgres_canvas_ran', false),
+      label: t('Give the top agent a task'),
+      go: () => {
+        const a = mine.find((x) => x.llm_config?.model && agents.some((b) => delegates(x, b))) || mine.find((x) => x.llm_config?.model);
+        if (a) select(a.agent_id);
+      },
+    },
+  ];
+  const [guideHidden, setGuideHidden] = useState(() => remembered('allgres_canvas_guide_hidden', false));
+  const guideDone = steps.every((s) => s.done);
 
   return (
     <div className="app">
@@ -1068,7 +1158,7 @@ function Canvas() {
           <BoardEvents.Provider value={{ onGroupResized, dropTarget: drop?.target || null, dropText: drop?.text || null }}>
             <div className="flow" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDrop(null)}>
               <ReactFlow
-                nodes={nodes}
+                nodes={shownNodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
                 onNodesChange={onNodesChange}
@@ -1076,8 +1166,13 @@ function Canvas() {
                   const ids = ns.map((n) => n.id).filter((id) => !id.startsWith('frame:'));
                   setSelected((cur) => (cur.length === ids.length && cur.every((x, i) => x === ids[i]) ? cur : ids));
                 }}
+                onNodeDragStart={() => (dragging.current = true)}
                 onNodeDrag={onNodeDrag}
-                onNodeDragStop={onNodeDragStop}
+                onNodeDragStop={(e, n, ns) => {
+                  dragging.current = false;
+                  onNodeDragStop(e, n, ns);
+                }}
+                selectNodesOnDrag={false}
                 onConnect={onConnect}
                 onConnectStart={(_, p) => p.handleType === 'source' && p.nodeId && setConnectFrom(p.nodeId)}
                 onConnectEnd={(e, cs) => {
@@ -1115,6 +1210,31 @@ function Canvas() {
                 <Background gap={24} size={1} />
               </ReactFlow>
               {view === 'org' && <AddMenu board={board} onUse={onAddClick} />}
+              {view === 'org' && !guideHidden && !guideDone && !empty && (
+                <aside className="guide" aria-label={t('Getting started')}>
+                  <header>
+                    <b>{t('Getting started')}</b>
+                    <small>
+                      {steps.filter((s) => s.done).length}/{steps.length}
+                    </small>
+                    <button type="button" className="icon-btn" aria-label={t('Hide')} onClick={() => (remember('allgres_canvas_guide_hidden', true), setGuideHidden(true))}>
+                      ×
+                    </button>
+                  </header>
+                  <ol>
+                    {steps.map((s, i) => (
+                      <li key={s.label} className={s.done ? 'done' : steps.findIndex((x) => !x.done) === i ? 'next' : ''}>
+                        <button type="button" onClick={s.go} disabled={s.done}>
+                          <span className="tick" aria-hidden>
+                            {s.done ? '✓' : i + 1}
+                          </span>
+                          {s.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </aside>
+              )}
               {empty && view === 'org' && (
                 <div className="empty-card" role="region" aria-label={t('Build your first team')}>
                   <div className="empty-art" aria-hidden>
@@ -1246,6 +1366,9 @@ function Help({ view, showSystem, onClose }: { view: 'org' | 'flow'; showSystem:
         ))}
       </dl>
       <p className="muted small help-tip">{t('Right-click a card or the board for more.')}</p>
+      <p className="muted small help-keys">
+        <kbd>N</kbd> {t('New agent')} · <kbd>T</kbd> {t('New team')} · <kbd>F</kbd> {t('Fit to screen')} · <kbd>⌘Z</kbd> {t('Undo')}
+      </p>
       <div className="row-end">
         <button type="button" className="btn primary" onClick={onClose}>
           {t('Got it')}

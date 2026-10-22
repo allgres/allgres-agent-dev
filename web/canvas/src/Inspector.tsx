@@ -6,6 +6,7 @@ import { groupNodeId, inheritedSkills } from './graph';
 import { useT, type T } from './i18n';
 import { abilityGroup, abilityLabel, modelName } from './labels';
 import { KIND_LABEL } from './nodes';
+import { jobOf, withJob } from './prompt';
 import { timeAgo } from './ui';
 
 type Tab = 'overview' | 'chat' | 'activity';
@@ -97,9 +98,14 @@ function Overview({ board, agent }: { board: Board; agent: Agent }) {
 
 function Instructions({ board, agent }: { board: Board; agent: Agent }) {
   const t = useT();
-  const before = agent.system_prompt || '';
+  // Usually only the job is shown and edited; the reply protocol in front of
+  // it stays as is (prompt.ts). A prompt written whole by hand is shown whole.
+  const job = jobOf(agent.system_prompt);
+  const raw = job === null;
+  const before = raw ? agent.system_prompt || '' : job;
   const [text, setText] = useState(before);
-  const dirty = text !== before && text.trim() !== '';
+  const dirty = text !== before && (raw ? text.trim() !== '' : true);
+  const stored = (v: string) => (raw ? v : withJob(v));
   return (
     <section>
       <h4>{t('What it does')}</h4>
@@ -111,12 +117,17 @@ function Instructions({ board, agent }: { board: Board; agent: Agent }) {
         placeholder={t('Describe its job in plain words, the way you would brief a colleague.')}
         onChange={(e) => setText(e.target.value)}
       />
+      {raw && <p className="muted small">{t('Written by hand, including how it replies. Change it with care.')}</p>}
       {dirty && (
         <div className="row-end">
           <button type="button" className="btn ghost" onClick={() => setText(before)}>
             {t('Reset')}
           </button>
-          <button type="button" className="btn primary" onClick={() => change(board, agent, t('Saved {name}', { name: agent.name }), { system_prompt: text }, { system_prompt: before })}>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => change(board, agent, t('Saved {name}', { name: agent.name }), { system_prompt: stored(text) }, { system_prompt: agent.system_prompt || '' })}
+          >
             {t('Save')}
           </button>
         </div>
@@ -527,6 +538,11 @@ function Activity({ board, agent }: { board: Board; agent: Agent }) {
     });
     if (ok) {
       setGoal('');
+      try {
+        localStorage.setItem('allgres_canvas_ran', '1');
+      } catch {
+        /* storage blocked: the getting-started step just stays open */
+      }
       if (started) board.openSession(started);
     }
   };
