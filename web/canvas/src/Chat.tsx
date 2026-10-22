@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { rpc, RpcError, type ChatHistory } from './api';
+import { useT } from './i18n';
 
 // The same 1:1 conversation the dashboard's Chat page has with this agent
 // (chat.send / chat.history, one continuing session per user and agent), so
 // a message sent here shows up there and the other way round.
 export function Chat({ agentId, agentName, note }: { agentId: string; agentName: string; note?: string }) {
+  const t = useT();
   const [history, setHistory] = useState<ChatHistory | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -63,12 +65,12 @@ export function Chat({ agentId, agentName, note }: { agentId: string; agentName:
             {m.content}
           </div>
         ))}
-        {history && !count && <p className="muted small">No messages yet.</p>}
-        {waiting && <div className="msg them typing">{agentName} is working…</div>}
+        {history && !count && <p className="muted small">{t('No messages yet.')}</p>}
+        {waiting && <div className="msg them typing">{t('{name} is working…', { name: agentName })}</div>}
       </div>
       {error && (
         <p className="error-text small">
-          {/not logged in/i.test(error) ? 'Chat is tied to an account: sign in on the dashboard in this tab to talk to agents.' : error}
+          {/not logged in/i.test(error) ? t('Chat is tied to an account: sign in on the dashboard in this tab to talk to agents.') : error}
         </p>
       )}
       <form
@@ -79,14 +81,14 @@ export function Chat({ agentId, agentName, note }: { agentId: string; agentName:
         }}
       >
         <input
-          aria-label={`Message ${agentName}`}
+          aria-label={t('Message {name}', { name: agentName })}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={`Message ${agentName}`}
+          placeholder={t('Message {name}', { name: agentName })}
           autoComplete="off"
         />
         <button type="submit" className="btn primary" disabled={busy || !text.trim()}>
-          Send
+          {t('Send')}
         </button>
       </form>
     </div>

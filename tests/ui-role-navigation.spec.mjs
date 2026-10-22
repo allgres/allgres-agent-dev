@@ -47,39 +47,58 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   await expect(page).toHaveURL(/\/canvas$/);
   const general = page.locator('.agent-node', { hasText: 'general' }).first();
   await expect(general).toBeVisible();
-  await expect(page.getByText('System agents', { exact: true }).first()).toBeVisible();
+  // First visit explains the board once; system agents start hidden.
+  await page.getByRole('button', { name: 'Got it' }).click();
+  await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
   await general.click();
-  await expect(page.locator('.inspector')).toContainText('Hierarchy');
+  await expect(page.locator('.inspector')).toContainText('Takes work from');
+  const fit = () => page.getByTitle('Fit to screen').click();
   for (const name of [lead, worker]) {
-    await page.locator('.pal-item', { hasText: 'Created where you drop it' }).click();
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('menuitem', { name: /New agent/ }).click();
     await page.locator('#dlg-name').fill(name);
-    await page.locator('#dlg-provider').selectOption('');
-    await page.getByRole('button', { name: 'Create agent' }).click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(page.locator(`.agent-node[data-agent="${name}"]`)).toBeVisible();
   }
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await fit();
+  await page.waitForTimeout(400);
   const leadNode=page.locator(`.react-flow__node:has(.agent-node[data-agent="${lead}"])`);
   const workerNode=page.locator(`.react-flow__node:has(.agent-node[data-agent="${worker}"])`);
-  // Both agents on screen and clear of the General dock before dragging.
-  if (await page.getByRole('button', { name: 'Hide' }).isVisible()) await page.getByRole('button', { name: 'Hide' }).click();
-  await page.getByRole('button', { name: 'Fit', exact: true }).click();
-  await page.waitForTimeout(400);
-  // A line from the lead's bottom dot to the worker is an `agent` grant.
-  await leadNode.locator('.react-flow__handle-bottom').dragTo(workerNode.locator('.react-flow__handle-top'));
+  // Dropping the worker's card on the lead's puts it under the lead: the
+  // lead may now hand it work (an `agent` grant), drawn as a line.
+  // React Flow moves a node on real pointer moves, so drag in steps the way
+  // a hand would, not in one jump.
+  const from = await workerNode.boundingBox(), to = await leadNode.boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width / 2, to.y + 20, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.locator('.toast')).toContainText(`${worker} now works under ${lead}`);
   await expect(page.locator('.react-flow__edge.edge-delegate')).not.toHaveCount(0);
+  await fit();
+  await page.waitForTimeout(400);
   await leadNode.click();
-  await expect(page.locator('.inspector')).toContainText(`Can delegate to${worker}`);
-  // Shift+click selects both; Group selected puts them in one box.
+  await expect(page.locator('.inspector')).toContainText('Hands work to');
+  await expect(page.locator('.inspector')).toContainText(worker);
+  // Shift+click adds the worker; the selection bar makes them a team.
+  await fit();
+  await page.waitForTimeout(400);
   await page.keyboard.down('Shift');
   await workerNode.click();
   await page.keyboard.up('Shift');
-  await page.getByRole('button', { name: 'Group selected (2)' }).click();
+  await page.getByRole('button', { name: 'Make a team' }).click();
   await page.locator('#dlg-name').fill(team);
-  await page.getByRole('button', { name: 'Create group' }).click();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.locator(`.group-node[data-group="${team}"]`)).toContainText('2');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.locator(`.group-node[data-group="${team}"]`)).toHaveCount(0);
-  await page.getByRole('button', { name: 'Arrange', exact: true }).click();
-  await expect(page.locator('.toast')).toContainText('Arranged');
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Tidy up layout' }).click();
+  await expect(page.locator('.toast')).toContainText('Tidied up');
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.locator('#showSystem').check();
+  await expect(page.locator('.agent-node.is-system').first()).toBeVisible();
   await page.locator('#showSystem').uncheck();
   await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
   await page.getByRole('link', { name: '← Dashboard' }).click();

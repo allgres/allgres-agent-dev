@@ -3,442 +3,526 @@ import { rpc, type Agent, type Group, type GroupKind, type Permission, type Task
 import { agentByName, groupOf, type Board } from './board';
 import { Chat } from './Chat';
 import { groupNodeId, inheritedSkills } from './graph';
-import { KIND_LABEL, SKILL_LABEL, modelLabel } from './nodes';
+import { useT, type T } from './i18n';
+import { abilityGroup, abilityLabel, modelName } from './labels';
+import { KIND_LABEL } from './nodes';
 import { timeAgo } from './ui';
 
-type Tab = 'settings' | 'chat' | 'skills' | 'history';
-const TABS: [Tab, string][] = [
-  ['settings', 'Settings'],
-  ['chat', 'Chat'],
-  ['skills', 'Skills'],
-  ['history', 'History'],
-];
-const ORDER: Permission['type'][] = ['view', 'function', 'procedure', 'http_host', 'agent'];
-const GRANTABLE = ['view', 'function', 'procedure', 'http_host'] as const;
+type Tab = 'overview' | 'chat' | 'activity';
+
+// agents.update merges whatever keys it is given into the agent's policy, so
+// every change here sends only the fields it touches, and its undo sends the
+// same fields with their previous values.
+type Patch = Record<string, unknown>;
+function change(board: Board, agent: Agent, label: string, patch: Patch, back: Patch) {
+  return board.act(label, async () => {
+    await rpc('agents.update', { agent_id: agent.agent_id, ...patch });
+    return { label, run: () => rpc('agents.update', { agent_id: agent.agent_id, ...back }) };
+  });
+}
+
+const delegatesTo = (from: Agent, to: Agent) => from.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === to.name.toLowerCase());
 
 export function AgentInspector({ board, agent, onClose }: { board: Board; agent: Agent; onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>('settings');
+  const t = useT();
+  const [tab, setTab] = useState<Tab>('overview');
+  const model = modelName(agent.llm_config);
+  const toggle = () => {
+    if (!agent.is_active && !model) {
+      board.toast(t('Choose a model before turning this agent on.'), true);
+      return;
+    }
+    const on = !agent.is_active;
+    change(board, agent, t(on ? '{name} is on' : '{name} is off', { name: agent.name }), { is_active: on }, { is_active: !on });
+  };
   return (
-    <aside className="inspector" aria-label={`${agent.name} details`}>
+    <aside className="inspector" aria-label={agent.name}>
       <header className="in-head">
-        <span className={`an-avatar${agent.is_system ? ' sys' : ''}`}>{agent.name.slice(0, 1).toUpperCase()}</span>
+        <span className={`an-avatar big${agent.is_system ? ' sys' : ''}`} aria-hidden>
+          {agent.name.slice(0, 1).toUpperCase()}
+        </span>
         <div className="in-title">
           <b>{agent.name}</b>
-          <small>
-            {agent.is_system ? 'System agent' : 'Agent'} · policy generation {agent.generation}
-            {agent.is_active ? '' : ' · inactive'}
-          </small>
+          <small>{agent.is_system ? t('System agent') : !model ? t('Needs a model') : !agent.is_active ? t('Turned off: it takes no work.') : `${t('Ready')} · ${model}`}</small>
         </div>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close details">
+        {!agent.is_system && (
+          <button type="button" role="switch" aria-checked={agent.is_active} className={`switch${agent.is_active ? ' on' : ''}`} onClick={toggle} title={t(agent.is_active ? 'Turn off' : 'Turn on')}>
+            <span />
+            <em>{t(agent.is_active ? 'On' : 'Off')}</em>
+          </button>
+        )}
+        <button type="button" className="icon-btn" onClick={onClose} aria-label={t('Close details')}>
           ×
         </button>
       </header>
       <div className="tabs" role="tablist">
-        {TABS.map(([k, l]) => (
+        {(['overview', 'chat', 'activity'] as Tab[]).map((k) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
-            {l}
+            {t(k === 'overview' ? 'Overview' : k === 'chat' ? 'Chat' : 'Activity')}
           </button>
         ))}
       </div>
       <div className="in-body">
-        {tab === 'settings' && <Settings board={board} agent={agent} key={agent.agent_id + agent.generation + agent.updated_at} />}
+        {tab === 'overview' && (agent.is_system ? <SystemOverview board={board} agent={agent} /> : <Overview board={board} agent={agent} key={agent.agent_id + agent.updated_at} />)}
         {tab === 'chat' &&
           (agent.is_active ? (
-            <Chat agentId={agent.agent_id} agentName={agent.name} note={`Goes to ${agent.name} directly, the same conversation as the dashboard's Chat page.`} />
+            <Chat agentId={agent.agent_id} agentName={agent.name} note={t('Goes straight to {name}: the same conversation as the dashboard’s Chat page.', { name: agent.name })} />
           ) : (
-            <p className="muted">Activate this agent (Settings) to talk to it.</p>
+            <p className="muted">{t('Turn this agent on to talk to it.')}</p>
           ))}
-        {tab === 'skills' && <Skills board={board} agent={agent} />}
-        {tab === 'history' && <History board={board} agent={agent} />}
+        {tab === 'activity' && <Activity board={board} agent={agent} />}
       </div>
     </aside>
   );
 }
 
-function Hierarchy({ board, agent }: { board: Board; agent: Agent }) {
-  const gid = groupOf(board.state, agent.agent_id);
-  const group = board.state.groups.find((g) => g.group_id === gid);
-  const delegatesTo = agent.permissions.filter((p) => p.type === 'agent').map((p) => p.ref);
-  const delegatedBy = board.agents.filter((a) => a.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === agent.name.toLowerCase()));
-  const chain: string[] = [];
-  for (let up = board.agents.find((a) => a.agent_id === agent.parent_agent_id); up && !chain.includes(up.name); up = board.agents.find((a) => a.agent_id === up!.parent_agent_id))
-    chain.push(up.name);
-  return (
-    <section>
-      <h4>Hierarchy</h4>
-      <dl className="kv">
-        {agent.is_system && (
-          <>
-            <dt>Inherits from</dt>
-            <dd>{chain.length ? chain.join(' ← ') : 'Nothing (top of the chain)'}</dd>
-          </>
-        )}
-        {!agent.is_system && (
-          <>
-            <dt>Group</dt>
-            <dd>
-              {group ? (
-                <button type="button" className="link" onClick={() => board.select(groupNodeId(group.group_id))}>
-                  {group.name}
-                </button>
-              ) : (
-                'None'
-              )}
-            </dd>
-          </>
-        )}
-        <dt>Can delegate to</dt>
-        <dd>{delegatesTo.length ? delegatesTo.join(', ') : 'Nobody'}</dd>
-        <dt>Gets work from</dt>
-        <dd>{delegatedBy.length ? delegatedBy.map((c) => c.name).join(', ') : 'Nobody'}</dd>
-      </dl>
-    </section>
-  );
-}
-
-type Form = {
-  system_prompt: string;
-  provider: string;
-  model: string;
-  temperature: string;
-  max_steps: string;
-  max_retries: string;
-  max_concurrent_tasks: string;
-  max_turn_seconds: string;
-  max_delegation_depth: string;
-  max_session_tasks: string;
-  is_active: boolean;
-  allow_task_model: boolean;
-};
-
-const formOf = (a: Agent): Form => ({
-  system_prompt: a.system_prompt || '',
-  provider: a.llm_config?.provider || '',
-  model: a.llm_config?.model || '',
-  temperature: a.llm_config?.temperature === undefined ? '' : String(a.llm_config.temperature),
-  max_steps: String(a.max_steps),
-  max_retries: String(a.max_retries),
-  max_concurrent_tasks: String(a.max_concurrent_tasks),
-  max_turn_seconds: a.max_turn_seconds === null ? '' : String(a.max_turn_seconds),
-  max_delegation_depth: String(a.max_delegation_depth),
-  max_session_tasks: String(a.max_session_tasks),
-  is_active: a.is_active,
-  allow_task_model: a.allow_task_model,
-});
-
-// agents.update body for a form, the same keys the Agents page sends.
-function updateBody(agentId: string, f: Form) {
-  const llm: Record<string, unknown> = { provider: f.provider, model: f.model.trim() };
-  if (f.temperature.trim() !== '') llm.temperature = Number(f.temperature);
-  return {
-    agent_id: agentId,
-    system_prompt: f.system_prompt,
-    llm_config: llm,
-    max_steps: Number(f.max_steps),
-    max_retries: Number(f.max_retries),
-    max_concurrent_tasks: Number(f.max_concurrent_tasks),
-    max_turn_seconds: f.max_turn_seconds.trim() === '' ? null : Number(f.max_turn_seconds),
-    max_delegation_depth: Number(f.max_delegation_depth),
-    max_session_tasks: Number(f.max_session_tasks),
-    is_active: f.is_active,
-  };
-}
-
-const LIMITS: [keyof Form, string, string][] = [
-  ['max_steps', 'Max steps', 'Steps per task'],
-  ['max_retries', 'Max retries', ''],
-  ['max_concurrent_tasks', 'Concurrent tasks', ''],
-  ['max_turn_seconds', 'Turn seconds', 'Blank = no cap'],
-  ['max_delegation_depth', 'Delegation depth', ''],
-  ['max_session_tasks', 'Tasks per session', ''],
-];
-
-function Settings({ board, agent }: { board: Board; agent: Agent }) {
-  const before = useMemo(() => formOf(agent), [agent]);
-  const [f, setF] = useState<Form>(before);
-  const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
-  const dirty = JSON.stringify(f) !== JSON.stringify(before);
-  const providers = board.providers.map((p) => p.name);
-  if (before.provider && !providers.includes(before.provider)) providers.unshift(before.provider);
-  const models = board.providers.find((p) => p.name === f.provider)?.available_models || [];
-
-  if (agent.is_system) {
-    return (
-      <>
-        <Hierarchy board={board} agent={agent} />
-        <section>
-          <h4>Model</h4>
-          <p>{modelLabel(agent.llm_config) || <span className="muted">No model</span>}</p>
-        </section>
-        <section>
-          <h4>Autonomy</h4>
-          <select
-            aria-label="Autonomy"
-            value={agent.autonomy_level}
-            onChange={(e) => {
-              const prev = agent.autonomy_level;
-              const next = e.target.value;
-              board.act(`Autonomy set to ${next.replace('_', ' ')}`, async () => {
-                await rpc('agents.set_autonomy', { agent_id: agent.agent_id, autonomy_level: next });
-                return { label: 'autonomy change', run: () => rpc('agents.set_autonomy', { agent_id: agent.agent_id, autonomy_level: prev }) };
-              });
-            }}
-          >
-            <option value="admin_approval">Admin approval</option>
-            <option value="self_approve">Self approve</option>
-            <option value="auto">Auto</option>
-          </select>
-          <p className="muted small">System agents' identity, prompt, and grants are changed only from SQL; autonomy is the one dial here.</p>
-        </section>
-        {agent.system_prompt && (
-          <section>
-            <h4>System prompt</h4>
-            <pre className="prompt">{agent.system_prompt}</pre>
-          </section>
-        )}
-      </>
-    );
-  }
-
-  const save = async () => {
-    if (f.is_active && (!f.provider || !f.model.trim())) {
-      board.toast('Choose a provider and model before activating, or leave the agent inactive.', true);
-      return;
-    }
-    const prev = before;
-    await board.act(`Saved ${agent.name}`, async () => {
-      await rpc('agents.update', updateBody(agent.agent_id, f));
-      if (f.allow_task_model !== prev.allow_task_model)
-        await rpc('agents.set_task_model', { agent_id: agent.agent_id, allowed: f.allow_task_model });
-      return {
-        label: `settings of ${agent.name}`,
-        run: async () => {
-          await rpc('agents.update', updateBody(agent.agent_id, prev));
-          if (f.allow_task_model !== prev.allow_task_model)
-            await rpc('agents.set_task_model', { agent_id: agent.agent_id, allowed: prev.allow_task_model });
-        },
-      };
-    });
-  };
-
+function Overview({ board, agent }: { board: Board; agent: Agent }) {
+  const t = useT();
+  const model = modelName(agent.llm_config);
   return (
     <>
-      <Hierarchy board={board} agent={agent} />
-      <section>
-        <h4>Model</h4>
-        <div className="grid2">
-          <div className="field">
-            <label htmlFor="fProvider">Provider</label>
-            <select id="fProvider" value={f.provider} onChange={(e) => set('provider', e.target.value)}>
-              <option value="">None</option>
-              {providers.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="fModel">Model</label>
-            <input id="fModel" value={f.model} list="fModelList" onChange={(e) => set('model', e.target.value)} autoComplete="off" />
-            <datalist id="fModelList">
-              {models.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </div>
+      {!model && (
+        <div className="callout warn">
+          <b>{t('This agent cannot work yet.')}</b> {t('Choose a model below and turn it on.')}
         </div>
-        <div className="field">
-          <label htmlFor="fTemp">Temperature</label>
-          <input id="fTemp" inputMode="decimal" value={f.temperature} placeholder="Provider default" onChange={(e) => set('temperature', e.target.value)} />
-        </div>
-        <label className="check">
-          <input id="fPerTask" type="checkbox" checked={f.allow_task_model} onChange={(e) => set('allow_task_model', e.target.checked)} />
-          <span>
-            Allow a model per task
-            <small className="muted"> A task started from History may name its own model; that one task then runs on it instead of this default.</small>
-          </span>
-        </label>
-        {!board.providers.length && <p className="muted small">No chat provider is enabled yet. Add one in Settings on the dashboard.</p>}
-      </section>
-      <section>
-        <h4>System prompt</h4>
-        <textarea aria-label="System prompt" className="prompt-edit" rows={6} value={f.system_prompt} onChange={(e) => set('system_prompt', e.target.value)} />
-      </section>
-      <section>
-        <h4>Limits</h4>
-        <div className="grid2">
-          {LIMITS.map(([k, l, hint]) => (
-            <div className="field" key={k}>
-              <label htmlFor={`f-${k}`}>{l}</label>
-              <input
-                id={`f-${k}`}
-                inputMode="numeric"
-                value={f[k] as string}
-                placeholder={hint}
-                onChange={(e) => set(k, e.target.value as never)}
-              />
-            </div>
-          ))}
-        </div>
-      </section>
-      <section>
-        <label className="check">
-          <input id="fActive" type="checkbox" checked={f.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-          <span>
-            Active
-            <small className="muted"> Inactive agents take no tasks and are hidden unless Inactive is checked.</small>
-          </span>
-        </label>
-      </section>
-      <div className="sticky-actions">
-        <button type="button" className="btn" disabled={!dirty} onClick={() => setF(before)}>
-          Reset
-        </button>
-        <button type="button" className="btn primary" disabled={!dirty} onClick={save} id="saveAgent">
-          Save
-        </button>
-      </div>
+      )}
+      <Instructions board={board} agent={agent} />
+      <ModelPicker board={board} agent={agent} />
+      <TeamSection board={board} agent={agent} />
+      <Abilities board={board} agent={agent} />
+      <AdvancedSection board={board} agent={agent} />
     </>
   );
 }
 
-function Skills({ board, agent }: { board: Board; agent: Agent }) {
-  const [type, setType] = useState<(typeof GRANTABLE)[number]>('function');
-  const [ref, setRef] = useState('');
-  const choices = type === 'view' ? board.options.views : type === 'function' ? board.options.functions : type === 'procedure' ? board.options.procedures : [];
-  const grouped = ORDER.map((t) => [t, agent.permissions.filter((p) => p.type === t)] as const).filter(([, l]) => l.length);
-  const inherited = inheritedSkills(agent, board.agents);
-  const locked = agent.is_system;
-
-  const revoke = (p: Permission) => {
-    if (p.type === 'agent') {
-      const to = agentByName(board.agents, p.ref);
-      return board.act(`${agent.name} no longer delegates to ${p.ref}`, async () => {
-        if (to) await rpc('canvas.delegation.remove', { from_agent_id: agent.agent_id, to_agent_id: to.agent_id });
-        else await rpc('permissions.revoke', { agent_id: agent.agent_id, type: 'agent', ref: p.ref });
-        return { label: 'delegation removal', run: () => rpc('permissions.grant', { agent_id: agent.agent_id, type: 'agent', ref: p.ref }) };
-      });
-    }
-    const holders = board.agents.filter(
-      (a) => a.agent_id !== agent.agent_id && a.permissions.some((x) => x.type === p.type && x.ref.toLowerCase() === p.ref.toLowerCase()),
-    );
-    return board.act(`Removed ${p.ref} from ${agent.name}`, async () => {
-      await rpc('permissions.revoke', { agent_id: agent.agent_id, type: p.type, ref: p.ref });
-      if (holders.length) board.toast(`Removed. ${holders.map((h) => h.name).join(', ')} still hold ${p.ref}.`);
-      return { label: `removal of ${p.ref}`, run: () => rpc('permissions.grant', { agent_id: agent.agent_id, type: p.type, ref: p.ref }) };
-    });
-  };
-
+function Instructions({ board, agent }: { board: Board; agent: Agent }) {
+  const t = useT();
+  const before = agent.system_prompt || '';
+  const [text, setText] = useState(before);
+  const dirty = text !== before && text.trim() !== '';
   return (
-    <>
-      <section>
-        <h4>Skills</h4>
-        {grouped.length || inherited.length ? (
-          grouped.map(([t, list]) => (
-            <div className="grant-group" key={t}>
-              <div className="muted small">{SKILL_LABEL[t]}</div>
-              {list.map((p) => (
-                <div className="skill-row" key={p.ref}>
-                  <span className="mono">{p.ref}</span>
-                  {!locked && (
-                    <button type="button" className="icon-btn" aria-label={`Remove ${p.ref}`} title="Remove" onClick={() => revoke(p)}>
-                      ×
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))
-        ) : (
-          <p className="muted">No skills. This agent can only answer from its prompt and memory.</p>
-        )}
-        {inherited.length > 0 && (
-          <div className="grant-group">
-            <div className="muted small">Inherited (from the agents it inherits from; change them there, in SQL)</div>
-            {inherited.map((p) => (
-              <div className="skill-row inherited" key={`${p.type}:${p.ref}`}>
-                <span className="mono">{p.ref}</span>
-                <small className="muted">
-                  {SKILL_LABEL[p.type as Permission['type']]} · from {p.from}
-                </small>
-              </div>
-            ))}
-          </div>
-        )}
-        {agent.execution_rules.length > 0 && <p className="muted small">{agent.execution_rules.length} execution rules apply.</p>}
-      </section>
-      {!locked && (
-        <section>
-          <h4>Add a skill</h4>
-          <form
-            className="add-skill"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (ref.trim() && (await board.grant(agent, type, ref.trim()))) setRef('');
+    <section>
+      <h4>{t('What it does')}</h4>
+      <textarea
+        aria-label={t('What it does')}
+        className="prompt-edit"
+        rows={5}
+        value={text}
+        placeholder={t('Describe its job in plain words, the way you would brief a colleague.')}
+        onChange={(e) => setText(e.target.value)}
+      />
+      {dirty && (
+        <div className="row-end">
+          <button type="button" className="btn ghost" onClick={() => setText(before)}>
+            {t('Reset')}
+          </button>
+          <button type="button" className="btn primary" onClick={() => change(board, agent, t('Saved {name}', { name: agent.name }), { system_prompt: text }, { system_prompt: before })}>
+            {t('Save')}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ModelPicker({ board, agent }: { board: Board; agent: Agent }) {
+  const t = useT();
+  const cur = { provider: agent.llm_config?.provider || '', model: agent.llm_config?.model || '' };
+  const choices = board.providers.flatMap((p) => (p.available_models || []).map((m) => ({ provider: p.name, model: m })));
+  const curKey = cur.model ? `${cur.provider}::${cur.model}` : '';
+  const known = choices.some((c) => `${c.provider}::${c.model}` === curKey);
+  const [other, setOther] = useState(!!cur.model && !known);
+  const [prov, setProv] = useState(cur.provider || board.providers[0]?.name || '');
+  const [name, setName] = useState(known ? '' : cur.model);
+  const set = (provider: string, model: string) =>
+    change(board, agent, model ? t('Model set to {model}', { model }) : t('No model'), { llm_config: { provider, model } }, { llm_config: cur });
+  return (
+    <section>
+      <h4>{t('Model')}</h4>
+      {board.providers.length === 0 ? (
+        <p className="muted small">{t('No AI provider is set up yet. Add one under Settings on the dashboard.')}</p>
+      ) : (
+        <>
+          <select
+            aria-label={t('Model')}
+            value={other ? '__other' : curKey}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '__other') return setOther(true);
+              setOther(false);
+              if (!v) return set('', '');
+              const [p, m] = v.split('::');
+              set(p, m);
             }}
           >
-            <select aria-label="Skill type" value={type} onChange={(e) => (setType(e.target.value as typeof type), setRef(''))}>
-              {GRANTABLE.map((t) => (
-                <option key={t} value={t}>
-                  {SKILL_LABEL[t]}
-                </option>
-              ))}
-            </select>
-            {type === 'http_host' ? (
-              <input aria-label="Host name" value={ref} placeholder="api.example.com" onChange={(e) => setRef(e.target.value)} />
-            ) : (
-              <select aria-label="Skill" value={ref} onChange={(e) => setRef(e.target.value)}>
-                <option value="">Choose…</option>
-                {choices.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+            <option value="">{t('No model')}</option>
+            {board.providers.map((p) => (
+              <optgroup key={p.name} label={p.name}>
+                {(p.available_models || []).map((m) => (
+                  <option key={m} value={`${p.name}::${m}`}>
+                    {m}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+            {!known && cur.model && <option value={curKey}>{cur.model}</option>}
+            <option value="__other">{t('Other model…')}</option>
+          </select>
+          {other && (
+            <div className="inline gap">
+              <select aria-label="Provider" value={prov} onChange={(e) => setProv(e.target.value)}>
+                {board.providers.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.name}
                   </option>
                 ))}
               </select>
-            )}
-            <button type="submit" className="btn" disabled={!ref.trim()}>
-              Add
+              <input aria-label={t('Model name')} placeholder={t('Model name')} value={name} onChange={(e) => setName(e.target.value)} />
+              <button type="button" className="btn primary" disabled={!name.trim() || !prov} onClick={() => set(prov, name.trim())}>
+                {t('Save')}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function AgentChips({ list, onRemove, t }: { list: Agent[]; onRemove: (a: Agent) => void; t: T }) {
+  if (!list.length) return <p className="muted small">{t('Nobody yet')}</p>;
+  return (
+    <div className="chips">
+      {list.map((a) => (
+        <span className="chip agent-chip" key={a.agent_id}>
+          {a.name}
+          <button type="button" aria-label={t('Remove {name}', { name: a.name })} onClick={() => onRemove(a)}>
+            ×
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AgentAdder({ options, label, onAdd }: { options: Agent[]; label: string; onAdd: (a: Agent) => void }) {
+  if (!options.length) return null;
+  return (
+    <select
+      className="adder"
+      aria-label={label}
+      value=""
+      onChange={(e) => {
+        const a = options.find((x) => x.agent_id === e.target.value);
+        if (a) onAdd(a);
+      }}
+    >
+      <option value="">＋ {label}</option>
+      {options.map((a) => (
+        <option key={a.agent_id} value={a.agent_id}>
+          {a.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function TeamSection({ board, agent }: { board: Board; agent: Agent }) {
+  const t = useT();
+  const others = board.agents.filter((a) => a.agent_id !== agent.agent_id && !a.is_system);
+  const from = board.agents.filter((a) => delegatesTo(a, agent));
+  const to = board.agents.filter((a) => delegatesTo(agent, a));
+  const gid = groupOf(board.state, agent.agent_id);
+  const link = (a: Agent, b: Agent) =>
+    board.act(t('{from} can now hand work to {to}', { from: a.name, to: b.name }), async () => {
+      await rpc('canvas.delegation.add', { from_agent_id: a.agent_id, to_agent_id: b.agent_id });
+      return { label: t('{from} can now hand work to {to}', { from: a.name, to: b.name }), run: () => rpc('canvas.delegation.remove', { from_agent_id: a.agent_id, to_agent_id: b.agent_id }) };
+    });
+  const unlink = (a: Agent, b: Agent) =>
+    board.act(t('{from} no longer hands work to {to}', { from: a.name, to: b.name }), async () => {
+      await rpc('canvas.delegation.remove', { from_agent_id: a.agent_id, to_agent_id: b.agent_id });
+      return { label: t('{from} no longer hands work to {to}', { from: a.name, to: b.name }), run: () => rpc('canvas.delegation.add', { from_agent_id: a.agent_id, to_agent_id: b.agent_id }) };
+    });
+  return (
+    <section>
+      <h4>{t('Team')}</h4>
+      <div className="field">
+        <label htmlFor="inTeam">{t('In team')}</label>
+        <select
+          id="inTeam"
+          value={gid || ''}
+          onChange={(e) => {
+            const next = e.target.value || null;
+            const team = board.state.groups.find((g) => g.group_id === next)?.name;
+            board.act(next ? t('Moved to {team}', { team: team || '' }) : t('Left the team'), async () => {
+              await rpc('canvas.groups.set_member', { agent_id: agent.agent_id, group_id: next });
+              return { label: t('In team'), run: () => rpc('canvas.groups.set_member', { agent_id: agent.agent_id, group_id: gid }) };
+            });
+          }}
+        >
+          <option value="">{t('No team')}</option>
+          {board.state.groups.map((g) => (
+            <option key={g.group_id} value={g.group_id}>
+              {g.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="field">
+        <label>{t('Takes work from')}</label>
+        <AgentChips list={from} t={t} onRemove={(a) => (a.is_system ? board.toast(t('System agents are changed only from SQL.'), true) : unlink(a, agent))} />
+        <AgentAdder options={others.filter((a) => !delegatesTo(a, agent))} label={t('Add who hands it work')} onAdd={(a) => link(a, agent)} />
+      </div>
+      <div className="field">
+        <label>{t('Hands work to')}</label>
+        <AgentChips list={to} t={t} onRemove={(a) => unlink(agent, a)} />
+        <AgentAdder options={others.filter((a) => !delegatesTo(agent, a))} label={t('Add who it hands work to')} onAdd={(a) => link(agent, a)} />
+      </div>
+    </section>
+  );
+}
+
+function Abilities({ board, agent }: { board: Board; agent: Agent }) {
+  const t = useT();
+  const own = agent.permissions.filter((p) => p.type !== 'agent');
+  const inherited = inheritedSkills(agent, board.agents);
+  const have = new Set(own.map((p) => `${p.type}:${p.ref.toLowerCase()}`));
+  const catalog: { type: 'view' | 'function' | 'procedure'; ref: string }[] = [
+    ...board.options.functions.map((ref) => ({ type: 'function' as const, ref })),
+    ...board.options.procedures.map((ref) => ({ type: 'procedure' as const, ref })),
+    ...board.options.views.map((ref) => ({ type: 'view' as const, ref })),
+  ].filter((c) => !have.has(`${c.type}:${c.ref.toLowerCase()}`));
+  const groups = [...new Set(catalog.map((c) => abilityGroup(t, c.type)))];
+  const remove = (p: Permission) => {
+    const what = abilityLabel(t, p.type, p.ref);
+    board.act(t('Removed {what}', { what }), async () => {
+      await rpc('permissions.revoke', { agent_id: agent.agent_id, type: p.type, ref: p.ref });
+      return { label: t('Removed {what}', { what }), run: () => rpc('permissions.grant', { agent_id: agent.agent_id, type: p.type, ref: p.ref }) };
+    });
+  };
+  const add = async (v: string) => {
+    if (v === '__host') {
+      const r = await board.ask({
+        title: t('Let {name} reach a website', { name: agent.name }),
+        fields: [{ name: 'host', label: t('Website address'), type: 'text', required: true, placeholder: 'api.example.com' }],
+        submit: t('Allow'),
+      });
+      if (r) board.grant(agent, 'http_host', r.host.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, ''));
+      return;
+    }
+    const [type, ...rest] = v.split(':');
+    board.grant(agent, type as 'view' | 'function' | 'procedure', rest.join(':'));
+  };
+  return (
+    <section>
+      <h4>{t('Abilities')}</h4>
+      {own.length === 0 && inherited.length === 0 && <p className="muted small">{t('It answers only from its instructions and memory.')}</p>}
+      <ul className="abilities">
+        {own.map((p) => (
+          <li key={`${p.type}:${p.ref}`} title={p.ref}>
+            <span>{abilityLabel(t, p.type, p.ref)}</span>
+            <button type="button" className="icon-btn" aria-label={t('Remove {name}', { name: abilityLabel(t, p.type, p.ref) })} onClick={() => remove(p)}>
+              ×
             </button>
-          </form>
-          <p className="muted small">
-            You can also drag a skill from the palette onto the agent. An agent may hold a skill only if every agent that can delegate to it holds it
-            too; Canvas offers to grant those as well.
-          </p>
+          </li>
+        ))}
+        {inherited.map((p) => (
+          <li key={`i:${p.type}:${p.ref}`} className="inherited" title={p.ref}>
+            <span>{abilityLabel(t, p.type, p.ref)}</span>
+            <small>{t('Inherited from {from}', { from: p.from })}</small>
+          </li>
+        ))}
+      </ul>
+      <select className="adder" aria-label={t('Add an ability')} value="" onChange={(e) => e.target.value && add(e.target.value)}>
+        <option value="">＋ {t('Add an ability')}</option>
+        {groups.map((g) => (
+          <optgroup key={g} label={g}>
+            {catalog
+              .filter((c) => abilityGroup(t, c.type) === g)
+              .map((c) => (
+                <option key={`${c.type}:${c.ref}`} value={`${c.type}:${c.ref}`}>
+                  {abilityLabel(t, c.type, c.ref)}
+                </option>
+              ))}
+            {g === t('Web') && <option value="__host">{t('Website…')}</option>}
+          </optgroup>
+        ))}
+        {!groups.includes(t('Web')) && <option value="__host">{t('Website…')}</option>}
+      </select>
+    </section>
+  );
+}
+
+const LIMITS: [string, string, string?][] = [
+  ['max_steps', 'Max steps per task'],
+  ['max_retries', 'Retries'],
+  ['max_concurrent_tasks', 'Tasks at once'],
+  ['max_turn_seconds', 'Time limit per turn (seconds)', 'No limit'],
+  ['max_delegation_depth', 'How deep it may delegate'],
+  ['max_session_tasks', 'Tasks per session'],
+];
+
+function AdvancedSection({ board, agent }: { board: Board; agent: Agent }) {
+  const t = useT();
+  const before = useMemo(
+    () => ({
+      temperature: agent.llm_config?.temperature === undefined ? '' : String(agent.llm_config.temperature),
+      max_steps: String(agent.max_steps),
+      max_retries: String(agent.max_retries),
+      max_concurrent_tasks: String(agent.max_concurrent_tasks),
+      max_turn_seconds: agent.max_turn_seconds === null ? '' : String(agent.max_turn_seconds),
+      max_delegation_depth: String(agent.max_delegation_depth),
+      max_session_tasks: String(agent.max_session_tasks),
+      allow_task_model: agent.allow_task_model,
+    }),
+    [agent],
+  );
+  const [f, setF] = useState(before);
+  const dirty = JSON.stringify(f) !== JSON.stringify(before);
+  const body = (v: typeof before): Patch => ({
+    llm_config: v.temperature.trim() === '' ? {} : { temperature: Number(v.temperature) },
+    max_steps: Number(v.max_steps),
+    max_retries: Number(v.max_retries),
+    max_concurrent_tasks: Number(v.max_concurrent_tasks),
+    max_turn_seconds: v.max_turn_seconds.trim() === '' ? null : Number(v.max_turn_seconds),
+    max_delegation_depth: Number(v.max_delegation_depth),
+    max_session_tasks: Number(v.max_session_tasks),
+  });
+  const save = () =>
+    board.act(t('Saved {name}', { name: agent.name }), async () => {
+      await rpc('agents.update', { agent_id: agent.agent_id, ...body(f) });
+      if (f.allow_task_model !== before.allow_task_model) await rpc('agents.set_task_model', { agent_id: agent.agent_id, allowed: f.allow_task_model });
+      return {
+        label: t('Advanced'),
+        run: async () => {
+          await rpc('agents.update', { agent_id: agent.agent_id, ...body(before) });
+          if (f.allow_task_model !== before.allow_task_model) await rpc('agents.set_task_model', { agent_id: agent.agent_id, allowed: before.allow_task_model });
+        },
+      };
+    });
+  return (
+    <details className="advanced">
+      <summary>{t('Advanced')}</summary>
+      <div className="grid2">
+        <div className="field">
+          <label htmlFor="fTemp">{t('Creativity')}</label>
+          <input id="fTemp" inputMode="decimal" value={f.temperature} placeholder={t('Model default')} onChange={(e) => setF({ ...f, temperature: e.target.value })} />
+        </div>
+        {LIMITS.map(([k, l, ph]) => (
+          <div className="field" key={k}>
+            <label htmlFor={`f-${k}`}>{t(l)}</label>
+            <input id={`f-${k}`} inputMode="numeric" value={f[k as keyof typeof f] as string} placeholder={ph ? t(ph) : undefined} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+          </div>
+        ))}
+      </div>
+      <label className="check">
+        <input id="fPerTask" type="checkbox" checked={f.allow_task_model} onChange={(e) => setF({ ...f, allow_task_model: e.target.checked })} />
+        <span>
+          {t('Let a task choose its own model')}
+          <small className="muted"> {t('When you give it a task under Activity, you may pick a different model for that one task.')}</small>
+        </span>
+      </label>
+      {dirty && (
+        <div className="row-end">
+          <button type="button" className="btn ghost" onClick={() => setF(before)}>
+            {t('Reset')}
+          </button>
+          <button type="button" className="btn primary" id="saveAgent" onClick={save}>
+            {t('Save')}
+          </button>
+        </div>
+      )}
+    </details>
+  );
+}
+
+function SystemOverview({ board, agent }: { board: Board; agent: Agent }) {
+  const t = useT();
+  const chain: string[] = [];
+  for (let up = board.agents.find((a) => a.agent_id === agent.parent_agent_id); up && !chain.includes(up.name); up = board.agents.find((a) => a.agent_id === up!.parent_agent_id))
+    chain.push(up.name);
+  const own = agent.permissions.filter((p) => p.type !== 'agent');
+  const inherited = inheritedSkills(agent, board.agents);
+  return (
+    <>
+      <p className="muted small">{t("System agents' instructions and abilities are changed only from SQL; autonomy is the one setting here.")}</p>
+      <section>
+        <h4>{t('Autonomy')}</h4>
+        <select
+          aria-label={t('Autonomy')}
+          value={agent.autonomy_level}
+          onChange={(e) => {
+            const prev = agent.autonomy_level;
+            const next = e.target.value;
+            board.act(t('Autonomy'), async () => {
+              await rpc('agents.set_autonomy', { agent_id: agent.agent_id, autonomy_level: next });
+              return { label: t('Autonomy'), run: () => rpc('agents.set_autonomy', { agent_id: agent.agent_id, autonomy_level: prev }) };
+            });
+          }}
+        >
+          <option value="admin_approval">{t('Ask an admin first')}</option>
+          <option value="self_approve">{t('Decide, escalate when unsure')}</option>
+          <option value="auto">{t('Act on its own')}</option>
+        </select>
+      </section>
+      <section>
+        <h4>{t('Team')}</h4>
+        <dl className="kv">
+          <dt>{t('Inherits from')}</dt>
+          <dd>{chain.length ? chain.join(' ← ') : '—'}</dd>
+          <dt>{t('Model')}</dt>
+          <dd>{modelName(agent.llm_config) || t('No model')}</dd>
+        </dl>
+      </section>
+      <section>
+        <h4>{t('Abilities')}</h4>
+        <ul className="abilities">
+          {own.map((p) => (
+            <li key={`${p.type}:${p.ref}`} title={p.ref}>
+              <span>{abilityLabel(t, p.type, p.ref)}</span>
+            </li>
+          ))}
+          {inherited.map((p) => (
+            <li key={`i:${p.type}:${p.ref}`} className="inherited" title={p.ref}>
+              <span>{abilityLabel(t, p.type, p.ref)}</span>
+              <small>{t('Inherited from {from}', { from: p.from })}</small>
+            </li>
+          ))}
+        </ul>
+      </section>
+      {agent.system_prompt && (
+        <section>
+          <h4>{t('Instructions')}</h4>
+          <pre className="prompt">{agent.system_prompt}</pre>
         </section>
       )}
     </>
   );
 }
 
-function History({ board, agent }: { board: Board; agent: Agent }) {
+function Activity({ board, agent }: { board: Board; agent: Agent }) {
+  const t = useT();
   const [tasks, setTasks] = useState<TaskRow[] | null>(null);
   const [goal, setGoal] = useState('');
-  const [provider, setProvider] = useState('');
-  const [model, setModel] = useState('');
+  const [pick, setPick] = useState('');
   useEffect(() => {
     let live = true;
     const load = () =>
       rpc<{ tasks: TaskRow[] }>('tasks.list', { limit: 500 })
-        .then((r) => live && setTasks(r.tasks.filter((t) => t.agent_id === agent.agent_id)))
+        .then((r) => live && setTasks(r.tasks.filter((x) => x.agent_id === agent.agent_id)))
         .catch(() => live && setTasks([]));
     load();
-    const t = setInterval(() => document.visibilityState === 'visible' && load(), 20000);
+    const timer = setInterval(() => document.visibilityState === 'visible' && load(), 20000);
     return () => {
       live = false;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, [agent.agent_id]);
-  const models = board.providers.find((p) => p.name === provider)?.available_models || [];
-
   const run = async () => {
     let started: string | null = null;
-    const ok = await board.act(`Task started on ${agent.name}`, async () => {
-      const r = await rpc<{ session_id: string }>('canvas.run', {
-        agent_id: agent.agent_id,
-        goal: goal.trim(),
-        ...(agent.allow_task_model && model.trim() ? { provider, model: model.trim() } : {}),
-      });
+    const [provider, model] = pick ? pick.split('::') : ['', ''];
+    const ok = await board.act(t('Task started on {name}', { name: agent.name }), async () => {
+      const r = await rpc<{ session_id: string }>('canvas.run', { agent_id: agent.agent_id, goal: goal.trim(), ...(model ? { provider, model } : {}) });
       started = r.session_id;
     });
     if (ok) {
@@ -446,49 +530,47 @@ function History({ board, agent }: { board: Board; agent: Agent }) {
       if (started) board.openSession(started);
     }
   };
-
   return (
     <>
       {agent.is_active && (
         <section>
-          <h4>Give a task</h4>
-          <textarea aria-label="Task" rows={3} value={goal} placeholder={`What should ${agent.name} do?`} onChange={(e) => setGoal(e.target.value)} />
+          <h4>{t('Give it a task')}</h4>
+          <textarea aria-label={t('Give it a task')} rows={3} value={goal} placeholder={t('What should {name} do?', { name: agent.name })} onChange={(e) => setGoal(e.target.value)} />
           {agent.allow_task_model && (
-            <div className="grid2">
-              <select aria-label="Provider for this task" value={provider} onChange={(e) => setProvider(e.target.value)}>
-                <option value="">Provider (agent default)</option>
-                {board.providers.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <input aria-label="Model for this task" list="taskModelList" value={model} placeholder="Model (agent default)" onChange={(e) => setModel(e.target.value)} />
-              <datalist id="taskModelList">
-                {models.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-            </div>
+            <select aria-label={t('Model for this task (optional)')} value={pick} onChange={(e) => setPick(e.target.value)}>
+              <option value="">{t("Agent's model")}</option>
+              {board.providers.map((p) => (
+                <optgroup key={p.name} label={p.name}>
+                  {(p.available_models || []).map((m) => (
+                    <option key={m} value={`${p.name}::${m}`}>
+                      {m}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
           )}
           <div className="row-end">
             <button type="button" className="btn primary" disabled={!goal.trim()} onClick={run}>
-              Start task
+              {t('Start')}
             </button>
           </div>
         </section>
       )}
       <section>
-        <h4>Recent tasks</h4>
-        {tasks === null && <p className="muted">Loading…</p>}
-        {tasks?.length === 0 && <p className="muted">No tasks yet.</p>}
+        <h4>{t('Recent work')}</h4>
+        {tasks === null && <p className="muted">{t('Loading…')}</p>}
+        {tasks?.length === 0 && <p className="muted">{t('Nothing yet.')}</p>}
         <ul className="task-list">
-          {tasks?.slice(0, 40).map((t) => (
-            <li key={t.task_id}>
-              <button type="button" onClick={() => board.openSession(t.session_id)}>
-                <span className={`status s-${t.status}`}>{t.status.replace('_', ' ')}</span>
-                <span className="goal">{t.parent_task_id ? '↳ ' : ''}{t.goal}</span>
-                <small className="muted">{timeAgo(t.updated_at)}</small>
+          {tasks?.slice(0, 40).map((x) => (
+            <li key={x.task_id}>
+              <button type="button" onClick={() => board.openSession(x.session_id)}>
+                <span className={`status s-${x.status}`}>{x.status.replace('_', ' ')}</span>
+                <span className="goal">
+                  {x.parent_task_id ? '↳ ' : ''}
+                  {x.goal}
+                </span>
+                <small className="muted">{timeAgo(t, x.updated_at)}</small>
               </button>
             </li>
           ))}
@@ -499,6 +581,7 @@ function History({ board, agent }: { board: Board; agent: Agent }) {
 }
 
 export function GroupInspector({ board, group, onClose }: { board: Board; group: Group; onClose: () => void }) {
+  const t = useT();
   const [name, setName] = useState(group.name);
   useEffect(() => setName(group.name), [group.name]);
   const members = board.agents.filter((a) => groupOf(board.state, a.agent_id) === group.group_id);
@@ -507,25 +590,24 @@ export function GroupInspector({ board, group, onClose }: { board: Board; group:
     return false;
   };
   const others = board.state.groups.filter((g) => !within(g.group_id));
-  const children = board.state.groups.filter((g) => g.parent_group_id === group.group_id);
-
   const update = (label: string, body: Record<string, unknown>, back: Record<string, unknown>) =>
     board.act(label, async () => {
       await rpc('canvas.groups.update', { group_id: group.group_id, ...body });
       return { label, run: () => rpc('canvas.groups.update', { group_id: group.group_id, ...back }) };
     });
-
   return (
-    <aside className="inspector" aria-label={`${group.name} details`}>
+    <aside className="inspector" aria-label={group.name}>
       <header className="in-head">
-        <span className="an-avatar grp">▢</span>
+        <span className="an-avatar big grp" aria-hidden>
+          ▢
+        </span>
         <div className="in-title">
           <b>{group.name}</b>
           <small>
-            {KIND_LABEL[group.kind]} · {members.length} agents{children.length ? ` · ${children.length} groups inside` : ''}
+            {t(KIND_LABEL[group.kind])} · {t('{n} agents', { n: members.length })}
           </small>
         </div>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close details">
+        <button type="button" className="icon-btn" onClick={onClose} aria-label={t('Close details')}>
           ×
         </button>
       </header>
@@ -535,46 +617,44 @@ export function GroupInspector({ board, group, onClose }: { board: Board; group:
             className="field"
             onSubmit={(e) => {
               e.preventDefault();
-              if (name.trim() && name.trim() !== group.name) update(`Renamed to ${name.trim()}`, { name: name.trim() }, { name: group.name });
+              if (name.trim() && name.trim() !== group.name) update(t('Renamed to {name}', { name: name.trim() }), { name: name.trim() }, { name: group.name });
             }}
           >
-            <label htmlFor="gName">Name</label>
-            <div className="inline">
+            <label htmlFor="gName">{t('Team name')}</label>
+            <div className="inline gap">
               <input id="gName" value={name} onChange={(e) => setName(e.target.value)} />
-              <button type="submit" className="btn" disabled={!name.trim() || name.trim() === group.name}>
-                Rename
-              </button>
+              {name.trim() && name.trim() !== group.name && (
+                <button type="submit" className="btn primary">
+                  {t('Rename')}
+                </button>
+              )}
             </div>
           </form>
           <div className="grid2">
             <div className="field">
-              <label htmlFor="gKind">Kind</label>
-              <select
-                id="gKind"
-                value={group.kind}
-                onChange={(e) => update(`${group.name} is now a ${e.target.value}`, { kind: e.target.value as GroupKind }, { kind: group.kind })}
-              >
+              <label htmlFor="gKind">{t('Kind')}</label>
+              <select id="gKind" value={group.kind} onChange={(e) => update(t(KIND_LABEL[e.target.value as GroupKind]), { kind: e.target.value }, { kind: group.kind })}>
                 {Object.entries(KIND_LABEL).map(([k, l]) => (
                   <option key={k} value={k}>
-                    {l}
+                    {t(l)}
                   </option>
                 ))}
               </select>
             </div>
             <div className="field">
-              <label htmlFor="gParent">Inside</label>
+              <label htmlFor="gParent">{t('Inside')}</label>
               <select
                 id="gParent"
                 value={group.parent_group_id || ''}
                 onChange={(e) =>
                   update(
-                    'Moved group',
+                    t('Moved'),
                     e.target.value ? { parent_group_id: e.target.value } : { clear_parent: true },
                     group.parent_group_id ? { parent_group_id: group.parent_group_id } : { clear_parent: true },
                   )
                 }
               >
-                <option value="">Top level</option>
+                <option value="">{t('Top level')}</option>
                 {others.map((g) => (
                   <option key={g.group_id} value={g.group_id}>
                     {g.name}
@@ -585,49 +665,49 @@ export function GroupInspector({ board, group, onClose }: { board: Board; group:
           </div>
         </section>
         <section>
-          <h4>Agents</h4>
+          <h4>{t('Members')}</h4>
           {members.length ? (
-            members.map((a) => (
-              <div className="skill-row" key={a.agent_id}>
-                <button type="button" className="link" onClick={() => board.select(a.agent_id)}>
-                  {a.name}
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label={`Take ${a.name} out of ${group.name}`}
-                  title="Take out of group"
-                  onClick={() =>
-                    board.act(`${a.name} left ${group.name}`, async () => {
-                      await rpc('canvas.groups.set_member', { agent_id: a.agent_id, group_id: null });
-                      return { label: 'leaving the group', run: () => rpc('canvas.groups.set_member', { agent_id: a.agent_id, group_id: group.group_id }) };
-                    })
-                  }
-                >
-                  ×
-                </button>
-              </div>
-            ))
+            <div className="chips">
+              {members.map((a) => (
+                <span className="chip agent-chip" key={a.agent_id}>
+                  <button type="button" className="link" onClick={() => board.select(a.agent_id)}>
+                    {a.name}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('Take {name} out of {team}', { name: a.name, team: group.name })}
+                    onClick={() =>
+                      board.act(t('{name} left {team}', { name: a.name, team: group.name }), async () => {
+                        await rpc('canvas.groups.set_member', { agent_id: a.agent_id, group_id: null });
+                        return { label: t('{name} left {team}', { name: a.name, team: group.name }), run: () => rpc('canvas.groups.set_member', { agent_id: a.agent_id, group_id: group.group_id }) };
+                      })
+                    }
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
           ) : (
-            <p className="muted">Drag agents into the box, or drop an Agent block on it.</p>
+            <p className="muted small">{t('Drag agents into the box, or add one with “Add”.')}</p>
           )}
         </section>
         <section className="stack">
           <button
             type="button"
             className="btn"
-            disabled={!members.length && !children.length}
+            disabled={!members.length}
             onClick={async () => {
               const v = await board.ask({
-                title: 'Save as configuration',
-                body: <p>Saves this group, the groups inside it, its agents' settings and skills, and the delegation lines between them. Drop it from the palette to create a copy with new agents.</p>,
-                fields: [{ name: 'name', label: 'Name', type: 'text', value: group.name, required: true }],
-                submit: 'Save',
+                title: t('Save as a reusable team'),
+                body: <p>{t('Saves the agents in this box, their instructions and abilities, and who hands work to whom. Add it again later from “Add”.')}</p>,
+                fields: [{ name: 'name', label: t('Name'), type: 'text', value: group.name, required: true }],
+                submit: t('Save'),
               });
-              if (v) await board.act(`Saved configuration ${v.name}`, async () => void (await rpc('canvas.templates.save', { name: v.name.trim(), group_id: group.group_id })));
+              if (v) await board.act(t('Saved {name}', { name: v.name.trim() }), async () => void (await rpc('canvas.templates.save', { name: v.name.trim(), group_id: group.group_id })));
             }}
           >
-            Save as configuration
+            {t('Save as a reusable team')}
           </button>
           <button
             type="button"
@@ -635,43 +715,38 @@ export function GroupInspector({ board, group, onClose }: { board: Board; group:
             disabled={!others.length}
             onClick={async () => {
               const v = await board.ask({
-                title: `Merge ${group.name} into…`,
-                body: <p>Its agents and groups move into the target and this box is removed. Delegation lines stay as they are. This is recorded in the audit log and cannot be undone from Canvas.</p>,
-                fields: [{ name: 'target', label: 'Into', type: 'select', options: others.map((g) => [g.group_id, g.name]) }],
-                submit: 'Merge',
+                title: t('Merge {name} into…', { name: group.name }),
+                body: <p>{t('Its agents and teams move into the other one and this box goes away. Who hands work to whom stays as it is.')}</p>,
+                fields: [{ name: 'target', label: t('Into'), type: 'select', options: others.map((g) => [g.group_id, g.name]) }],
+                submit: t('Merge'),
                 danger: true,
               });
               if (v)
-                await board.act(`Merged ${group.name}`, async () => {
+                await board.act(t('Merged {name}', { name: group.name }), async () => {
                   await rpc('canvas.groups.merge', { source_group_id: group.group_id, target_group_id: v.target });
                   board.select(groupNodeId(v.target));
                 });
             }}
           >
-            Merge into another group…
+            {t('Merge into another team…')}
           </button>
           <button
             type="button"
             className="btn danger-outline"
             onClick={async () => {
-              if (
-                await board.confirm(
-                  `Delete ${group.name}?`,
-                  <p>The box goes away; its {members.length} agents and any groups inside move up a level. No agent is deleted.</p>,
-                  'Delete group',
-                  true,
-                )
-              )
-                await board.act(`Deleted ${group.name}`, async () => {
+              if (await board.confirm(t('Delete {name}?', { name: group.name }), <p>{t('The box goes away; its agents stay on the board.')}</p>, t('Delete team'), true))
+                await board.act(t('Deleted {name}', { name: group.name }), async () => {
                   await rpc('canvas.groups.delete', { group_id: group.group_id });
                   onClose();
                 });
             }}
           >
-            Delete group
+            {t('Delete team')}
           </button>
         </section>
       </div>
     </aside>
   );
 }
+
+export { agentByName };

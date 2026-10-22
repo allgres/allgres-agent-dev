@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { rpc, type SessionDetail, type SessionRow, type TaskRow } from './api';
 import type { RunMark } from './graph';
 import { timeAgo } from './ui';
+import { useT, type T } from './i18n';
 
 export interface FlowOverlay {
   marks: Map<string, RunMark>;
@@ -17,7 +18,7 @@ const short = (v: unknown, n = 180) => {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 };
 
-function eventsOf(d: SessionDetail): Event[] {
+function eventsOf(tr: T, d: SessionDetail): Event[] {
   const byTask = new Map(d.tasks.map((t) => [t.task_id, t]));
   const ev: Event[] = [];
   for (const t of d.tasks) {
@@ -30,7 +31,7 @@ function eventsOf(d: SessionDetail): Event[] {
       agent: t.agent,
       kind: 'start',
       from: parent?.agent_id,
-      text: parent ? `${parent.agent} → ${t.agent}${firstLog ? `: ${short(firstLog.content, 120)}` : ''}` : `Started: ${short(firstLog?.content ?? d.session.goal, 120)}`,
+      text: parent ? `${parent.agent} → ${t.agent}${firstLog ? `: ${short(firstLog.content, 120)}` : ''}` : tr('Started: {text}', { text: short(firstLog?.content ?? d.session.goal, 120) }),
     });
     if (t.status === 'completed' || t.status === 'failed')
       ev.push({
@@ -39,7 +40,7 @@ function eventsOf(d: SessionDetail): Event[] {
         agentId: t.agent_id,
         agent: t.agent,
         kind: t.status === 'completed' ? 'done' : 'failed',
-        text: t.status === 'failed' ? `Failed${t.error ? `: ${short(t.error, 120)}` : ''}` : `Finished after ${t.step_count} steps`,
+        text: t.status === 'failed' ? (t.error ? tr('Failed: {text}', { text: short(t.error, 120) }) : tr('Failed')) : tr('Finished in {n} steps', { n: t.step_count }),
       });
     else if (t.status.startsWith('waiting'))
       ev.push({ at: t.updated_at, taskId: t.task_id, agentId: t.agent_id, agent: t.agent, kind: 'waiting', text: t.status.replace('_', ' ') });
@@ -96,6 +97,7 @@ export function FlowPanel({
   onOverlay: (o: FlowOverlay | null) => void;
   onSelectAgent: (agentId: string) => void;
 }) {
+  const t = useT();
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [step, setStep] = useState<number | null>(null); // null = live (everything)
@@ -137,7 +139,7 @@ export function FlowPanel({
     };
   }, [sessionId]);
 
-  const events = useMemo(() => (detail ? eventsOf(detail) : []), [detail]);
+  const events = useMemo(() => (detail ? eventsOf(t, detail) : []), [detail, t]);
   const at = step === null ? events.length - 1 : step;
 
   useEffect(() => {
@@ -160,16 +162,16 @@ export function FlowPanel({
       <aside className="inspector flow-panel" aria-label="Flow">
         <header className="in-head">
           <div className="in-title">
-            <b>Flow</b>
-            <small>How work actually moved between agents</small>
+            <b>{t('Flow')}</b>
+            <small>{t('How work actually moved between agents')}</small>
           </div>
         </header>
         <div className="in-body">
           {error && <p className="error-text small">{error}</p>}
           <section>
-            <h4>Hand-offs in the last 500 tasks</h4>
+            <h4>{t('Who handed work to whom (last 500 tasks)')}</h4>
             {recent && recent.pairs.length === 0 && (
-              <p className="muted small">No agent has handed work to another yet. Draw a “can delegate to” line, then give the first agent a task.</p>
+              <p className="muted small">{t('Nobody has handed work to anyone yet. Drop one agent onto another, then give the upper one a task.')}</p>
             )}
             <ul className="handoffs">
               {recent?.pairs.map((p) => (
@@ -178,15 +180,15 @@ export function FlowPanel({
                   <span className="muted small">
                     {' '}
                     ×{p.n}
-                    {p.failed ? ` · ${p.failed} failed` : ''}
+                    {p.failed ? ` · ${t('{n} failed', { n: p.failed })}` : ''}
                   </span>
                 </li>
               ))}
             </ul>
           </section>
-          <h4>Sessions</h4>
-          {sessions === null && !error && <p className="muted">Loading…</p>}
-          {sessions?.length === 0 && <p className="muted">No sessions yet. Give an agent a task from its History tab, or chat with General below.</p>}
+          <h4>{t('Sessions')}</h4>
+          {sessions === null && !error && <p className="muted">{t('Loading…')}</p>}
+          {sessions?.length === 0 && <p className="muted">{t('Nothing yet.')}</p>}
           <ul className="task-list">
             {sessions?.map((s) => (
               <li key={s.session_id}>
@@ -195,7 +197,7 @@ export function FlowPanel({
                   <span className="goal">
                     <b>{s.agent}</b> · {s.goal}
                   </span>
-                  <small className="muted">{timeAgo(s.started_at)}</small>
+                  <small className="muted">{timeAgo(t, s.started_at)}</small>
                 </button>
               </li>
             ))}
@@ -211,18 +213,18 @@ export function FlowPanel({
         <div className="in-title">
           <b>{detail?.session.goal || 'Session'}</b>
           <small>
-            {detail ? `${detail.session.agent} · ${detail.tasks.length} tasks · ${running ? 'in progress' : detail.session.status}` : 'Loading…'}
+            {detail ? t('{agent} · {n} tasks · {state}', { agent: detail.session.agent, n: detail.tasks.length, state: running ? t('in progress') : detail.session.status }) : t('Loading…')}
           </small>
         </div>
-        <button type="button" className="icon-btn" onClick={() => onSession(null)} aria-label="Back to sessions">
+        <button type="button" className="icon-btn" onClick={() => onSession(null)} aria-label={t('Back to all work')}>
           ←
         </button>
       </header>
       <div className="replay">
         <button type="button" className="btn" disabled={!events.length} onClick={() => (setStep(0), setPlaying(true))}>
-          ▶ Replay
+          ▶ {t('Replay')}
         </button>
-        <button type="button" className="btn" disabled={at <= 0} onClick={() => (setPlaying(false), setStep(Math.max(0, at - 1)))} aria-label="Previous step">
+        <button type="button" className="btn" disabled={at <= 0} onClick={() => (setPlaying(false), setStep(Math.max(0, at - 1)))} aria-label={t('Previous step')}>
           ‹
         </button>
         <button
@@ -230,12 +232,12 @@ export function FlowPanel({
           className="btn"
           disabled={at >= events.length - 1}
           onClick={() => (setPlaying(false), setStep(Math.min(events.length - 1, at + 1)))}
-          aria-label="Next step"
+          aria-label={t('Next step')}
         >
           ›
         </button>
         <button type="button" className="btn ghost" disabled={step === null} onClick={() => (setPlaying(false), setStep(null))}>
-          Live
+          {t('Live')}
         </button>
         <span className="muted small">{events.length ? `${at + 1} / ${events.length}` : ''}</span>
       </div>
@@ -254,7 +256,7 @@ export function FlowPanel({
         </ol>
         {detail?.session.final_answer && (
           <section>
-            <h4>Answer</h4>
+            <h4>{t('Answer')}</h4>
             <pre className="prompt">{detail.session.final_answer}</pre>
           </section>
         )}

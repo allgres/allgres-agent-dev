@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useT, type T } from './i18n';
 
 export type Field =
   | { name: string; label: string; type: 'text'; value?: string; required?: boolean; placeholder?: string; list?: string[] }
@@ -39,6 +40,7 @@ export function useDialog() {
 }
 
 function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: (v: Record<string, string> | null) => void }) {
+  const t = useT();
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries((spec.fields || []).map((f) => [f.name, f.value ?? (f.type === 'select' ? f.options[0]?.[0] ?? '' : '')])),
   );
@@ -116,7 +118,7 @@ function Dialog({ spec, onClose }: { spec: DialogSpec; onClose: (v: Record<strin
         })}
         <div className="modal-actions">
           <button type="button" className="btn" onClick={() => onClose(null)}>
-            {spec.cancel || 'Cancel'}
+            {spec.cancel || t('Cancel')}
           </button>
           <button type="submit" className={`btn ${spec.danger ? 'danger' : 'primary'}`} disabled={missing} ref={spec.fields?.length ? undefined : (el) => (first.current = el)}>
             {spec.submit}
@@ -143,10 +145,10 @@ export function useToast() {
   return { toast, element };
 }
 
-export function timeAgo(iso: string): string {
+export function timeAgo(t: T, iso: string): string {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 60) return t('just now');
+  if (s < 3600) return t('{n} min ago', { n: Math.floor(s / 60) });
+  if (s < 86400) return t('{n} h ago', { n: Math.floor(s / 3600) });
   return new Date(iso).toLocaleDateString();
 }

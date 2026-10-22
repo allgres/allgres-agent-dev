@@ -1,8 +1,9 @@
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import type { Agent, CanvasState, Group, StoredPosition } from './api';
+import type { T } from './i18n';
 
 export const NODE_W = 220;
-export const NODE_H = 118;
+export const NODE_H = 92;
 const GAP_X = 36;
 const GAP_Y = 84;
 const PAD = 24;
@@ -26,7 +27,7 @@ export type AgentNodeData = {
 // What each kind of line means, in the words the legend and labels use.
 // One colour per meaning, always with an arrowhead showing direction.
 export const LINE = {
-  delegate: { label: 'can delegate to', color: 'var(--accent2)' },
+  delegate: { label: 'hands work to', color: 'var(--accent2)' },
   inherit: { label: 'inherits', color: 'var(--warn)' },
   handoff: { label: 'handed work', color: 'var(--accent)' },
 } as const;
@@ -140,8 +141,9 @@ function layoutTree(list: Agent[], all: Agent[]): { pos: Map<string, XY>; size: 
 export function buildGraph(
   agents: Agent[],
   state: CanvasState,
-  opts: { showSystem: boolean; showInactive: boolean; run?: Map<string, RunMark>; connect?: Map<string, ConnectMark> },
+  opts: { showSystem: boolean; showInactive: boolean; run?: Map<string, RunMark>; connect?: Map<string, ConnectMark>; t?: T },
 ): Graph {
+  const tr: T = opts.t || ((x) => x);
   const visible = agents.filter((a) => (opts.showInactive || a.is_active) && (opts.showSystem || !a.is_system));
   const byId = new Map(visible.map((a) => [a.agent_id, a]));
   const byName = new Map(agents.map((a) => [a.name.toLowerCase(), a]));
@@ -313,7 +315,7 @@ export function buildGraph(
         id: 'frame:system',
         type: 'frame',
         position: { x: fx, y: fy },
-        data: { label: 'System agents', count: system.length } satisfies FrameNodeData,
+        data: { label: tr('System agents'), count: system.length } satisfies FrameNodeData,
         style: { width: t.size.w + PAD * 2, height: t.size.h + HEAD + PAD * 2 },
         draggable: false,
         selectable: false,
@@ -345,7 +347,7 @@ export function buildGraph(
         target: a.agent_id,
         type: 'smoothstep',
         className: 'edge-parent',
-        label: LINE.inherit.label,
+        label: tr(LINE.inherit.label),
         markerEnd: arrow(LINE.inherit.color),
         data: { kind: 'parent' },
       });
@@ -361,7 +363,7 @@ export function buildGraph(
       if (parentKeys.has(key)) {
         const e = edges.find((x) => x.id === `parent:${key}`)!;
         e.className = 'edge-parent edge-delegates';
-        e.label = `${LINE.inherit.label} · ${LINE.delegate.label}`;
+        e.label = `${tr(LINE.inherit.label)} · ${tr(LINE.delegate.label)}`;
         continue;
       }
       edges.push({
@@ -369,7 +371,7 @@ export function buildGraph(
         source: a.agent_id,
         target: t.agent_id,
         className: `edge-delegate${removable ? ' is-removable' : ''}`,
-        label: LINE.delegate.label,
+        label: tr(LINE.delegate.label),
         markerEnd: arrow(LINE.delegate.color),
         interactionWidth: 18,
         data: { kind: 'delegate', from: a.agent_id, to: t.agent_id, removable },

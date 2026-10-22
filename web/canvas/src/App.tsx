@@ -1,26 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import {
   Background,
-  MiniMap,
+  MarkerType,
   ReactFlow,
   ReactFlowProvider,
   useNodesInitialized,
   useNodesState,
-  MarkerType,
   useReactFlow,
   useViewport,
   type Connection,
   type Edge,
   type Node,
 } from '@xyflow/react';
+import { AddMenu, DRAG_MIME, type AddItem } from './AddMenu';
 import { rpc, RpcError, type Agent, type CanvasState, type GrantOptions, type GrantResult, type Provider, type StoredPosition } from './api';
 import { agentByName, groupOf, type Board, type Undo } from './board';
 import { Chat } from './Chat';
 import { FlowPanel, type FlowOverlay } from './FlowPanel';
 import { buildGraph, groupIdOf, groupNodeId, isGroupNode, LINE, NODE_H, NODE_W, type ConnectMark, type RunMark } from './graph';
+import { LangProvider, useLang, useT, type T } from './i18n';
 import { AgentInspector, GroupInspector } from './Inspector';
+import { abilityLabel } from './labels';
 import { BoardEvents, nodeTypes } from './nodes';
-import { DRAG_MIME, Palette, type PaletteItem } from './Palette';
 import { useDialog, useToast } from './ui';
 
 type Gate = { kind: 'loading' } | { kind: 'blocked'; title: string; body: string } | { kind: 'ready' };
@@ -54,13 +55,13 @@ function remember(key: string, v: boolean) {
   }
 }
 
-function explain(e: unknown): { title: string; body: string } {
+function explain(t: T, e: unknown): { title: string; body: string } {
   const code = e instanceof RpcError ? e.code : String(e);
   if (code === 'unauthorized')
-    return { title: 'Dashboard token required', body: 'Open the dashboard in this tab, enter the dashboard token, then come back to Canvas.' };
-  if (/not logged in/i.test(code)) return { title: 'Sign in first', body: 'Sign in on the dashboard in this tab, then open Canvas from the menu.' };
-  if (/admin/i.test(code)) return { title: 'Admins only', body: 'Canvas shows and changes every agent and its grants, so it needs an admin account.' };
-  return { title: 'Canvas could not load', body: code };
+    return { title: t('Dashboard token required'), body: t('Open the dashboard in this tab, enter the dashboard token, then come back to Canvas.') };
+  if (/not logged in/i.test(code)) return { title: t('Sign in first'), body: t('Sign in on the dashboard in this tab, then open Canvas from the menu.') };
+  if (/admin/i.test(code)) return { title: t('Admins only'), body: t('Canvas shows and changes every agent and its grants, so it needs an admin account.') };
+  return { title: t('Canvas could not load'), body: code };
 }
 
 const message = (e: unknown) => (e instanceof RpcError ? e.code : e instanceof Error ? e.message : String(e));
@@ -68,28 +69,33 @@ const inputFocused = () => {
   const el = document.activeElement;
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el as HTMLElement).isContentEditable);
 };
+const delegates = (from: Agent, to: Agent) => from.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === to.name.toLowerCase());
 
 function Canvas() {
+  const t = useT();
+  const { lang, setLang } = useLang();
   const [gate, setGate] = useState<Gate>({ kind: 'loading' });
   const [agents, setAgents] = useState<Agent[]>([]);
   const [state, setState] = useState<CanvasState>(EMPTY_STATE);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [options, setOptions] = useState<GrantOptions>(NO_OPTIONS);
-  const [showSystem, setShowSystem] = useState(true);
-  const [showInactive, setShowInactive] = useState(false);
+  const [showSystem, setShowSystemRaw] = useState(() => remembered('allgres_canvas_system', false));
+  const [showInactive, setShowInactive] = useState(true);
   const [view, setView] = useState<'org' | 'flow'>('org');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<FlowOverlay | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [dockOpen, setDockOpen] = useState(() => remembered('allgres_canvas_dock', window.innerWidth > 760));
+  const [drop, setDrop] = useState<{ target: string; text: string } | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(() => !remembered('allgres_canvas_help_seen', false));
+  const [chatOpen, setChatOpen] = useState(false);
   const [undoCount, setUndoCount] = useState(0);
   const undos = useRef<Undo[]>([]);
   const flow = useReactFlow();
   const { zoom } = useViewport();
   const { ask, confirm, element: dialog } = useDialog();
   const { toast, element: toastEl } = useToast();
+  const setShowSystem = (v: boolean) => (remember('allgres_canvas_system', v), setShowSystemRaw(v));
 
   // One request: canvas.state carries agents.list's payload as well.
   const reload = useCallback(async () => {
@@ -111,15 +117,17 @@ function Canvas() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme());
+    document.documentElement.lang = lang;
     (async () => {
       try {
         await reload();
         await loadOptions();
         setGate({ kind: 'ready' });
       } catch (e) {
-        setGate({ kind: 'blocked', ...explain(e) });
+        setGate({ kind: 'blocked', ...explain(t, e) });
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload, loadOptions]);
 
   // Other operators, the dashboard, and agents themselves change this data,
@@ -159,12 +167,12 @@ function Canvas() {
     if (!u) return;
     try {
       await u.run();
-      toast(`Undid ${u.label}`);
+      toast(t('Undid: {what}', { what: u.label }));
     } catch (e) {
-      toast(`Could not undo ${u.label}: ${message(e)}`, true);
+      toast(t('Could not undo {what}: {why}', { what: u.label, why: message(e) }), true);
     }
     await reload().catch(() => {});
-  }, [reload, toast]);
+  }, [reload, toast, t]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -172,15 +180,22 @@ function Canvas() {
         e.preventDefault();
         undo();
       }
+      if (e.key === 'Escape' && !inputFocused()) {
+        setMoreOpen(false);
+        setSelected([]);
+        flowSetSelected(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undo]);
 
   // canvas.grant reports the ceiling gap instead of failing; turn that into
   // a question, then grant to everyone above in one transaction.
   const grantWithCeiling = useCallback<Board['grant']>(
     async (agent, type, ref) => {
+      const what = abilityLabel(t, type, ref);
       let r: GrantResult;
       try {
         r = await rpc<GrantResult>('canvas.grant', { agent_id: agent.agent_id, type, ref });
@@ -193,45 +208,39 @@ function Canvas() {
         for (const x of list) await rpc('permissions.revoke', { agent_id: x.agent_id, type, ref: stored });
       };
       if (r.applied) {
-        pushUndo({ label: `grant of ${ref}`, run: revokeAll([agent]) });
-        toast(`${agent.name} can now use ${ref}`);
+        pushUndo({ label: what, run: revokeAll([agent]) });
+        toast(t('{name} can now {what}', { name: agent.name, what }));
         await reload();
         return true;
       }
       const missing = r.missing || [];
       if (missing.some((m) => m.is_system)) {
         await confirm(
-          'Cannot grant this here',
-          <p>
-            {missing.filter((m) => m.is_system).map((m) => m.name).join(', ')} can delegate to {agent.name} and lacks {ref}, but system agents' grants are
-            changed only from SQL.
-          </p>,
-          'OK',
+          t('Cannot add this here'),
+          <p>{t('{names} hand work to {name} and lack {what}, but system agents are changed only from SQL.', { names: missing.filter((m) => m.is_system).map((m) => m.name).join(', '), name: agent.name, what })}</p>,
+          t('Got it'),
         );
         return false;
       }
       const yes = await confirm(
-        `Grant ${ref} above ${agent.name} too?`,
+        t('Also give it to the agents above?'),
         <>
-          <p>
-            An agent may hold a skill only if every agent that can delegate to it holds it too. These agents are above {agent.name} and lack{' '}
-            <code>{ref}</code>:
-          </p>
+          <p>{t('An agent can only use what every agent that hands it work can use too. These agents hand work to {name} and lack {what}:', { name: agent.name, what })}</p>
           <ul>
             {missing.map((m) => (
               <li key={m.agent_id}>{m.name}</li>
             ))}
           </ul>
         </>,
-        `Grant to all ${missing.length + 1}`,
+        t('Give to all {n}', { n: missing.length + 1 }),
       );
       if (!yes) return false;
-      return act(`Granted ${ref} to ${agent.name} and ${missing.length} above`, async () => {
+      return act(t('{name} can now {what}', { name: agent.name, what }), async () => {
         const x = await rpc<GrantResult>('canvas.grant', { agent_id: agent.agent_id, type, ref, include_superiors: true });
-        return { label: `grant of ${ref}`, run: revokeAll([agent, ...(x.also_granted || [])]) };
+        return { label: what, run: revokeAll([agent, ...(x.also_granted || [])]) };
       });
     },
-    [act, confirm, reload, toast],
+    [act, confirm, reload, toast, t],
   );
 
   const select = useCallback(
@@ -264,22 +273,12 @@ function Canvas() {
     const from = agents.find((a) => a.agent_id === connectFrom);
     if (!from) return undefined;
     const m = new Map<string, ConnectMark>();
-    for (const a of agents)
-      m.set(
-        a.agent_id,
-        a.agent_id === from.agent_id
-          ? 'source'
-          : a.is_system
-            ? 'invalid'
-            : from.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === a.name.toLowerCase())
-            ? 'already'
-            : 'valid',
-      );
+    for (const a of agents) m.set(a.agent_id, a.agent_id === from.agent_id ? 'source' : a.is_system ? 'invalid' : delegates(from, a) ? 'already' : 'valid');
     return m;
   }, [agents, connectFrom]);
   const graph = useMemo(
-    () => buildGraph(agents, state, { showSystem, showInactive, run: runMarks, connect: connectMarks }),
-    [agents, state, showSystem, showInactive, runMarks, connectMarks],
+    () => buildGraph(agents, state, { showSystem, showInactive, run: runMarks, connect: connectMarks, t }),
+    [agents, state, showSystem, showInactive, runMarks, connectMarks, t],
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const selectedRef = useRef<string[]>([]);
@@ -306,20 +305,20 @@ function Canvas() {
         target,
         className: 'edge-active',
         animated: true,
-        label: n > 1 ? `${LINE.handoff.label} ×${n}` : LINE.handoff.label,
+        label: n > 1 ? `${t(LINE.handoff.label)} ×${n}` : t(LINE.handoff.label),
         markerEnd: { type: MarkerType.ArrowClosed, color: LINE.handoff.color, width: 18, height: 18 },
         zIndex: 5,
       });
     }
     return out;
-  }, [graph, view, overlay]);
+  }, [graph, view, overlay, t]);
 
   const fitted = useRef(false);
   const measured = useNodesInitialized();
   useEffect(() => {
     if (measured && !fitted.current) {
       fitted.current = true;
-      setTimeout(() => flow.fitView({ padding: 0.15, duration: 200 }), 60);
+      setTimeout(() => flow.fitView({ padding: 0.2, duration: 200, maxZoom: 1 }), 60);
     }
   }, [measured, flow]);
 
@@ -358,15 +357,17 @@ function Canvas() {
     }
     return best;
   };
-  const agentAt = (p: XY): Agent | null => {
+  const agentAt = (p: XY, skip?: string): Agent | null => {
     for (const a of agents) {
+      if (a.agent_id === skip) continue;
       const q = absOf(a.agent_id);
-      if (q && p.x >= q.x && p.x <= q.x + NODE_W && p.y >= q.y && p.y <= q.y + NODE_H) return a;
+      if (!q) continue;
+      const s = sizeOf(a.agent_id);
+      if (p.x >= q.x && p.x <= q.x + s.w && p.y >= q.y && p.y <= q.y + s.h) return a;
     }
     return null;
   };
-  const descendants = (nodeId: string): string[] =>
-    nodes.filter((n) => n.parentId === nodeId).flatMap((n) => [n.id, ...descendants(n.id)]);
+  const descendants = (nodeId: string): string[] => nodes.filter((n) => n.parentId === nodeId).flatMap((n) => [n.id, ...descendants(n.id)]);
   const posItem = (id: string, p: XY, size?: { w: number; h: number }) => ({
     kind: isGroupNode(id) ? 'group' : 'agent',
     id: isGroupNode(id) ? groupIdOf(id) : id,
@@ -379,21 +380,82 @@ function Canvas() {
     setState((st) => {
       const key = (p: { kind: string; id: string }) => `${p.kind}:${p.id}`;
       const next = new Map(st.positions.map((p) => [key(p), p]));
-      for (const it of items) {
-        const old = next.get(key(it));
-        next.set(key(it), { ...old, ...(it as StoredPosition) });
-      }
+      for (const it of items) next.set(key(it), { ...next.get(key(it)), ...(it as StoredPosition) });
       return { ...st, positions: [...next.values()] };
     });
   const restorePositions = (ids: string[]) => {
     const prev = ids.filter((id) => graph.abs.has(id)).map((id) => posItem(id, graph.abs.get(id)!));
     return () => rpc('canvas.layout.save', { items: prev });
   };
+  // Never on or against another card (measured size plus a gap), nor, for a
+  // new box, on another box: step right until the spot is free. The group it
+  // goes into, and the groups around that one, may of course contain it.
+  const freeSpot = (x0: number, y: number, w: number, h: number, boxes: boolean, inside: string | null, skip?: string) => {
+    const rects: { x: number; y: number; w: number; h: number }[] = [];
+    for (const a of agents) {
+      if (a.agent_id === skip) continue;
+      const q = absOf(a.agent_id);
+      if (q) rects.push({ ...q, ...sizeOf(a.agent_id) });
+    }
+    if (boxes)
+      for (const g of state.groups) {
+        if (inside && groupWithin(inside, g.group_id)) continue;
+        const q = absOf(groupNodeId(g.group_id));
+        if (q) rects.push({ ...q, ...sizeOf(groupNodeId(g.group_id)) });
+      }
+    const hit = (x: number) => rects.some((r) => x < r.x + r.w + 40 && r.x < x + w + 40 && y < r.y + r.h + 40 && r.y < y + h + 40);
+    let x = x0;
+    while (hit(x)) x += 40;
+    return { x: Math.round(x), y: Math.round(y) };
+  };
+
+  // ------------------------------------------------- "put it under" (drop)
+  // Dropping one agent's card on another's is how a manager thinks about a
+  // team: "this one works under that one". It draws the line (the upper agent
+  // may hand work to the lower), moves it into the upper one's team, and sets
+  // it just below. One undo step reverses all three.
+  const putUnder = (child: Agent, parent: Agent) => {
+    const before = { group: groupOf(state, child.agent_id), pos: graph.abs.get(child.agent_id) };
+    const team = groupOf(state, parent.agent_id);
+    const p = absOf(parent.agent_id) || { x: 0, y: 0 };
+    const spot = freeSpot(p.x, p.y + sizeOf(parent.agent_id).h + 70, NODE_W, NODE_H, false, team, child.agent_id);
+    const added = !delegates(parent, child);
+    const label = t('{child} now works under {parent}', { child: child.name, parent: parent.name });
+    act(label, async () => {
+      if (added) await rpc('canvas.delegation.add', { from_agent_id: parent.agent_id, to_agent_id: child.agent_id });
+      if (team !== before.group) await rpc('canvas.groups.set_member', { agent_id: child.agent_id, group_id: team });
+      await rpc('canvas.layout.save', { items: [{ kind: 'agent', id: child.agent_id, ...spot }] });
+      return {
+        label,
+        run: async () => {
+          if (added) await rpc('canvas.delegation.remove', { from_agent_id: parent.agent_id, to_agent_id: child.agent_id });
+          if (team !== before.group) await rpc('canvas.groups.set_member', { agent_id: child.agent_id, group_id: before.group });
+          if (before.pos) await rpc('canvas.layout.save', { items: [{ kind: 'agent', id: child.agent_id, x: Math.round(before.pos.x), y: Math.round(before.pos.y) }] });
+        },
+      };
+    });
+  };
+
+  const dropOnAgent = (node: Node): Agent | null => {
+    if (isGroupNode(node.id)) return null;
+    const me = agents.find((a) => a.agent_id === node.id);
+    if (!me || me.is_system) return null;
+    const p = absOf(node.id);
+    if (!p) return null;
+    const s = sizeOf(node.id);
+    const target = agentAt({ x: p.x + s.w / 2, y: p.y + s.h / 2 }, node.id);
+    return target && !target.is_system ? target : null;
+  };
 
   // ---------------------------------------------------------------- moves
   const onNodeDragStop = useCallback(
-    (_: unknown, _node: Node, dragged: Node[]) => {
-      setDropTarget(null);
+    (_: unknown, node: Node, dragged: Node[]) => {
+      setDrop(null);
+      if (dragged.length === 1) {
+        const parent = dropOnAgent(node);
+        const me = agents.find((a) => a.agent_id === node.id);
+        if (parent && me) return putUnder(me, parent);
+      }
       const ids = dragged.filter((n) => n.type === 'agent' || n.type === 'group').map((n) => n.id);
       const moved = ids.filter((id) => {
         const a = absOf(id);
@@ -403,7 +465,7 @@ function Canvas() {
       if (!moved.length) return;
       const all = [...new Set(moved.flatMap((id) => [id, ...descendants(id)]))].filter((id) => !id.startsWith('frame:'));
       const draggedGroups = moved.filter(isGroupNode).map(groupIdOf);
-      const changes: { label: string; run: () => Promise<unknown>; back: () => Promise<unknown> }[] = [];
+      const changes: { run: () => Promise<unknown>; back: () => Promise<unknown>; label: string }[] = [];
       // Where each dropped node ends up: pulled fully inside the box it was
       // dropped into (past the left and top edges and the title), never left
       // straddling a border. Overhang to the right or below grows the box.
@@ -433,13 +495,9 @@ function Canvas() {
           }
           settleInto(id, target);
           changes.push({
-            label: target ? 'nesting' : 'un-nesting',
+            label: target ? t('Moved into {team}', { team: state.groups.find((x) => x.group_id === target)?.name || '' }) : t('Moved out of the team'),
             run: () => rpc('canvas.groups.update', target ? { group_id: gid, parent_group_id: target } : { group_id: gid, clear_parent: true }),
-            back: () =>
-              rpc(
-                'canvas.groups.update',
-                g.parent_group_id ? { group_id: gid, parent_group_id: g.parent_group_id } : { group_id: gid, clear_parent: true },
-              ),
+            back: () => rpc('canvas.groups.update', g.parent_group_id ? { group_id: gid, parent_group_id: g.parent_group_id } : { group_id: gid, clear_parent: true }),
           });
         } else {
           const a = agents.find((x) => x.agent_id === id);
@@ -450,7 +508,7 @@ function Canvas() {
           settleInto(id, target);
           if (target === before) continue;
           changes.push({
-            label: 'group change',
+            label: target ? t('Moved into {team}', { team: state.groups.find((x) => x.group_id === target)?.name || '' }) : t('Moved out of the team'),
             run: () => rpc('canvas.groups.set_member', { agent_id: id, group_id: target }),
             back: () => rpc('canvas.groups.set_member', { agent_id: id, group_id: before }),
           });
@@ -468,41 +526,48 @@ function Canvas() {
         return posItem(id, { x: p.x + d.x, y: p.y + d.y });
       });
       const back = restorePositions(all);
+      const label = changes.length === 1 ? changes[0].label : t('Moved');
       act(
-        changes.length ? 'Moved into place' : 'Moved',
+        label,
         async () => {
-        await rpc('canvas.layout.save', { items });
-        for (const c of changes) await c.run();
-        // The board already shows where things were dropped; only a group
-        // change needs the database read back.
-        if (!changes.length) applyPositions(items);
-        return {
-          label: 'move',
-          run: async () => {
-            for (const c of [...changes].reverse()) await c.back();
-            await back();
-          },
-        };
+          await rpc('canvas.layout.save', { items });
+          for (const c of changes) await c.run();
+          // The board already shows where things were dropped; only a group
+          // change needs the database read back.
+          if (!changes.length) applyPositions(items);
+          return {
+            label,
+            run: async () => {
+              for (const c of [...changes].reverse()) await c.back();
+              await back();
+            },
+          };
         },
         { layoutOnly: !changes.length },
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graph, state, agents, nodes, act],
+    [graph, state, agents, nodes, act, t],
   );
 
   const onNodeDrag = useCallback(
-    (_: unknown, node: Node) => {
+    (_: unknown, node: Node, dragged: Node[]) => {
+      if (dragged.length === 1) {
+        const parent = dropOnAgent(node);
+        const me = agents.find((a) => a.agent_id === node.id);
+        if (parent && me) {
+          setDrop({ target: parent.agent_id, text: t('Drop to put {child} under {parent}', { child: me.name, parent: parent.name }) });
+          return;
+        }
+      }
       const p = absOf(node.id);
       if (!p) return;
       const s = sizeOf(node.id);
-      const g = isGroupNode(node.id)
-        ? groupAt({ x: p.x + s.w / 2, y: p.y + 18 }, [groupIdOf(node.id)])
-        : groupAt({ x: p.x + s.w / 2, y: p.y + s.h / 2 });
-      setDropTarget(g ? groupNodeId(g) : null);
+      const g = isGroupNode(node.id) ? groupAt({ x: p.x + s.w / 2, y: p.y + 18 }, [groupIdOf(node.id)]) : groupAt({ x: p.x + s.w / 2, y: p.y + s.h / 2 });
+      setDrop(g ? { target: groupNodeId(g), text: t('Moved into {team}', { team: state.groups.find((x) => x.group_id === g)?.name || '' }) } : null);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, nodes],
+    [state, nodes, agents, t],
   );
 
   const onGroupResized = useCallback(
@@ -515,17 +580,17 @@ function Canvas() {
         ...ids.slice(1).filter((id) => graph.abs.has(id)).map((id) => posItem(id, graph.abs.get(id)!)),
       ];
       act(
-        'Resized',
+        t('Resized'),
         async () => {
           await rpc('canvas.layout.save', { items });
           applyPositions(items);
-          return { label: 'resize', run: () => rpc('canvas.layout.save', { items: prev }) };
+          return { label: t('Resized'), run: () => rpc('canvas.layout.save', { items: prev }) };
         },
         { layoutOnly: true },
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [graph, nodes, act],
+    [graph, nodes, act, t],
   );
 
   // ---------------------------------------------------------------- lines
@@ -534,20 +599,15 @@ function Canvas() {
       const from = agents.find((a) => a.agent_id === c.source);
       const to = agents.find((a) => a.agent_id === c.target);
       if (!from || !to || from.agent_id === to.agent_id) return;
-      if (to.is_system) {
-        toast('System agents run the platform itself and do not take delegated work.', true);
-        return;
-      }
-      if (from.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === to.name.toLowerCase())) {
-        toast(`${from.name} can already delegate to ${to.name}`);
-        return;
-      }
-      act(`${from.name} can now delegate to ${to.name}`, async () => {
+      if (to.is_system) return toast(t('System agents run the platform itself and do not take work from the board.'), true);
+      if (delegates(from, to)) return toast(t('{from} already hands work to {to}', { from: from.name, to: to.name }));
+      const label = t('{from} can now hand work to {to}', { from: from.name, to: to.name });
+      act(label, async () => {
         await rpc('canvas.delegation.add', { from_agent_id: from.agent_id, to_agent_id: to.agent_id });
-        return { label: 'new line', run: () => rpc('canvas.delegation.remove', { from_agent_id: from.agent_id, to_agent_id: to.agent_id }) };
+        return { label, run: () => rpc('canvas.delegation.remove', { from_agent_id: from.agent_id, to_agent_id: to.agent_id }) };
       });
     },
-    [agents, act, toast],
+    [agents, act, toast, t],
   );
 
   const onEdgeClick = useCallback(
@@ -557,96 +617,76 @@ function Canvas() {
       const from = agents.find((a) => a.agent_id === d.from);
       const to = agents.find((a) => a.agent_id === d.to);
       if (!from || !to) return;
-      if (!d.removable) {
-        toast('System agents’ grants are changed only from SQL.', true);
-        return;
-      }
-      if (!(await confirm(`Remove this line?`, <p>{from.name} will no longer be able to delegate to {to.name}.</p>, 'Remove line', true))) return;
-      act(`${from.name} no longer delegates to ${to.name}`, async () => {
+      if (!d.removable) return toast(t('System agents are changed only from SQL.'), true);
+      if (!(await confirm(t('Stop handing work?'), <p>{t('{from} will no longer be able to hand work to {to}.', { from: from.name, to: to.name })}</p>, t('Disconnect'), true))) return;
+      const label = t('{from} no longer hands work to {to}', { from: from.name, to: to.name });
+      act(label, async () => {
         await rpc('canvas.delegation.remove', { from_agent_id: from.agent_id, to_agent_id: to.agent_id });
-        return { label: 'line removal', run: () => rpc('canvas.delegation.add', { from_agent_id: from.agent_id, to_agent_id: to.agent_id }) };
+        return { label, run: () => rpc('canvas.delegation.add', { from_agent_id: from.agent_id, to_agent_id: to.agent_id }) };
       });
     },
-    [agents, act, confirm, toast],
+    [agents, act, confirm, toast, t],
   );
 
-  // ---------------------------------------------------------------- drops
-  // Never on or against another card (measured size plus a gap, so its
-  // connection dots stay reachable), nor, for a new box, on another box:
-  // step right until the spot is free. The group it goes into, and the
-  // groups around that one, are of course allowed to contain it.
-  const freeSpot = (x0: number, y: number, w: number, h: number, boxes: boolean, inside: string | null) => {
-    const rects: { x: number; y: number; w: number; h: number }[] = [];
-    for (const a of agents) {
-      const q = absOf(a.agent_id);
-      if (q) rects.push({ ...q, ...sizeOf(a.agent_id) });
-    }
-    if (boxes)
-      for (const g of state.groups) {
-        if (inside && groupWithin(inside, g.group_id)) continue;
-        const q = absOf(groupNodeId(g.group_id));
-        if (q) rects.push({ ...q, ...sizeOf(groupNodeId(g.group_id)) });
-      }
-    const hit = (x: number) => rects.some((r) => x < r.x + r.w + 40 && r.x < x + w + 40 && y < r.y + r.h + 40 && r.y < y + h + 40);
-    let x = x0;
-    while (hit(x)) x += 40;
-    return { x: Math.round(x), y: Math.round(y) };
-  };
-
+  // --------------------------------------------------------------- adding
   const createAgent = async (p: XY, groupId: string | null) => {
     const v = await ask({
-      title: 'New agent',
+      title: t('New agent'),
+      body: <p>{t('You can add a model later; until then it is saved turned off.')}</p>,
       fields: [
-        { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'researcher' },
-        { name: 'provider', label: 'Provider', type: 'select', options: [['', 'None yet (draft)'], ...providers.map((x) => [x.name, x.name] as [string, string])], value: providers[0]?.name || '' },
-        { name: 'model', label: 'Model', type: 'text', list: providers.flatMap((x) => x.available_models || []), value: providers[0]?.available_models?.[0] || '' },
-        { name: 'prompt', label: 'System prompt', type: 'textarea', placeholder: 'What this agent does and how' },
+        { name: 'name', label: t('Name'), type: 'text', required: true, placeholder: t('e.g. researcher') },
+        { name: 'prompt', label: t('What it does'), type: 'textarea', placeholder: t('Describe its job in plain words, the way you would brief a colleague.') },
+        {
+          name: 'model',
+          label: t('Model'),
+          type: 'select',
+          options: [['', t('No model')], ...providers.flatMap((x) => (x.available_models || []).map((m) => [`${x.name}::${m}`, `${m} · ${x.name}`] as [string, string]))],
+          value: providers[0]?.available_models?.[0] ? `${providers[0].name}::${providers[0].available_models[0]}` : '',
+        },
       ],
-      submit: 'Create agent',
+      submit: t('Create'),
     });
     if (!v) return;
-    const draft = !v.provider || !v.model.trim();
+    const [provider, model] = v.model ? v.model.split('::') : ['', ''];
+    const name = v.name.trim();
     let created: string | null = null;
-    const ok = await act(draft ? `Created ${v.name.trim()} as a draft` : `Created ${v.name.trim()}`, async () => {
+    const ok = await act(model ? t('Created {name}', { name }) : t('Created {name}, turned off until it has a model', { name }), async () => {
       const r = await rpc<{ agent_id: string }>('agents.create', {
-        name: v.name.trim(),
+        name,
         system_prompt: v.prompt,
-        llm_config: draft ? undefined : { provider: v.provider, model: v.model.trim() },
-        is_active: !draft,
+        llm_config: model ? { provider, model } : undefined,
+        is_active: !!model,
       });
-      const { x, y } = freeSpot(p.x - NODE_W / 2, p.y - 30, NODE_W, NODE_H, false, groupId);
-      await rpc('canvas.layout.save', { items: [{ kind: 'agent', id: r.agent_id, x: Math.round(x), y: Math.round(y) }] });
+      await rpc('canvas.layout.save', { items: [{ kind: 'agent', id: r.agent_id, ...freeSpot(p.x - NODE_W / 2, p.y - 30, NODE_W, NODE_H, false, groupId) }] });
       if (groupId) await rpc('canvas.groups.set_member', { agent_id: r.agent_id, group_id: groupId });
-      if (draft) setShowInactive(true);
       created = r.agent_id;
-      return { label: `creating ${v.name.trim()} (it is deactivated)`, run: () => rpc('agents.update', { agent_id: r.agent_id, is_active: false }) };
+      return { label: t('Created {name}', { name }), run: () => rpc('agents.update', { agent_id: r.agent_id, is_active: false }) };
     });
     if (ok && created) select(created);
   };
 
   const createGroup = async (p: XY, parent: string | null, members: string[] = [], rect?: { x: number; y: number; w: number; h: number }) => {
     const v = await ask({
-      title: members.length ? `Group ${members.length} agents` : 'New group',
+      title: members.length ? t('Make a team') : t('New team'),
       fields: [
-        { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Research team' },
-        { name: 'kind', label: 'Kind', type: 'select', options: [['team', 'Team'], ['division', 'Division'], ['project', 'Project']] },
+        { name: 'name', label: t('Team name'), type: 'text', required: true, placeholder: t('e.g. Research team') },
+        { name: 'kind', label: t('Kind'), type: 'select', options: [['team', t('Team')], ['division', t('Division')], ['project', t('Project')]] },
       ],
-      submit: 'Create group',
+      submit: t('Create'),
     });
     if (!v) return;
     const before = members.map((id) => [id, groupOf(state, id)] as const);
-    await act(`Created ${v.name.trim()}`, async () => {
+    const label = t('Created {name}', { name: v.name.trim() });
+    await act(label, async () => {
       const r = await rpc<{ group_id: string }>('canvas.groups.create', {
         name: v.name.trim(),
         kind: v.kind,
         parent_group_id: parent,
-        position: rect
-          ? { x: rect.x, y: rect.y, width: rect.w, height: rect.h }
-          : { ...freeSpot(p.x - 180, p.y - 30, 360, 220, true, parent), width: 360, height: 220 },
+        position: rect ? { x: rect.x, y: rect.y, width: rect.w, height: rect.h } : { ...freeSpot(p.x - 180, p.y - 30, 360, 220, true, parent), width: 360, height: 220 },
         agent_ids: members,
       });
       return {
-        label: `creating ${v.name.trim()}`,
+        label,
         run: async () => {
           // Deleting a box moves its agents up to its parent, which is where
           // they were unless they came from several different groups.
@@ -655,38 +695,53 @@ function Canvas() {
         },
       };
     });
+    setSelected([]);
+  };
+
+  // A starting point instead of a blank page: a lead and two members in a
+  // team, the lead able to hand work to both. All drafts, turned off, so
+  // nothing runs until the user gives them a model.
+  const createExample = async (p: XY) => {
+    const free = (base: string) => {
+      let n = base;
+      for (let i = 2; agents.some((a) => a.name.toLowerCase() === n.toLowerCase()); i++) n = `${base}_${i}`;
+      return n;
+    };
+    const names = [free('team_lead'), free('researcher'), free('writer')];
+    const prompts = [
+      t('Plans the work, splits it into tasks, and hands them to the researcher and the writer.'),
+      t('Finds and checks sources, then reports what it found.'),
+      t('Turns the findings into a clear, short write-up.'),
+    ];
+    await act(t('Created an example team. Rename the agents and give them a model to start.'), async () => {
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) ids.push((await rpc<{ agent_id: string }>('agents.create', { name: names[i], system_prompt: prompts[i], is_active: false })).agent_id);
+      const box = freeSpot(p.x - 300, p.y - 140, 600, 330, true, null);
+      const g = await rpc<{ group_id: string }>('canvas.groups.create', { name: t('Example team'), kind: 'team', position: { ...box, width: 600, height: 330 }, agent_ids: ids });
+      await rpc('canvas.delegation.add', { from_agent_id: ids[0], to_agent_id: ids[1] });
+      await rpc('canvas.delegation.add', { from_agent_id: ids[0], to_agent_id: ids[2] });
+      await rpc('canvas.layout.save', {
+        items: [
+          { kind: 'agent', id: ids[0], x: box.x + 190, y: box.y + 56 },
+          { kind: 'agent', id: ids[1], x: box.x + 40, y: box.y + 210 },
+          { kind: 'agent', id: ids[2], x: box.x + 340, y: box.y + 210 },
+        ],
+      });
+      return {
+        label: t('Example team'),
+        run: async () => {
+          await rpc('canvas.groups.delete', { group_id: g.group_id });
+          for (const id of ids) await rpc('agents.update', { agent_id: id, is_active: false });
+        },
+      };
+    });
+    setTimeout(() => flow.fitView({ padding: 0.25, duration: 300, maxZoom: 1 }), 80);
   };
 
   const placeTemplate = async (id: string, name: string, p: XY, parent: string | null) => {
-    await act(`Placed ${name}. Each agent is new; deactivate them in Settings if this was a mistake.`, async () => {
+    await act(t('Placed {name}', { name }), async () => {
       await rpc('canvas.templates.instantiate', { template_id: id, x: Math.round(p.x), y: Math.round(p.y), parent_group_id: parent });
     });
-  };
-
-  const use = async (item: PaletteItem, p: XY, targetAgent: Agent | null, targetGroup: string | null) => {
-    setPaletteOpen(false);
-    if (item.kind === 'agent') return createAgent(p, targetGroup);
-    if (item.kind === 'group') return createGroup(p, targetGroup);
-    if (item.kind === 'template') return placeTemplate(item.id, item.name, p, targetGroup);
-    if (!targetAgent) {
-      toast('Drop a skill on an agent, or select an agent first.', true);
-      return;
-    }
-    if (targetAgent.is_system) {
-      toast('System agents’ grants are changed only from SQL.', true);
-      return;
-    }
-    let ref = item.ref;
-    if (item.type === 'http_host') {
-      const v = await ask({
-        title: `HTTP host for ${targetAgent.name}`,
-        fields: [{ name: 'host', label: 'Host name', type: 'text', required: true, placeholder: 'api.example.com' }],
-        submit: 'Grant',
-      });
-      if (!v) return;
-      ref = v.host.trim();
-    }
-    await grantWithCeiling(targetAgent, item.type, ref);
   };
 
   const viewportCentre = (): XY => {
@@ -694,49 +749,52 @@ function Canvas() {
     return flow.screenToFlowPosition({ x: (el?.left || 0) + (el?.width || 800) / 2, y: (el?.top || 0) + (el?.height || 600) / 2 });
   };
 
-  const onPaletteClick = (item: PaletteItem) => {
-    const one = selected.length === 1 ? selected[0] : null;
-    const selAgent = one && !isGroupNode(one) ? agents.find((a) => a.agent_id === one) || null : null;
-    const selGroup = one && isGroupNode(one) ? groupIdOf(one) : selAgent ? groupOf(state, selAgent.agent_id) : null;
-    const c = viewportCentre();
-    if (item.kind !== 'skill' && selGroup) {
-      const a = absOf(groupNodeId(selGroup));
-      const s = sizeOf(groupNodeId(selGroup));
-      if (a) return use(item, { x: a.x + s.w / 2, y: a.y + s.h / 2 }, selAgent, selGroup);
-    }
-    use(item, c, selAgent, selGroup);
+  const use = (item: AddItem, p: XY, team: string | null) => {
+    if (item.kind === 'agent') return createAgent(p, team);
+    if (item.kind === 'group') return createGroup(p, team);
+    if (item.kind === 'example') return createExample(p);
+    return placeTemplate(item.id, item.name, p, team);
   };
 
-  const parseDrag = (e: DragEvent): PaletteItem | null => {
-    try {
-      return JSON.parse(e.dataTransfer.getData(DRAG_MIME));
-    } catch {
-      return null;
+  // Clicked rather than dragged: into the selected team (or the selected
+  // agent's team), else the middle of the view.
+  const onAddClick = (item: AddItem) => {
+    const one = selected.length === 1 ? selected[0] : null;
+    const team = one ? (isGroupNode(one) ? groupIdOf(one) : groupOf(state, one)) : null;
+    if (team && item.kind !== 'example') {
+      const a = absOf(groupNodeId(team));
+      const s = sizeOf(groupNodeId(team));
+      if (a) return use(item, { x: a.x + s.w / 2, y: a.y + s.h / 2 }, team);
     }
+    use(item, viewportCentre(), null);
   };
+
   const onDragOver = (e: DragEvent) => {
     if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
-    const p = flow.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    const a = agentAt(p);
-    const g = groupAt(p);
-    setDropTarget(a && !a.is_system ? a.agent_id : g ? groupNodeId(g) : null);
+    const g = groupAt(flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+    setDrop(g ? { target: groupNodeId(g), text: t('Moved into {team}', { team: state.groups.find((x) => x.group_id === g)?.name || '' }) } : null);
   };
   const onDrop = (e: DragEvent) => {
-    const item = parseDrag(e);
-    setDropTarget(null);
+    setDrop(null);
+    let item: AddItem | null = null;
+    try {
+      item = JSON.parse(e.dataTransfer.getData(DRAG_MIME));
+    } catch {
+      return;
+    }
     if (!item) return;
     e.preventDefault();
     const p = flow.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    use(item, p, agentAt(p), groupAt(p));
+    use(item, p, item.kind === 'example' ? null : groupAt(p));
   };
 
-  // Auto-arrange: the layout the board would draw if nothing had ever been
-  // placed by hand (each agent under the agent that delegates to it, boxes
-  // sized to fit), written back as positions in one save. Undo restores the
-  // previous ones.
+  // Tidy up: the layout the board would draw if nothing had been placed by
+  // hand (each agent under the one that hands it work, boxes sized to fit),
+  // written back as positions in one save. Undo restores the previous ones.
   const arrange = () => {
+    setMoreOpen(false);
     const fresh = buildGraph(agents, { ...state, positions: [] }, { showSystem, showInactive });
     const items = fresh.nodes
       .filter((n) => (n.type === 'agent' && !(n.data as { agent: Agent }).agent.is_system) || n.type === 'group')
@@ -750,12 +808,12 @@ function Canvas() {
         return posItem(id, graph.abs.get(id)!, it.kind === 'group' ? { w: Number(n?.width), h: Number(n?.height) } : undefined);
       });
     act(
-      'Arranged',
+      t('Tidied up'),
       async () => {
         await rpc('canvas.layout.save', { items });
         applyPositions(items);
-        setTimeout(() => flow.fitView({ padding: 0.15, duration: 300 }), 50);
-        return { label: 'arrange', run: () => rpc('canvas.layout.save', { items: prev }) };
+        setTimeout(() => flow.fitView({ padding: 0.2, duration: 300, maxZoom: 1 }), 50);
+        return { label: t('Tidy up layout'), run: () => rpc('canvas.layout.save', { items: prev }) };
       },
       { layoutOnly: true },
     );
@@ -779,7 +837,8 @@ function Canvas() {
   const currentGroup = one && isGroupNode(one) ? state.groups.find((g) => g.group_id === groupIdOf(one)) || null : null;
   const groupable = selected.filter((id) => !isGroupNode(id) && agents.some((a) => a.agent_id === id && !a.is_system)).length;
   const general = agentByName(agents, 'general');
-  const empty = graph.count === 0 && state.groups.length === 0;
+  const empty = agents.filter((a) => !a.is_system && a.name !== 'general').length === 0 && state.groups.length === 0;
+  const closeHelp = () => (remember('allgres_canvas_help_seen', true), setHelpOpen(false));
 
   return (
     <div className="app">
@@ -787,76 +846,93 @@ function Canvas() {
         <a className="brand" href="/">
           Allgres
         </a>
-        <span className="crumb">Canvas</span>
-        <a className="btn ghost" href="/">
-          ← Dashboard
+        <a className="btn ghost back" href="/">
+          {t('← Dashboard')}
         </a>
         {gate.kind === 'ready' && (
           <>
-            <div className="seg" role="group" aria-label="View">
+            <div className="seg" role="group" aria-label={t('Canvas')}>
               <button type="button" className={view === 'org' ? 'on' : ''} aria-pressed={view === 'org'} onClick={() => setView('org')}>
-                Organization
+                {t('Organization')}
               </button>
               <button type="button" className={view === 'flow' ? 'on' : ''} aria-pressed={view === 'flow'} onClick={() => setView('flow')}>
-                Flow
+                {t('Flow')}
               </button>
             </div>
-            <button type="button" className="btn" disabled={!groupable} onClick={groupSelected} title="Shift+click agents to select several">
-              Group selected{groupable > 1 ? ` (${groupable})` : ''}
-            </button>
-            <button type="button" className="btn" onClick={arrange} title="Lay every agent out under the agent that delegates to it, boxes sized to fit">
-              Arrange
-            </button>
-            <button type="button" className="btn" disabled={!undoCount} onClick={undo} title="⌘/Ctrl+Z">
-              Undo
-            </button>
             <span className="spacer" />
-            <div className="zoom" role="group" aria-label="Zoom">
-              <button type="button" className="btn" onClick={() => flow.zoomOut({ duration: 150 })} aria-label="Zoom out">
+            <button type="button" className="icon-tool" disabled={!undoCount} onClick={undo} title={`${t('Undo')} (⌘Z)`} aria-label={t('Undo')}>
+              ↶
+            </button>
+            <div className="zoom" role="group">
+              <button type="button" className="icon-tool" onClick={() => flow.zoomOut({ duration: 150 })} aria-label={t('Zoom out')}>
                 −
               </button>
-              <button type="button" className="btn ghost num" onClick={() => flow.zoomTo(1, { duration: 150 })} title="Reset to 100%">
+              <button type="button" className="icon-tool num" onClick={() => flow.fitView({ padding: 0.2, duration: 250, maxZoom: 1 })} title={t('Fit to screen')}>
                 {Math.round(zoom * 100)}%
               </button>
-              <button type="button" className="btn" onClick={() => flow.zoomIn({ duration: 150 })} aria-label="Zoom in">
+              <button type="button" className="icon-tool" onClick={() => flow.zoomIn({ duration: 150 })} aria-label={t('Zoom in')}>
                 +
               </button>
-              <button type="button" className="btn" onClick={() => flow.fitView({ padding: 0.15, duration: 250 })}>
-                Fit
+            </div>
+            <div className="seg lang" role="group" aria-label={t('Language')}>
+              <button type="button" className={lang === 'ko' ? 'on' : ''} aria-pressed={lang === 'ko'} onClick={() => setLang('ko')}>
+                한
+              </button>
+              <button type="button" className={lang === 'en' ? 'on' : ''} aria-pressed={lang === 'en'} onClick={() => setLang('en')}>
+                EN
               </button>
             </div>
-            <label className="toggle">
-              <input id="showSystem" type="checkbox" checked={showSystem} onChange={(e) => setShowSystem(e.target.checked)} />
-              System agents
-            </label>
-            <label className="toggle">
-              <input id="showInactive" type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
-              Inactive
-            </label>
-            <button type="button" className="btn" onClick={() => Promise.all([reload(), loadOptions()]).then(() => toast('Refreshed')).catch((e) => toast(message(e), true))}>
-              Refresh
-            </button>
-            <button type="button" className="btn palette-toggle" aria-expanded={paletteOpen} onClick={() => setPaletteOpen((v) => !v)}>
-              Blocks
-            </button>
+            <div className="more">
+              <button type="button" className="icon-tool" aria-haspopup="menu" aria-expanded={moreOpen} aria-label={t('More')} onClick={() => setMoreOpen((v) => !v)}>
+                ⋯
+              </button>
+              {moreOpen && (
+                <div className="more-pop" role="menu">
+                  <label className="check">
+                    <input id="showSystem" type="checkbox" checked={showSystem} onChange={(e) => setShowSystem(e.target.checked)} />
+                    <span>{t('Show system agents')}</span>
+                  </label>
+                  <label className="check">
+                    <input id="showInactive" type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
+                    <span>{t('Show inactive agents')}</span>
+                  </label>
+                  <hr />
+                  <button type="button" role="menuitem" onClick={arrange}>
+                    {t('Tidy up layout')}
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => (setMoreOpen(false), setHelpOpen(true))}>
+                    {t('How to read the board')}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      Promise.all([reload(), loadOptions()]).then(() => toast(t('Refreshed'))).catch((e) => toast(message(e), true));
+                    }}
+                  >
+                    {t('Refresh')}
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         )}
       </header>
       <main className="stage">
-        {gate.kind === 'loading' && <div className="notice">Loading agents…</div>}
+        {gate.kind === 'loading' && <div className="notice">{t('Loading agents…')}</div>}
         {gate.kind === 'blocked' && (
           <div className="notice">
             <b>{gate.title}</b>
             <p>{gate.body}</p>
             <a className="btn primary" href="/">
-              Open dashboard
+              {t('Open dashboard')}
             </a>
           </div>
         )}
         {gate.kind === 'ready' && (
-          <BoardEvents.Provider value={{ onGroupResized, dropTarget }}>
-            <Palette board={board} onUse={onPaletteClick} open={paletteOpen} />
-            <div className="flow" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDropTarget(null)}>
+          <BoardEvents.Provider value={{ onGroupResized, dropTarget: drop?.target || null, dropText: drop?.text || null }}>
+            <div className="flow" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => setDrop(null)}>
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
@@ -891,40 +967,69 @@ function Canvas() {
                 maxZoom={1.75}
                 proOptions={{ hideAttribution: true }}
               >
-                <Background gap={22} size={1.2} />
-                <MiniMap pannable zoomable className="minimap" />
+                <Background gap={24} size={1} />
               </ReactFlow>
-              {empty && (
-                <div className="notice overlay">
-                  <b>No agents yet</b>
-                  <p>Drag an Agent block from the palette onto the board{general ? ', or ask General below to suggest a team' : ''}.</p>
+              {view === 'org' && <AddMenu board={board} onUse={onAddClick} />}
+              {empty && view === 'org' && (
+                <div className="empty-card" role="region" aria-label={t('Build your first team')}>
+                  <div className="empty-art" aria-hidden>
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <h2>{t('Build your first team')}</h2>
+                  <p>{t('Add agents, then drop one onto another to decide who hands work to whom.')}</p>
+                  <div className="row-center">
+                    <button type="button" className="btn primary" onClick={() => onAddClick({ kind: 'agent' })}>
+                      {t('Add an agent')}
+                    </button>
+                    <button type="button" className="btn" onClick={() => onAddClick({ kind: 'example' })}>
+                      {t('Start from an example')}
+                    </button>
+                  </div>
                 </div>
               )}
               {connectFrom && (
-                <div className="connect-banner" role="status">
-                  Drop on a highlighted agent: <b>{agents.find((a) => a.agent_id === connectFrom)?.name}</b> will be able to hand tasks to it. Release
-                  anywhere else to cancel.
+                <div className="hint-banner" role="status">
+                  {t('Drop on an agent: {name} will be able to hand work to it. Release anywhere else to cancel.', { name: agents.find((a) => a.agent_id === connectFrom)?.name || '' })}
                 </div>
               )}
-              <Legend view={view} showSystem={showSystem} />
+              {groupable > 1 && view === 'org' && (
+                <div className="selection-bar" role="toolbar">
+                  <span>{t('{n} selected', { n: groupable })}</span>
+                  <button type="button" className="btn primary" onClick={groupSelected}>
+                    {t('Make a team')}
+                  </button>
+                  <button type="button" className="btn ghost" onClick={() => (setSelected([]), flowSetSelected(null))}>
+                    {t('Clear selection')}
+                  </button>
+                </div>
+              )}
+              {helpOpen && <Help view={view} showSystem={showSystem} onClose={closeHelp} />}
+              {!helpOpen && (
+                <button type="button" className="help-btn" onClick={() => setHelpOpen(true)} aria-label={t('Help')} title={t('How to read the board')}>
+                  ?
+                </button>
+              )}
               {general && general.is_active && (
-                <section className={`dock${dockOpen ? ' open' : ''}`} aria-label="Talk to General">
-                  <header>
-                    <span className="an-avatar">G</span>
-                    <b>General</b>
-                    <small className="muted">{modelShort(general)}</small>
-                    <span className="spacer" />
-                    <button
-                      type="button"
-                      className="btn ghost"
-                      aria-expanded={dockOpen}
-                      onClick={() => setDockOpen((v) => (remember('allgres_canvas_dock', !v), !v))}
-                    >
-                      {dockOpen ? 'Hide' : 'Talk to General'}
+                <div className={`ask${chatOpen ? ' open' : ''}`}>
+                  {chatOpen ? (
+                    <section aria-label={t('Ask General')}>
+                      <header>
+                        <b>General</b>
+                        <span className="spacer" />
+                        <button type="button" className="icon-btn" onClick={() => setChatOpen(false)} aria-label={t('Hide')}>
+                          ×
+                        </button>
+                      </header>
+                      <Chat agentId={general.agent_id} agentName="General" />
+                    </section>
+                  ) : (
+                    <button type="button" className="ask-btn" onClick={() => setChatOpen(true)}>
+                      💬 {t('Ask General')}
                     </button>
-                  </header>
-                  {dockOpen && <Chat agentId={general.agent_id} agentName="General" />}
-                </section>
+                  )}
+                </div>
               )}
             </div>
             {view === 'flow' ? (
@@ -943,72 +1048,52 @@ function Canvas() {
   );
 }
 
-// What every mark on the board means, in plain words. Collapsible; the
-// choice is remembered per browser.
-function Legend({ view, showSystem }: { view: 'org' | 'flow'; showSystem: boolean }) {
-  const [open, setOpen] = useState(() => remembered('allgres_canvas_legend', true));
-  const toggle = () => setOpen((v) => (remember('allgres_canvas_legend', !v), !v));
+// What every mark on the board means, in plain words. Shown once on the
+// first visit, then behind the ? button.
+function Help({ view, showSystem, onClose }: { view: 'org' | 'flow'; showSystem: boolean; onClose: () => void }) {
+  const t = useT();
+  const rows: [string, string, string][] =
+    view === 'flow'
+      ? [
+          ['lg-active', 'Handed work', 'A really gave B a task in recent work; ×N is how often.'],
+          ['lg-delegate dim', 'Hands work to', 'Lines that were not used fade out.'],
+        ]
+      : [
+          ['lg-delegate', 'Hands work to', 'A can give B a task. Drag one card onto another to set this up; click the line to remove it.'],
+          ...(showSystem ? ([['lg-parent', 'Inherits', "The lower system agent gets the upper one's abilities and base instructions."]] as [string, string, string][]) : []),
+          ['lg-box', 'Team', 'A box that keeps agents together. It grants nothing by itself.'],
+        ];
   return (
-    <aside className={`legend${open ? ' open' : ''}`} aria-label="How to read the board">
-      <button type="button" className="legend-toggle" aria-expanded={open} onClick={toggle}>
-        {open ? 'How to read the board ▾' : 'Legend ▸'}
-      </button>
-      {open && (
-        <dl>
-          {view === 'flow' ? (
-            <>
-              <dt>
-                <i className="lg-active" />
-              </dt>
-              <dd>
-                <b>Handed work</b> — A gave B a task (delegate) in recent sessions; ×N is how often. Pick a session on the right to replay one.
-              </dd>
-              <dt>
-                <i className="lg-delegate dim" />
-              </dt>
-              <dd>Permission lines, faded: who <em>may</em> delegate, used or not.</dd>
-            </>
-          ) : (
-            <>
-              <dt>
-                <i className="lg-delegate" />
-              </dt>
-              <dd>
-                <b>Can delegate to</b> — A may hand tasks to B. Drag from an agent's <span className="kbd">+</span> to another agent to add one; click a
-                line to remove it.
-              </dd>
-              {showSystem && (
-                <>
-                  <dt>
-                    <i className="lg-parent" />
-                  </dt>
-                  <dd>
-                    <b>Inherits</b> — the child gets the parent's skills and base prompt (system agents). Shown as “+N inherited” on the card.
-                  </dd>
-                </>
-              )}
-              <dt>
-                <i className="lg-box" />
-              </dt>
-              <dd>
-                <b>Group box</b> — a team or division. Only arranges agents; grants nothing.
-              </dd>
-            </>
-          )}
-        </dl>
-      )}
+    <aside className="help" aria-label={t('How to read the board')}>
+      <h3>{t('How to read the board')}</h3>
+      <dl>
+        {rows.map(([cls, title, body]) => (
+          <div className="help-row" key={title}>
+            <dt>
+              <i className={cls} />
+            </dt>
+            <dd>
+              <b>{t(title)}</b>
+              <span>{t(body)}</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <div className="row-end">
+        <button type="button" className="btn primary" onClick={onClose}>
+          {t('Got it')}
+        </button>
+      </div>
     </aside>
   );
 }
 
-function modelShort(a: Agent) {
-  return a.llm_config?.model || 'no model';
-}
-
 export function App() {
   return (
-    <ReactFlowProvider>
-      <Canvas />
-    </ReactFlowProvider>
+    <LangProvider>
+      <ReactFlowProvider>
+        <Canvas />
+      </ReactFlowProvider>
+    </LangProvider>
   );
 }

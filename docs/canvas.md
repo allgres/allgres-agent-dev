@@ -32,7 +32,7 @@ selection and an undo list.
   carries no permissions.
 - **System agents** sit in their own frame, joined by orange **"inherits"**
   arrows from parent to child (`parent_agent_id`). A card shows "+N
-  inherited" for skills that come down that chain, and the Skills tab lists
+  inherited" for abilities that come down that chain, and the panel's Abilities lists
   them with where each comes from. That column is their permission and
   prompt inheritance edge, so Canvas never sets it, and their grants and
   prompts are changed only from SQL. Their autonomy level is the one dial
@@ -45,19 +45,29 @@ first agent that may delegate to it, inside its group.
 
 ## Working on the board
 
+Canvas is built for someone arranging a team, not editing a database: the
+board shows only the agents and teams, everything is added from one **+ Add**
+button, and abilities are named in plain words ("Read web pages", "Read: My
+tasks") with the stored name in a tooltip. It speaks English and Korean
+(한/EN in the top bar; the first visit follows the browser language).
+
 | To | Do |
 |---|---|
-| Create an agent | Drag **Agent** from the palette (or click it). Without a provider and model it is saved as an inactive draft, the same rule as the Agents page. |
-| Create a group | Drag **Group box**, or Shift+click several agents and press **Group selected**. |
-| Move into a group | Drag an agent or a group onto a box. Drag it out to take it out. |
-| Give a skill | Drag a function, procedure, or view from the palette onto an agent, or use the agent's **Skills** tab. **HTTP host…** asks for a host name. |
-| Let one agent delegate to another | Drag from its bottom dot to the other agent. |
-| Talk to an agent | Its **Chat** tab, or the **General** dock for `general`. Same conversation as the dashboard's Chat page (`chat.send`). |
-| Give a task | The agent's **History** tab, **Start task**. |
-| Change model, prompt, limits | The agent's **Settings** tab (`agents.update`). |
-| Reuse a team | Select a group, **Save as configuration**, then drag it from the palette. |
-| Tidy the board | **Arrange** lays every agent out under the agent that may delegate to it and sizes boxes to fit, then saves those positions. Undo puts the old ones back. |
-| Undo | **Undo** or ⌘/Ctrl+Z. Creating an agent is undone by deactivating it; agents are never deleted from Canvas. Merging and deleting groups and placing a saved configuration ask first instead. |
+| Add an agent, a team, or a saved team | **+ Add**, then click a row (it lands in the middle, or in the selected team) or drag it to a spot. A new agent without a model is saved turned off, the same rule as the Agents page. |
+| Start from something | On an empty board, **Start from an example**, or **+ Add → Example team**: a lead and two members, turned off until they have a model. |
+| Put one agent under another | Drag its card onto the other agent's card. The upper agent may now hand it work (the line), it joins the upper agent's team, and it sits just below. One undo reverses all three. |
+| Let an agent hand work without moving it | Drag from the **+** under its card to another agent (every agent that can take the line lights up), or use **Hands work to** in its panel. Click a line to remove it. |
+| Make a team from agents | Shift+click them, then **Make a team** in the bar that appears. |
+| Move into or out of a team | Drag a card or a box onto a box; it is pulled fully inside. Drag it out to take it out, or use **In team** in the panel. |
+| Choose a model, turn an agent on | Its panel: **Model** and the on/off switch. A card says **Needs a model** until it has one. |
+| Change what it does, its abilities | Its panel: **What it does**, **Abilities**. Limits and the per-task model option sit under **Advanced**. |
+| Talk to an agent, give it a task | **Chat** and **Activity** in its panel, or **Ask General** in the corner. Same conversation as the dashboard's Chat page (`chat.send`). |
+| Reuse a team | Select its box, **Save as a reusable team**, then add it from **+ Add**. |
+| Tidy up | **⋯ → Tidy up layout** lays every agent out under the one that hands it work and sizes boxes to fit. |
+| Undo | **↶** or ⌘/Ctrl+Z. Creating an agent is undone by turning it off; agents are never deleted from Canvas. Merging and deleting teams ask first instead. |
+
+System agents are hidden until **⋯ → Show system agents**. **?** in the
+corner explains every mark on the board.
 
 **Flow** fades the permission lines and draws, in green, every hand-off that
 actually happened in the last 500 tasks, with how many times ("handed work
