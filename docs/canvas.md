@@ -67,7 +67,11 @@ tasks") with the stored name in a tooltip. It speaks English and Korean
 | Undo | **↶** or ⌘/Ctrl+Z. Creating an agent is undone by turning it off; agents are never deleted from Canvas. Merging and deleting teams ask first instead. |
 
 System agents are hidden until **⋯ → Show system agents**. **?** in the
-corner explains every mark on the board.
+corner explains every mark on the board. Right-click a card, a team box, or
+an empty spot for the same actions without dragging ("Put under…", turn on
+or off, new agent here). Opened in a tab that is not signed in, Canvas asks
+for the admin account (or the dashboard token) in place, and the dashboard
+in that tab is signed in too.
 
 **Flow** fades the permission lines and draws, in green, every hand-off that
 actually happened in the last 500 tasks, with how many times ("handed work
@@ -133,10 +137,10 @@ Everything else Canvas does uses existing actions: `agents.list`,
 ## Signing in
 
 Canvas calls `/api/v1/rpc` with the same `X-Allgres-Client` header and the
-dashboard token and login session from the tab's `sessionStorage`. That is
-why the menu opens it in the same tab: a new tab starts with an empty
-`sessionStorage` and would ask you to sign in again. A regular user who opens
-`/canvas` sees "Admins only". Chat and the model pickers need a signed-in
+dashboard token and login session from the tab's `sessionStorage`
+(`allgres_token`, `allgres_session_token`). A tab with neither asks for them
+on the spot and stores them under the same keys the dashboard uses. A
+regular user sees "Admins only". Chat and the model pickers need a signed-in
 account.
 
 ## Not yet

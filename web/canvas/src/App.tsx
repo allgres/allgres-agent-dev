@@ -24,7 +24,8 @@ import { abilityLabel } from './labels';
 import { BoardEvents, nodeTypes } from './nodes';
 import { useDialog, useToast } from './ui';
 
-type Gate = { kind: 'loading' } | { kind: 'blocked'; title: string; body: string } | { kind: 'ready' };
+type Fix = 'login' | 'token' | null;
+type Gate = { kind: 'loading' } | { kind: 'blocked'; title: string; body: string; fix: Fix } | { kind: 'ready' };
 type XY = { x: number; y: number };
 
 const EMPTY_STATE: CanvasState = { groups: [], members: [], positions: [], templates: [] };
@@ -55,13 +56,63 @@ function remember(key: string, v: boolean) {
   }
 }
 
-function explain(t: T, e: unknown): { title: string; body: string } {
+function explain(t: T, e: unknown): { title: string; body: string; fix: Fix } {
   const code = e instanceof RpcError ? e.code : String(e);
-  if (code === 'unauthorized')
-    return { title: t('Dashboard token required'), body: t('Open the dashboard in this tab, enter the dashboard token, then come back to Canvas.') };
-  if (/not logged in/i.test(code)) return { title: t('Sign in first'), body: t('Sign in on the dashboard in this tab, then open Canvas from the menu.') };
-  if (/admin/i.test(code)) return { title: t('Admins only'), body: t('Canvas shows and changes every agent and its grants, so it needs an admin account.') };
-  return { title: t('Canvas could not load'), body: code };
+  if (code === 'unauthorized') return { title: t('Dashboard token required'), body: t('Enter the dashboard token this server was started with.'), fix: 'token' };
+  if (/not logged in/i.test(code)) return { title: t('Sign in to Canvas'), body: t('Use your admin account, the same one as the dashboard.'), fix: 'login' };
+  if (/admin/i.test(code)) return { title: t('Admins only'), body: t('Canvas shows and changes every agent and its grants, so it needs an admin account.'), fix: null };
+  return { title: t('Canvas could not load'), body: code, fix: null };
+}
+
+// Signing in right here, instead of sending people back to the dashboard and
+// asking them to find Canvas again. Same sessionStorage keys as the dashboard,
+// so the dashboard in this tab is signed in too.
+function SignIn({ fix, onDone }: { fix: 'login' | 'token'; onDone: () => void }) {
+  const t = useT();
+  const [user, setUser] = useState('');
+  const [pass, setPass] = useState('');
+  const [token, setToken] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (fix === 'token') {
+        sessionStorage.setItem('allgres_token', token.trim());
+      } else {
+        const r = await rpc<{ session_token: string }>('auth.login', { username: user.trim(), password: pass });
+        sessionStorage.setItem('allgres_session_token', r.session_token);
+      }
+      onDone();
+    } catch (e) {
+      setError(/invalid|password|credentials|not found/i.test(message(e)) ? t('That username and password did not match.') : message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      className="signin"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      {fix === 'token' ? (
+        <input type="password" aria-label={t('Dashboard token')} placeholder={t('Dashboard token')} value={token} onChange={(e) => setToken(e.target.value)} autoFocus />
+      ) : (
+        <>
+          <input aria-label={t('Username')} placeholder={t('Username')} autoComplete="username" value={user} onChange={(e) => setUser(e.target.value)} autoFocus />
+          <input type="password" aria-label={t('Password')} placeholder={t('Password')} autoComplete="current-password" value={pass} onChange={(e) => setPass(e.target.value)} />
+        </>
+      )}
+      {error && <p className="error-text small">{error}</p>}
+      <button type="submit" className="btn primary" disabled={busy || (fix === 'token' ? !token.trim() : !user.trim() || !pass)}>
+        {t(fix === 'token' ? 'Continue' : 'Sign in')}
+      </button>
+    </form>
+  );
 }
 
 const message = (e: unknown) => (e instanceof RpcError ? e.code : e instanceof Error ? e.message : String(e));
@@ -89,6 +140,8 @@ function Canvas() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(() => !remembered('allgres_canvas_help_seen', false));
   const [chatOpen, setChatOpen] = useState(false);
+  // Secondary click: what can be done with this card, box, or spot.
+  const [ctx, setCtx] = useState<{ x: number; y: number; kind: 'agent' | 'group' | 'pane'; id?: string; at: XY } | null>(null);
   const [undoCount, setUndoCount] = useState(0);
   const undos = useRef<Undo[]>([]);
   const flow = useReactFlow();
@@ -115,20 +168,23 @@ function Canvas() {
     setOptions({ views: o.views || [], functions: o.functions || [], procedures: o.procedures || [] });
   }, []);
 
+  const start = useCallback(async () => {
+    setGate({ kind: 'loading' });
+    try {
+      await reload();
+      await loadOptions();
+      setGate({ kind: 'ready' });
+    } catch (e) {
+      setGate({ kind: 'blocked', ...explain(t, e) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reload, loadOptions]);
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme());
     document.documentElement.lang = lang;
-    (async () => {
-      try {
-        await reload();
-        await loadOptions();
-        setGate({ kind: 'ready' });
-      } catch (e) {
-        setGate({ kind: 'blocked', ...explain(t, e) });
-      }
-    })();
+    start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reload, loadOptions]);
+  }, [start]);
 
   // Other operators, the dashboard, and agents themselves change this data,
   // so the board re-reads it whenever the tab comes back into view.
@@ -182,6 +238,7 @@ function Canvas() {
       }
       if (e.key === 'Escape' && !inputFocused()) {
         setMoreOpen(false);
+        setCtx(null);
         setSelected([]);
         flowSetSelected(null);
       }
@@ -831,6 +888,79 @@ function Canvas() {
     createGroup({ x, y }, parents.size === 1 ? [...parents][0] : null, ids, { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
   };
 
+  // ------------------------------------------------------- context menu
+  const toggleAgent = (a: Agent) => {
+    if (!a.is_active && !a.llm_config?.model) return toast(t('Choose a model before turning this agent on.'), true);
+    const on = !a.is_active;
+    const label = t(on ? '{name} is on' : '{name} is off', { name: a.name });
+    act(label, async () => {
+      await rpc('agents.update', { agent_id: a.agent_id, is_active: on });
+      return { label, run: () => rpc('agents.update', { agent_id: a.agent_id, is_active: !on }) };
+    });
+  };
+  const askPutUnder = async (a: Agent) => {
+    const choices = agents.filter((x) => x.agent_id !== a.agent_id && !x.is_system && !delegates(x, a));
+    if (!choices.length) return;
+    const v = await ask({
+      title: t('Put {name} under…', { name: a.name }),
+      body: <p>{t('The agent you choose will be able to hand {name} work.', { name: a.name })}</p>,
+      fields: [{ name: 'parent', label: t('Under'), type: 'select', options: choices.map((x) => [x.agent_id, x.name]) }],
+      submit: t('Put under'),
+    });
+    const parent = v && agents.find((x) => x.agent_id === v.parent);
+    if (parent) putUnder(a, parent);
+  };
+  const menuItems = (): [string, () => void, boolean?][] => {
+    if (!ctx) return [];
+    if (ctx.kind === 'pane')
+      return [
+        [t('New agent here'), () => createAgent(ctx.at, groupAt(ctx.at))],
+        [t('New team here'), () => createGroup(ctx.at, groupAt(ctx.at))],
+        [t('Tidy up layout'), arrange],
+      ];
+    if (ctx.kind === 'group') {
+      const g = state.groups.find((x) => x.group_id === ctx.id);
+      if (!g) return [];
+      const box = absOf(groupNodeId(g.group_id));
+      const size = sizeOf(groupNodeId(g.group_id));
+      return [
+        [t('Open details'), () => select(groupNodeId(g.group_id))],
+        [t('Add an agent here'), () => createAgent(box ? { x: box.x + size.w / 2, y: box.y + size.h / 2 } : ctx.at, g.group_id)],
+        [
+          t('Delete team'),
+          async () => {
+            if (await confirm(t('Delete {name}?', { name: g.name }), <p>{t('The box goes away; its agents stay on the board.')}</p>, t('Delete team'), true))
+              act(t('Deleted {name}', { name: g.name }), async () => void (await rpc('canvas.groups.delete', { group_id: g.group_id })));
+          },
+          true,
+        ],
+      ];
+    }
+    const a = agents.find((x) => x.agent_id === ctx.id);
+    if (!a) return [];
+    if (a.is_system) return [[t('Open details'), () => select(a.agent_id)]];
+    const team = groupOf(state, a.agent_id);
+    return [
+      [t('Open details'), () => select(a.agent_id)],
+      [t('Put under…'), () => askPutUnder(a)],
+      [t(a.is_active ? 'Turn off' : 'Turn on'), () => toggleAgent(a)],
+      ...(team
+        ? ([
+            [
+              t('Take out of the team'),
+              () => {
+                const label = t('Moved out of the team');
+                act(label, async () => {
+                  await rpc('canvas.groups.set_member', { agent_id: a.agent_id, group_id: null });
+                  return { label, run: () => rpc('canvas.groups.set_member', { agent_id: a.agent_id, group_id: team }) };
+                });
+              },
+            ],
+          ] as [string, () => void][])
+        : []),
+    ];
+  };
+
   // --------------------------------------------------------------- render
   const one = selected.length === 1 ? selected[0] : null;
   const current = one && !isGroupNode(one) ? agents.find((a) => a.agent_id === one) || null : null;
@@ -922,12 +1052,16 @@ function Canvas() {
       <main className="stage">
         {gate.kind === 'loading' && <div className="notice">{t('Loading agents…')}</div>}
         {gate.kind === 'blocked' && (
-          <div className="notice">
+          <div className="notice card">
             <b>{gate.title}</b>
             <p>{gate.body}</p>
-            <a className="btn primary" href="/">
-              {t('Open dashboard')}
-            </a>
+            {gate.fix ? (
+              <SignIn fix={gate.fix} onDone={start} />
+            ) : (
+              <a className="btn primary" href="/">
+                {t('Open dashboard')}
+              </a>
+            )}
           </div>
         )}
         {gate.kind === 'ready' && (
@@ -958,6 +1092,17 @@ function Canvas() {
                 connectionRadius={36}
                 connectionLineStyle={{ stroke: LINE.delegate.color, strokeWidth: 2.4, strokeDasharray: '6 5' }}
                 onEdgeClick={onEdgeClick}
+                onNodeContextMenu={(e, n) => {
+                  e.preventDefault();
+                  if (n.type === 'frame') return;
+                  setCtx({ x: e.clientX, y: e.clientY, kind: isGroupNode(n.id) ? 'group' : 'agent', id: isGroupNode(n.id) ? groupIdOf(n.id) : n.id, at: flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
+                }}
+                onPaneContextMenu={(e) => {
+                  e.preventDefault();
+                  if (view === 'org') setCtx({ x: e.clientX, y: e.clientY, kind: 'pane', at: flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
+                }}
+                onPaneClick={() => setCtx(null)}
+                onMoveStart={() => setCtx(null)}
                 isValidConnection={(c) => c.source !== c.target && !isGroupNode(c.source) && !isGroupNode(c.target)}
                 deleteKeyCode={null}
                 multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
@@ -1004,6 +1149,27 @@ function Canvas() {
                     {t('Clear selection')}
                   </button>
                 </div>
+              )}
+              {ctx && (
+                <>
+                  <div className="ctx-back" onMouseDown={() => setCtx(null)} onContextMenu={(e) => (e.preventDefault(), setCtx(null))} />
+                  <div className="ctx-menu" role="menu" style={{ left: Math.min(ctx.x, window.innerWidth - 230), top: Math.min(ctx.y, window.innerHeight - 200) }}>
+                    {menuItems().map(([label, run, danger]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        role="menuitem"
+                        className={danger ? 'danger' : ''}
+                        onClick={() => {
+                          setCtx(null);
+                          run();
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
               {helpOpen && <Help view={view} showSystem={showSystem} onClose={closeHelp} />}
               {!helpOpen && (
@@ -1079,6 +1245,7 @@ function Help({ view, showSystem, onClose }: { view: 'org' | 'flow'; showSystem:
           </div>
         ))}
       </dl>
+      <p className="muted small help-tip">{t('Right-click a card or the board for more.')}</p>
       <div className="row-end">
         <button type="button" className="btn primary" onClick={onClose}>
           {t('Got it')}
