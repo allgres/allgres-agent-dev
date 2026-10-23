@@ -1010,7 +1010,7 @@ function Canvas() {
   const currentGroup = one && isGroupNode(one) ? state.groups.find((g) => g.group_id === groupIdOf(one)) || null : null;
   const groupable = selected.filter((id) => !isGroupNode(id) && agents.some((a) => a.agent_id === id && !a.is_system)).length;
   const general = agentByName(agents, 'general');
-  const empty = agents.filter((a) => !a.is_system && a.name !== 'general').length === 0 && state.groups.length === 0;
+  const empty = agents.filter((a) => !a.is_system && !SEEDED.has(a.name)).length === 0 && state.groups.length === 0;
   const closeHelp = () => (remember('allgres_canvas_help_seen', true), setHelpOpen(false));
   // Opening the panel narrows the board; keep what was just selected in view
   // instead of leaving it behind the panel or off the edge.

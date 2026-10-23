@@ -152,6 +152,40 @@ test('registered functions are offered as grant choices', async ({ page }) => {
   await expect(page.getByLabel('Add an ability').locator(`option[value="function:${fn}"]`)).toHaveCount(1);
 });
 
+// A fresh install (only the seeded general/analyst/health_monitor besides
+// system agents, no teams) shows the "Build your first team" card. The board
+// is narrowed to that state by rewriting canvas.state, so the test does not
+// depend on what earlier tests or suites created.
+test('canvas empty state ignores the seeded agents', async ({ page }) => {
+  const SEEDED = ['general', 'analyst', 'health_monitor'];
+  let keep = SEEDED;
+  await page.route('**/api/v1/rpc', async route => {
+    const body = route.request().postDataJSON?.() ?? null;
+    if (!body || body.action !== 'canvas.state') return route.continue();
+    const res = await route.fetch();
+    const j = await res.json();
+    j.agents = (j.agents || []).filter(a => a.is_system || keep.includes(a.name));
+    j.groups = [];
+    return route.fulfill({ response: res, json: j });
+  });
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.goto(baseURL + '/canvas');
+  const gotIt = page.getByRole('button', { name: 'Got it' });
+  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+  await expect(page.locator('.agent-node', { hasText: 'analyst' }).first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Build your first team' })).toBeVisible();
+  // One agent of the operator's own and the card goes away.
+  const agents = await page.evaluate(async () => (await (await fetch('/api/v1/rpc', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+    body: JSON.stringify({ action: 'agents.list', session_token: sessionStorage.getItem('allgres_session_token') }) })).json()).agents);
+  const own = agents.find(a => !a.is_system && !SEEDED.includes(a.name));
+  expect(own, 'an earlier test created an agent of its own').toBeTruthy();
+  keep = [...SEEDED, own.name];
+  await page.reload();
+  await expect(page.locator(`.agent-node[data-agent="${own.name}"]`)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Build your first team' })).toHaveCount(0);
+});
+
 test('admin data tables fit a narrow viewport', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await login(page, 'ui_admin', 'ui-admin-password');
