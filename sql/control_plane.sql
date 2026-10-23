@@ -659,6 +659,48 @@ AS $fn$
   WHERE p.resource_type = p_resource_type
 $fn$;
 
+-- Built-ins and PL/pgSQL Functions may be granted directly. Unknown names
+-- remain grantable so operators can grant before registering a Function.
+CREATE OR REPLACE FUNCTION allgres_private.function_ref_directly_grantable(p_ref text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT lower(btrim(p_ref)) IN ('http_get', 'http_request') OR NOT EXISTS (
+    SELECT 1 FROM allgres_private.functions
+    WHERE lower(name) = lower(btrim(p_ref)) AND handler <> 'plpgsql'
+  )
+$fn$;
+
+-- A direct row naming a fixed-URL http_get or MCP Function is inert;
+-- such a Function runs only through a held procedure.
+CREATE OR REPLACE FUNCTION allgres_private.agent_has_direct_function(p_agent_id uuid, p_ref text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT allgres_private.agent_has_permission(p_agent_id, 'function', p_ref)
+    AND allgres_private.function_ref_directly_grantable(p_ref)
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.agent_procedure_for_function(
+  p_agent_id uuid, p_function_id uuid, p_procedure_id uuid DEFAULT NULL
+) RETURNS uuid
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT p.procedure_id
+  FROM allgres_private.procedures p
+  JOIN allgres_private.procedure_function_bindings b USING (procedure_id)
+  WHERE b.function_id = p_function_id AND p.is_active
+    AND allgres_private.agent_has_permission(p_agent_id, 'procedure', p.name)
+    AND (p_procedure_id IS NULL OR p.procedure_id = p_procedure_id)
+  ORDER BY p.procedure_id LIMIT 1
+$fn$;
+
 -- A system agent's own system_prompt is only its specific instructions
 -- ("you compact long sessions"); the shared "you are one of Allgres's own
 -- system agents, operate under the autonomy_level set for you" framing
@@ -4719,7 +4761,7 @@ BEGIN
     -- never replaced by anything fixed.
     v_orig_args := v_args;
     v_call_kind := 'function';
-    v_allowed := allgres_private.agent_has_permission(t.agent_id, 'function', v_function);
+    v_allowed := allgres_private.agent_has_direct_function(t.agent_id, v_function);
     -- A directly granted, operator-authored PL/pgSQL Function is callable
     -- by its registered name just like a Procedure-bound one. Previously a
     -- direct grant passed the permission check and then fell through to the
@@ -4739,10 +4781,6 @@ BEGIN
         PERFORM allgres_private.mark_capability_selected(p_task_id,'function',v_procedure_function.name);
         UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
         RETURN jsonb_build_object('action','call_function','function',v_function,'call_id',v_call);
-      ELSIF FOUND AND v_procedure_function.handler <> 'plpgsql'
-          AND lower(btrim(v_function)) NOT IN ('http_get', 'http_request') THEN
-        -- Legacy or pre-registration direct grants must not shadow a procedure binding.
-        v_allowed := false;
       END IF;
     END IF;
     IF NOT v_allowed THEN
@@ -4757,17 +4795,10 @@ BEGIN
       IF FOUND THEN
         v_procedure_bound := true;
         -- Which specific procedure this function resolved through (a function may
-        -- be bound to more than one procedure_function_bindings row) -- picked
-        -- with the exact same WHERE/LIMIT 1 as just above so it always
-        -- names the one that actually granted this call, not just any
-        -- procedure the function happens to also be bound to.
-        SELECT pr.procedure_id INTO v_bound_procedure_id
-        FROM allgres_private.procedure_function_bindings pb
-        JOIN allgres_private.procedures pr USING (procedure_id)
-        WHERE pb.function_id = v_procedure_function.function_id
-          AND pr.is_active
-          AND pr.name = ANY(allgres_private.agent_permission_refs(t.agent_id, 'procedure'))
-        LIMIT 1;
+        -- be bound to more than one procedure_function_bindings row).
+        -- Choose an active, held procedure deterministically, as at claim time.
+        v_bound_procedure_id := allgres_private.agent_procedure_for_function(
+          t.agent_id, v_procedure_function.function_id);
         -- A plpgsql-handler Function is queued and returned here, entirely
         -- separately from the http_get/http_request logic below: it is
         -- not an outbound HTTP call at all (see allgres_private.

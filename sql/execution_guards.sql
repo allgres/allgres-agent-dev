@@ -231,13 +231,15 @@ BEGIN
     SELECT * INTO f FROM allgres_private.functions
     WHERE function_id = COALESCE((q->>'function_id')::uuid, (q->>'procedure_function_id')::uuid);
     v_resource := COALESCE(f.name, q->>'function');
-    IF NOT allgres_private.agent_has_permission(t.agent_id, 'function', v_resource) THEN
-      SELECT p.* INTO pr FROM allgres_private.procedures p
-      JOIN allgres_private.procedure_function_bindings b USING (procedure_id)
-      WHERE b.function_id = f.function_id AND p.is_active
-        AND allgres_private.agent_has_permission(t.agent_id, 'procedure', p.name)
-        AND (q->>'procedure_id' IS NULL OR p.procedure_id = (q->>'procedure_id')::uuid)
-      ORDER BY p.procedure_id LIMIT 1;
+    IF q->>'procedure_id' IS NOT NULL THEN
+      -- Queued through a procedure: judge by that procedure only.
+      SELECT * INTO pr FROM allgres_private.procedures
+      WHERE procedure_id = allgres_private.agent_procedure_for_function(
+        t.agent_id, f.function_id, (q->>'procedure_id')::uuid);
+      IF NOT FOUND THEN v_reason := 'function_not_permitted'; END IF;
+    ELSIF NOT allgres_private.agent_has_direct_function(t.agent_id, v_resource) THEN
+      SELECT * INTO pr FROM allgres_private.procedures
+      WHERE procedure_id = allgres_private.agent_procedure_for_function(t.agent_id, f.function_id);
       IF NOT FOUND THEN v_reason := 'function_not_permitted'; END IF;
     END IF;
     IF f.function_id IS NOT NULL AND (NOT f.is_active OR
@@ -245,6 +247,8 @@ BEGIN
       v_reason := 'function_unavailable';
     END IF;
     IF p_queue = 'outbound_calls' AND pr.procedure_id IS NULL
+       -- Preserve a missing/revoked procedure failure over the host fallback.
+       AND v_reason IS DISTINCT FROM 'function_not_permitted'
        AND NOT allgres_private.agent_has_permission(t.agent_id, 'http_host', allgres_private.url_host(q->>'url')) THEN
       v_reason := 'http_host_not_permitted';
     END IF;

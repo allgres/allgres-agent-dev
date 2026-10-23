@@ -5856,6 +5856,11 @@ BEGIN
                    WHERE allgres_private.pgcrypto_schema() IS NOT NULL);
     v_n int := 0;
     o jsonb;
+    v_call uuid;
+    v_other_call uuid;
+    v_other_tid uuid;
+    v_claim jsonb;
+    v_claimed jsonb;
   BEGIN
     v_conn := (allgres_public.fn_create_connection('selftest_d3_conn', 'https://mcp.selftest-d3.invalid/mcp')->>'connection_id')::uuid;
     v_fn := (allgres_public.fn_create_function('selftest_d3_web_search', 'search the web', 'mcp_call',
@@ -5920,7 +5925,18 @@ BEGIN
                   WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'function_not_permitted');
     v := v || jsonb_build_array(jsonb_build_object('name', 'direct_mcp_function_row_does_not_run', 'ok', ok, 'detail', r));
 
-    -- A legacy direct row must not hide a valid procedure grant.
+    -- Inert rows must not create delegation gaps that cannot be closed:
+    -- check_grant_target refuses granting them to the superior.
+    v_ag := (allgres_public.fn_create_agent('selftest_d3_superior', 'delegate')->>'agent_id')::uuid;
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'agent', 'selftest_d3_researcher');
+    ok := allgres_private.canvas_delegation_gaps(v_ag,
+      (SELECT agent_id FROM allgres_private.agents WHERE name = 'selftest_d3_researcher')) = '[]'::jsonb;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'inert_function_row_does_not_create_delegation_gap', 'ok', ok));
+
+    -- A legacy direct row must not hide a valid procedure grant at enqueue
+    -- or claim. These claims may also consume earlier selftest queue rows;
+    -- no remaining cases depend on those rows staying queued, and the whole
+    -- selftest rolls back. Exercise the actual worker handoff JSON.
     v_ag := (allgres_public.fn_create_agent('selftest_d3_legacy', 'fixed page')->>'agent_id')::uuid;
     SELECT function_id INTO v_fn FROM allgres_private.functions WHERE name = 'selftest_d3_fixed';
     INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
@@ -5934,19 +5950,29 @@ BEGIN
     r := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
       'type', 'llm_response', 'content', '{"action":"call_function"}',
       'parsed', jsonb_build_object('action', 'call_function', 'function', 'selftest_d3_fixed')));
+    v_call := (r->>'call_id')::uuid;
+    v_claimed := '[]'::jsonb;
+    FOR i IN 1..20 LOOP
+      v_claim := allgres_public.fn_claim_outbound(16);
+      v_claimed := v_claimed || (v_claim->'calls');
+      EXIT WHEN v_claimed @> jsonb_build_array(jsonb_build_object('call_id', v_call))
+        OR (v_claim->>'count')::int = 0;
+    END LOOP;
     ok := r->>'action' = 'call_function' AND r->>'call_id' IS NOT NULL
+      AND v_claimed @> jsonb_build_array(jsonb_build_object('call_id', v_call))
       AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls
-                  WHERE call_id = (r->>'call_id')::uuid AND procedure_function_id = v_fn AND procedure_id = v_proc)
+                  WHERE call_id = v_call AND procedure_function_id = v_fn AND procedure_id = v_proc AND status = 'in_flight')
       AND NOT EXISTS (SELECT 1 FROM allgres_private.execution_logs
-                      WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'unknown_function');
+                      WHERE task_id = v_tid AND role = 'error'
+                        AND content->>'reason' IN ('unknown_function', 'http_host_not_permitted', 'function_not_permitted'));
     v := v || jsonb_build_array(jsonb_build_object('name', 'direct_function_row_does_not_shadow_procedure', 'ok', ok, 'detail', r));
 
     -- A direct grant made before registration has the same procedure fallback.
-    v_ag := (allgres_public.fn_create_agent('selftest_d3_preregister', 'fixed page')->>'agent_id')::uuid;
-    o := allgres_public.fn_grant_permission(v_ag, 'function', 'selftest_d3_future_fixed');
-    v_fn := (allgres_public.fn_create_function('selftest_d3_future_fixed', 'future fixed page', 'http_get',
-      jsonb_build_object('url', 'https://fixed.selftest-d3.invalid/future'))->>'function_id')::uuid;
-    v_proc := (allgres_public.fn_create_procedure('selftest_d3_preregister_procedure', 'get the future fixed page')->>'procedure_id')::uuid;
+    v_ag := (allgres_public.fn_create_agent('selftest_d3_preregister', 'MCP tool')->>'agent_id')::uuid;
+    o := allgres_public.fn_grant_permission(v_ag, 'function', 'selftest_d3_future_mcp');
+    v_fn := (allgres_public.fn_create_function('selftest_d3_future_mcp', 'future MCP tool', 'mcp_call',
+      jsonb_build_object('tool', 'future_tool'), NULL, NULL, NULL, v_conn)->>'function_id')::uuid;
+    v_proc := (allgres_public.fn_create_procedure('selftest_d3_preregister_procedure', 'call the future MCP tool')->>'procedure_id')::uuid;
     PERFORM allgres_public.fn_bind_procedure_function(v_proc, v_fn);
     PERFORM allgres_public.fn_grant_permission(v_ag, 'procedure', 'selftest_d3_preregister_procedure');
     v_sid := (allgres_public.fn_create_session(v_ag, 'selftest d3 grant before registration')->>'session_id')::uuid;
@@ -5954,13 +5980,96 @@ BEGIN
     PERFORM allgres_public.fn_next_step(v_tid);
     r := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
       'type', 'llm_response', 'content', '{"action":"call_function"}',
-      'parsed', jsonb_build_object('action', 'call_function', 'function', 'selftest_d3_future_fixed')));
+      'parsed', jsonb_build_object('action', 'call_function', 'function', 'selftest_d3_future_mcp')));
+    v_call := (r->>'call_id')::uuid;
+    v_claimed := '[]'::jsonb;
+    FOR i IN 1..20 LOOP
+      v_claim := allgres_public.fn_claim_outbound(16);
+      v_claimed := v_claimed || (v_claim->'calls');
+      EXIT WHEN v_claimed @> jsonb_build_array(jsonb_build_object('call_id', v_call))
+        OR (v_claim->>'count')::int = 0;
+    END LOOP;
     ok := (o->>'ok')::boolean AND r->>'action' = 'call_function' AND r->>'call_id' IS NOT NULL
+      AND v_claimed @> jsonb_build_array(jsonb_build_object('call_id', v_call))
       AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls
-                  WHERE call_id = (r->>'call_id')::uuid AND procedure_function_id = v_fn AND procedure_id = v_proc)
+                  WHERE call_id = v_call AND procedure_function_id = v_fn AND procedure_id = v_proc AND status = 'in_flight')
       AND NOT EXISTS (SELECT 1 FROM allgres_private.execution_logs
-                      WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'unknown_function');
+                      WHERE task_id = v_tid AND role = 'error'
+                        AND content->>'reason' IN ('unknown_function', 'http_host_not_permitted', 'function_not_permitted'));
     v := v || jsonb_build_array(jsonb_build_object('name', 'grant_before_register_does_not_shadow_procedure', 'ok', ok, 'detail', r));
+
+    -- Neither the inert direct row nor another held binding may rescue a
+    -- call whose specific queued procedure was revoked before claim.
+    v_sid := (allgres_public.fn_create_session(v_ag, 'selftest d3 revoke before claim')->>'session_id')::uuid;
+    SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+    PERFORM allgres_public.fn_next_step(v_tid);
+    r := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+      'type', 'llm_response', 'content', '{"action":"call_function"}',
+      'parsed', jsonb_build_object('action', 'call_function', 'function', 'selftest_d3_future_mcp')));
+    v_call := (r->>'call_id')::uuid;
+    ok := v_call IS NOT NULL AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls
+      WHERE call_id = v_call AND procedure_id = v_proc AND status = 'queued');
+    PERFORM allgres_public.fn_revoke_permission(v_ag, 'procedure', 'selftest_d3_preregister_procedure');
+    PERFORM allgres_public.fn_bind_procedure_function(
+      (SELECT procedure_id FROM allgres_private.procedures WHERE name = 'selftest_d3_legacy_procedure'), v_fn);
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'procedure', 'selftest_d3_legacy_procedure');
+    v_claimed := '[]'::jsonb;
+    FOR i IN 1..20 LOOP
+      v_claim := allgres_public.fn_claim_outbound(16);
+      v_claimed := v_claimed || (v_claim->'calls');
+      EXIT WHEN EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_call AND status = 'lost')
+        OR (v_claim->>'count')::int = 0;
+    END LOOP;
+    ok := ok AND NOT (v_claimed @> jsonb_build_array(jsonb_build_object('call_id', v_call)))
+      AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_call AND status = 'lost')
+      AND EXISTS (SELECT 1 FROM allgres_private.execution_logs
+                  WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'function_not_permitted');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'claim_refuses_procedure_no_longer_held', 'ok', ok, 'detail', r));
+
+    -- Built-in http_get retains both checks. Temporarily grant the other
+    -- host so it can enqueue, then revoke it to exercise the claim guard.
+    v_ag := (allgres_public.fn_create_agent('selftest_d3_builtin', 'HTTP get')->>'agent_id')::uuid;
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'function', 'http_get');
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'http_host', 'allowed.selftest-d3.invalid');
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'http_host', 'other.selftest-d3.invalid');
+    v_sid := (allgres_public.fn_create_session(v_ag, 'selftest d3 builtin hosts')->>'session_id')::uuid;
+    SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+    PERFORM allgres_public.fn_next_step(v_tid);
+    r := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+      'type', 'llm_response', 'content', '{"action":"call_function"}',
+      'parsed', jsonb_build_object('action', 'call_function', 'function', 'http_get',
+        'args', jsonb_build_object('url', 'https://allowed.selftest-d3.invalid/'))));
+    v_call := (r->>'call_id')::uuid;
+    -- Separate tasks: refusing the other host fails its task, which must
+    -- not prevent the allowed call from being claimed in either row order.
+    v_sid := (allgres_public.fn_create_session(v_ag, 'selftest d3 other builtin host')->>'session_id')::uuid;
+    SELECT task_id INTO v_other_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+    PERFORM allgres_public.fn_next_step(v_other_tid);
+    r := allgres_public.fn_submit_result(v_other_tid, jsonb_build_object(
+      'type', 'llm_response', 'content', '{"action":"call_function"}',
+      'parsed', jsonb_build_object('action', 'call_function', 'function', 'http_get',
+        'args', jsonb_build_object('url', 'https://other.selftest-d3.invalid/'))));
+    v_other_call := (r->>'call_id')::uuid;
+    PERFORM allgres_public.fn_revoke_permission(v_ag, 'http_host', 'other.selftest-d3.invalid');
+    v_claimed := '[]'::jsonb;
+    FOR i IN 1..20 LOOP
+      v_claim := allgres_public.fn_claim_outbound(16);
+      v_claimed := v_claimed || (v_claim->'calls');
+      EXIT WHEN (v_claimed @> jsonb_build_array(jsonb_build_object('call_id', v_call))
+        AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_other_call AND status = 'lost'))
+        OR (v_claim->>'count')::int = 0;
+    END LOOP;
+    ok := v_call IS NOT NULL AND v_other_call IS NOT NULL
+      AND v_claimed @> jsonb_build_array(jsonb_build_object('call_id', v_call))
+      AND NOT (v_claimed @> jsonb_build_array(jsonb_build_object('call_id', v_other_call)))
+      AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_call AND status = 'in_flight')
+      AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_other_call AND status = 'lost')
+      AND EXISTS (SELECT 1 FROM allgres_private.execution_logs
+                  WHERE task_id = v_other_tid AND role = 'error' AND content->>'call_id' = v_other_call::text
+                    AND content->>'reason' = 'http_host_not_permitted')
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.execution_logs
+                      WHERE task_id = v_tid AND role = 'error' AND content->>'call_id' = v_call::text);
+    v := v || jsonb_build_array(jsonb_build_object('name', 'claim_builtin_http_get_still_needs_http_host', 'ok', ok, 'detail', v_claimed));
   END;
 
   -- http_host grants are stored lower-cased and trimmed, on every grant

@@ -469,6 +469,9 @@ AS $fn$
     FROM allgres_private.canvas_subordinates_and_self(p_to_agent_id) d
     CROSS JOIN unnest(ARRAY['view', 'function', 'procedure', 'http_host']) ty
     CROSS JOIN LATERAL unnest(allgres_private.agent_permission_refs(d.agent_id, ty)) ref
+    -- Legacy/pre-registration outbound Function rows are inert, and cannot
+    -- be granted upward to close a gap: these Functions require a procedure.
+    WHERE ty <> 'function' OR allgres_private.function_ref_directly_grantable(ref)
   )
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
            'agent_id', u.agent_id, 'name', x.name,
@@ -568,7 +571,7 @@ BEGIN
   IF p_type = 'http_host' THEN
     RETURN lower(btrim(p_ref));
   END IF;
-  IF p_type = 'function' AND lower(btrim(p_ref)) NOT IN ('http_get', 'http_request') THEN
+  IF p_type = 'function' AND NOT allgres_private.function_ref_directly_grantable(p_ref) THEN
     SELECT handler INTO v_handler FROM allgres_private.functions
     WHERE lower(name) = lower(btrim(p_ref)) AND handler <> 'plpgsql'
     LIMIT 1;
