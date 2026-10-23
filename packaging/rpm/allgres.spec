@@ -3,7 +3,7 @@ Version:        0.1.0
 Release:        0.alpha.3%{?dist}
 Summary:        PostgreSQL-native agent control plane
 License:        Apache-2.0
-URL:            https://github.com/allgres/allgres-agent
+URL:            https://github.com/allgres/allgres-agent-dev
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cargo

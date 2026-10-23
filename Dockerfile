@@ -38,7 +38,7 @@ FROM postgres:17-bookworm
 # same label GitHub's own docs recommend for that, present in the image
 # itself so it holds regardless of which workflow or manual `docker push`
 # actually publishes a given build.
-LABEL org.opencontainers.image.source="https://github.com/allgres/allgres-agent" \
+LABEL org.opencontainers.image.source="https://github.com/allgres/allgres-agent-dev" \
       org.opencontainers.image.description="Allgres -- Postgres Is All You Need. PostgreSQL-native agent control plane." \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=builder /usr/lib/postgresql/17/lib/allgres.so /usr/lib/postgresql/17/lib/allgres.so

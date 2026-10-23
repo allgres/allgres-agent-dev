@@ -22,7 +22,7 @@ else
   exit 1
 fi
 gzip "$rpm_topdir/SOURCES/allgres-0.1.0.tar"
-if tar -tzf "$rpm_topdir/SOURCES/allgres-0.1.0.tar.gz" | grep -E '(^|/)(\.git|\.env|target|node_modules|test-results|allgres-agent-pgdata)(/|$)'; then
+if tar -tzf "$rpm_topdir/SOURCES/allgres-0.1.0.tar.gz" | grep -E '(^|/)(\.git|\.env|target|node_modules|test-results|allgres-agent-dev-pgdata)(/|$)'; then
   echo 'RPM source archive contains local or generated data' >&2
   exit 1
 fi

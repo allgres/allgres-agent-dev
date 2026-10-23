@@ -17,8 +17,8 @@ is a production posture**; see [Exposure](../security.md#exposure) and
 this ever serves real traffic or real provider keys.
 
 ```bash
-git clone https://github.com/allgres/allgres-agent.git
-cd allgres-agent
+git clone https://github.com/allgres/allgres-agent-dev.git
+cd allgres-agent-dev
 docker compose up -d --build       # allgres_pgdata is a named volume (docker-compose.yml),
                                     # not an anonymous one -- `docker volume ls` finds it,
                                     # and `docker compose down` (without -v) keeps it.
@@ -30,11 +30,11 @@ A pre-built image is also published to GHCR (GitHub Container Registry) for
 every tagged release, so a local build isn't required to try it:
 
 ```bash
-docker pull ghcr.io/allgres/allgres-agent:latest
+docker pull ghcr.io/allgres/allgres-agent-dev:latest
 ```
 
 It's the same image `docker-compose.yml`'s `build: .` produces — swap
-`build: .` for `image: ghcr.io/allgres/allgres-agent:latest` in a compose file
+`build: .` for `image: ghcr.io/allgres/allgres-agent-dev:latest` in a compose file
 to use it directly, or `docker run` it against your own PostgreSQL setup
 (see the main [README's Quick start](../../README.md#quick-start) for the
 plain single-container `docker run` form of this same image). Published by

@@ -67,7 +67,7 @@ spec:
     extensions:
       - name: allgres
         image:
-          reference: ghcr.io/allgres/allgres-agent-cnpg-ext:latest
+          reference: ghcr.io/allgres/allgres-agent-dev-cnpg-ext:latest
     shared_preload_libraries:
       - allgres
 

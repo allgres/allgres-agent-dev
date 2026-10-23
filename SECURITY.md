@@ -13,7 +13,7 @@ you don't trust.
 Please **do not** open a public GitHub issue for a security vulnerability.
 
 Use GitHub's private vulnerability reporting instead: on
-<https://github.com/allgres/allgres-agent>, go to the **Security** tab ->
+<https://github.com/allgres/allgres-agent-dev>, go to the **Security** tab ->
 **Report a vulnerability**. That opens a private draft advisory visible
 only to the maintainer and you, so details, a proof of concept, and a fix
 can be discussed before anything is public.

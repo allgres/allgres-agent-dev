@@ -35,7 +35,7 @@ A pre-built image is published to GHCR by
 pulling a new image:
 
 ```bash
-docker pull ghcr.io/allgres/allgres-agent-cnpg-ext:latest
+docker pull ghcr.io/allgres/allgres-agent-dev-cnpg-ext:latest
 ```
 
 The example omits `Database.spec.extensions[].version`, so a new database
