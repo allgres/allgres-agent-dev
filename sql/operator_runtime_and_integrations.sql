@@ -802,6 +802,11 @@ DECLARE
   v_sql_ident text;
   v_mcp_tool text;
 BEGIN
+  IF allgres_private.is_reserved_function_name(p_name) THEN
+    RAISE EXCEPTION 'function name "%" is reserved for a builtin', btrim(p_name)
+      USING ERRCODE = 'P0001',
+            HINT = 'Reserved names: ' || array_to_string(allgres_private.builtin_function_names(), ', ');
+  END IF;
   IF v_name !~ '^[a-z][a-z0-9_]{0,62}$' THEN
     RAISE EXCEPTION 'function name must use lowercase letters, digits, and underscores' USING ERRCODE = 'P0001';
   END IF;
@@ -907,6 +912,7 @@ BEGIN
     VALUES (f.function_id,f.generation,f.description,f.body,f.param_schema);
   END IF;
 
+  -- Name is never changed here; the table trigger guards direct renames.
   UPDATE allgres_private.functions
   SET description = COALESCE(NULLIF(trim(p_description), ''), description),
       body = COALESCE(p_body, body),

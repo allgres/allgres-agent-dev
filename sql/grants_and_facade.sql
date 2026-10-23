@@ -976,6 +976,7 @@ BEGIN
             SELECT unnest(ARRAY['http_get', 'http_request']) AS name
             UNION
             SELECT name FROM allgres_private.functions WHERE is_active AND handler = 'plpgsql'
+              AND NOT allgres_private.is_reserved_function_name(name)
           ) f
         ),
         'function_catalog', (
@@ -995,7 +996,7 @@ BEGIN
               'hint', CASE WHEN fn.handler <> 'plpgsql' THEN 'bind via a procedure' END))
             FROM allgres_private.functions fn
             LEFT JOIN allgres_private.api_connections c ON c.connection_id = fn.mcp_connection_id
-            WHERE fn.is_active AND fn.name NOT IN ('http_get', 'http_request')
+            WHERE fn.is_active AND NOT allgres_private.is_reserved_function_name(fn.name)
           ) q
         ),
         'agents', COALESCE((

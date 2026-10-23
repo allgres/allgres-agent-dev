@@ -28,6 +28,7 @@ INSERT INTO _fixture_agent_names VALUES
   ('e2e_alpha_agent'),        -- e2e_mock.sql
   ('e2e_gamma_agent'),        -- e2e_mock.sql
   ('e2e_search_requester'),   -- e2e_mock.sql, capability_search_e2e.sql
+  ('e2e_fx_runner'),          -- fixed_url_procedure_e2e.sql
   ('e2e_pb_runner'),          -- procedure_binding_e2e.sql
   ('e2e_recall_agent'),       -- e2e_mock.sql
   ('execution_safety_worker'),-- execution_safety_worker.sql
@@ -83,18 +84,18 @@ SELECT allgres_private.selftest_cleanup();
 
 -- Test-only functions and procedures (and anything granted on them).
 DELETE FROM allgres_private.permissions
-WHERE (resource_type = 'procedure' AND resource_ref IN ('execution_safety_worker_proc', 'e2e-pb-proc'))
-   OR (resource_type = 'function' AND (resource_ref IN ('alpha_governance_probe', 'e2e_pb_mcp')
+WHERE (resource_type = 'procedure' AND resource_ref IN ('execution_safety_worker_proc', 'e2e-pb-proc', 'e2e-fx-proc'))
+   OR (resource_type = 'function' AND (resource_ref IN ('alpha_governance_probe', 'e2e_pb_mcp', 'e2e_fx_get')
                                        OR resource_ref LIKE 'execution\_safety\_worker\_fn%'));
 -- Outbound references do not cascade: remove them before their procedure,
 -- Function, and connection. Sessions/tasks stay with the retired agent
 -- above because their execution logs are append-only.
 DELETE FROM allgres_private.outbound_calls
-WHERE procedure_id IN (SELECT procedure_id FROM allgres_private.procedures WHERE name = 'e2e-pb-proc')
-   OR procedure_function_id IN (SELECT function_id FROM allgres_private.functions WHERE name = 'e2e_pb_mcp')
+WHERE procedure_id IN (SELECT procedure_id FROM allgres_private.procedures WHERE name IN ('e2e-pb-proc', 'e2e-fx-proc'))
+   OR procedure_function_id IN (SELECT function_id FROM allgres_private.functions WHERE name IN ('e2e_pb_mcp', 'e2e_fx_get'))
    OR connection_id IN (SELECT connection_id FROM allgres_private.api_connections WHERE name = 'e2e_pb_mock');
-DELETE FROM allgres_private.procedures WHERE name = 'e2e-pb-proc';
-DELETE FROM allgres_private.functions WHERE name = 'e2e_pb_mcp';
+DELETE FROM allgres_private.procedures WHERE name IN ('e2e-pb-proc', 'e2e-fx-proc');
+DELETE FROM allgres_private.functions WHERE name IN ('e2e_pb_mcp', 'e2e_fx_get');
 DELETE FROM allgres_private.api_connections WHERE name = 'e2e_pb_mock';
 DELETE FROM allgres_private.procedures WHERE name = 'execution_safety_worker_proc';
 DELETE FROM allgres_private.functions
@@ -133,12 +134,12 @@ BEGIN
 
   SELECT string_agg(name, ', ') INTO v_left
   FROM allgres_private.functions
-  WHERE name IN ('alpha_governance_probe', 'e2e_pb_mcp') OR name LIKE 'execution\_safety\_worker\_fn%';
+  WHERE name IN ('alpha_governance_probe', 'e2e_pb_mcp', 'e2e_fx_get') OR name LIKE 'execution\_safety\_worker\_fn%';
   IF v_left IS NOT NULL THEN
     RAISE EXCEPTION 'test cleanup left test functions behind: %', v_left;
   END IF;
 
-  IF EXISTS (SELECT 1 FROM allgres_private.procedures WHERE name = 'e2e-pb-proc')
+  IF EXISTS (SELECT 1 FROM allgres_private.procedures WHERE name IN ('e2e-pb-proc', 'e2e-fx-proc'))
      OR EXISTS (SELECT 1 FROM allgres_private.api_connections WHERE name = 'e2e_pb_mock') THEN
     RAISE EXCEPTION 'test cleanup left procedure binding fixtures behind';
   END IF;

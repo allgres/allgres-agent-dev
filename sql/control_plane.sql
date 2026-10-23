@@ -2160,6 +2160,39 @@ ALTER TABLE allgres_private.functions ADD CONSTRAINT functions_check
     OR (handler = 'mcp_call' AND body IS NULL AND mcp_connection_id IS NOT NULL)
   );
 
+-- Single list of reserved Function names (executor builtins and handlers).
+CREATE OR REPLACE FUNCTION allgres_private.builtin_function_names()
+RETURNS text[] LANGUAGE sql IMMUTABLE
+AS $fn$
+  SELECT ARRAY['http_get','http_request','mcp_call','plpgsql']::text[];
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.is_reserved_function_name(p_name text)
+RETURNS boolean LANGUAGE sql IMMUTABLE
+AS $fn$
+  SELECT pg_catalog.lower(pg_catalog.btrim(COALESCE(p_name, '')))
+    = ANY(allgres_private.builtin_function_names());
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.functions_refuse_reserved_name()
+RETURNS trigger LANGUAGE plpgsql
+AS $fn$
+BEGIN
+  IF allgres_private.is_reserved_function_name(NEW.name)
+     AND (TG_OP = 'INSERT' OR NEW.name IS DISTINCT FROM OLD.name) THEN
+    RAISE EXCEPTION 'function name "%" is reserved for a builtin', pg_catalog.btrim(NEW.name)
+      USING ERRCODE = 'P0001',
+            HINT = 'Reserved names: ' || pg_catalog.array_to_string(allgres_private.builtin_function_names(), ', ');
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS functions_refuse_reserved_name ON allgres_private.functions;
+CREATE TRIGGER functions_refuse_reserved_name
+BEFORE INSERT OR UPDATE ON allgres_private.functions
+FOR EACH ROW EXECUTE FUNCTION allgres_private.functions_refuse_reserved_name();
+
 CREATE TABLE IF NOT EXISTS allgres_private.outbound_calls (
   call_id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id          uuid NOT NULL REFERENCES allgres_private.tasks(task_id),
@@ -4767,8 +4800,9 @@ BEGIN
     -- direct grant passed the permission check and then fell through to the
     -- built-in handler-name check as "unknown_function".
     IF v_allowed THEN
-      SELECT * INTO v_procedure_function FROM allgres_private.functions
-      WHERE lower(name)=lower(COALESCE(v_function,'')) AND is_active LIMIT 1;
+      SELECT pt.* INTO v_procedure_function FROM allgres_private.functions pt
+      WHERE lower(pt.name)=lower(COALESCE(v_function,'')) AND pt.is_active
+        AND NOT allgres_private.is_reserved_function_name(pt.name) LIMIT 1;
       IF FOUND AND v_procedure_function.handler='plpgsql' THEN
         IF v_procedure_function.build_status<>'built' THEN
           PERFORM allgres_private.append_log(p_task_id,t.step_count+1,'error',
@@ -4790,6 +4824,7 @@ BEGIN
       JOIN allgres_private.procedures pr USING (procedure_id)
       WHERE lower(pt.name) = lower(COALESCE(v_function, ''))
         AND pt.is_active AND pr.is_active
+        AND NOT allgres_private.is_reserved_function_name(pt.name)
         AND pr.name = ANY(allgres_private.agent_permission_refs(t.agent_id, 'procedure'))
       LIMIT 1;
       IF FOUND THEN
@@ -5769,6 +5804,13 @@ BEGIN
   -- security boundary (SECURITY INVOKER, the calling agent's own
   -- Postgres role) regardless of who authored the body.
   IF v_action = 'create_function' THEN
+    IF allgres_private.is_reserved_function_name(v_parsed->>'name') THEN
+      PERFORM allgres_private.append_log(p_task_id, t.step_count + 1, 'error',
+        jsonb_build_object('reason', 'create_function_rejected', 'message',
+          format('function name "%s" is reserved for a builtin', btrim(v_parsed->>'name'))));
+      UPDATE allgres_private.tasks SET step_count = step_count + 1, updated_at = now() WHERE task_id = p_task_id;
+      RETURN jsonb_build_object('action', 'continue');
+    END IF;
     IF NULLIF(btrim(COALESCE(v_parsed->>'name', '')), '') IS NULL
        OR NULLIF(btrim(COALESCE(v_parsed->>'description', '')), '') IS NULL
        OR NULLIF(btrim(COALESCE(v_parsed->>'body', '')), '') IS NULL THEN

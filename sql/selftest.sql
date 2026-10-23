@@ -5838,6 +5838,177 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_grant_covers_a_cycle_of_superiors', 'ok', ok, 'detail', r));
   END;
 
+  -- R6: builtin names cannot be registered, proposed, renamed, or shadowed.
+  DECLARE
+    v_names text[] := ARRAY['http_get','http_request','mcp_call','plpgsql',
+                            ' HTTP_GET ','Http_Request','  mcp_call','PLPGSQL '];
+    v_name text;
+    v_handler text;
+    v_n int := 0;
+    v_fn uuid;
+    v_ag uuid;
+    v_sid uuid;
+    v_tid uuid;
+    v_other_tid uuid;
+    v_call uuid;
+    v_other_call uuid;
+    v_proposal uuid;
+    v_claim jsonb;
+    v_claimed jsonb;
+    v_tok text := (SELECT allgres_public.fn_login('selftest_direct_admin', 'selftest-direct-pw1')->>'session_token'
+                   WHERE allgres_private.pgcrypto_schema() IS NOT NULL);
+  BEGIN
+    FOREACH v_name IN ARRAY v_names LOOP
+      FOREACH v_handler IN ARRAY ARRAY['plpgsql','http_get'] LOOP
+        IF v_handler = 'http_get' AND lower(btrim(v_name)) NOT IN ('http_get','http_request') THEN CONTINUE; END IF;
+        BEGIN
+          PERFORM allgres_public.fn_create_function(v_name, 'reserved test', v_handler,
+            '{"url":"https://x.selftest-r6.invalid/"}'::jsonb, 'BEGIN RETURN p_args; END;');
+        EXCEPTION WHEN SQLSTATE 'P0001' THEN
+          IF SQLERRM LIKE '%reserved%' THEN v_n := v_n + 1; END IF;
+        END;
+      END LOOP;
+    END LOOP;
+    ok := v_n = 12 AND NOT EXISTS (SELECT 1 FROM allgres_private.functions
+      WHERE allgres_private.is_reserved_function_name(name));
+    v := v || jsonb_build_array(jsonb_build_object('name', 'reserved_function_names_refused_by_fn_create_function', 'ok', ok, 'detail', v_n));
+
+    v_n := 0;
+    FOREACH v_name IN ARRAY v_names LOOP
+      FOREACH v_handler IN ARRAY ARRAY['plpgsql','http_get'] LOOP
+        IF v_handler = 'http_get' AND lower(btrim(v_name)) NOT IN ('http_get','http_request') THEN CONTINUE; END IF;
+        r := allgres.dashboard_rpc(jsonb_build_object('action','functions.create','session_token',v_tok,
+          'name',v_name,'description','reserved test','handler',v_handler,
+          'args_template','{"url":"https://x.selftest-r6.invalid/"}'::jsonb,'body','BEGIN RETURN p_args; END;'));
+        IF r->>'ok' = 'false' AND r->>'error' LIKE '%reserved%' AND r->>'sqlstate' = 'P0001' THEN
+          v_n := v_n + 1;
+        END IF;
+      END LOOP;
+    END LOOP;
+    ok := v_n = 12 AND NOT EXISTS (SELECT 1 FROM allgres_private.functions
+      WHERE allgres_private.is_reserved_function_name(name));
+    v := v || jsonb_build_array(jsonb_build_object('name','reserved_function_names_refused_by_rpc','ok',ok,'detail',v_n));
+
+    ok := false;
+    BEGIN
+      INSERT INTO allgres_private.functions(name,description,handler,args_template)
+      VALUES('http_request','x','http_get','{"url":"https://x.selftest-r6.invalid/"}');
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN ok := SQLERRM LIKE '%reserved%';
+    END;
+    ok := ok AND NOT EXISTS (SELECT 1 FROM allgres_private.functions WHERE name = 'http_request');
+    v := v || jsonb_build_array(jsonb_build_object('name','reserved_function_name_refused_on_raw_insert','ok',ok));
+
+    v_fn := (allgres_public.fn_create_function('selftest_r6_ok','d','plpgsql','{}',
+      'BEGIN RETURN p_args; END;')->>'function_id')::uuid;
+    v_n := 0;
+    FOREACH v_name IN ARRAY ARRAY['mcp_call','http_get'] LOOP
+      BEGIN
+        UPDATE allgres_private.functions SET name = v_name WHERE function_id = v_fn;
+      EXCEPTION WHEN SQLSTATE 'P0001' THEN
+        IF SQLERRM LIKE '%reserved%' THEN v_n := v_n + 1; END IF;
+      END;
+    END LOOP;
+    UPDATE allgres_private.functions SET description = 'unrelated update' WHERE function_id = v_fn;
+    ok := v_n = 2 AND EXISTS (SELECT 1 FROM allgres_private.functions
+      WHERE function_id = v_fn AND description = 'unrelated update' AND name = 'selftest_r6_ok');
+    r := allgres.dashboard_rpc(jsonb_build_object('action','functions.update','session_token',v_tok,
+      'function_id',v_fn,'name','http_get','description','d2'));
+    ok := ok AND r->>'ok' = 'true' AND EXISTS (SELECT 1 FROM allgres_private.functions
+      WHERE function_id = v_fn AND name = 'selftest_r6_ok' AND description = 'd2');
+    v := v || jsonb_build_array(jsonb_build_object('name','reserved_function_name_refused_on_rename','ok',ok,'detail',r));
+
+    ok := true;
+    FOREACH v_name IN ARRAY ARRAY['auto','admin_approval'] LOOP
+      v_ag := (allgres_public.fn_create_agent('selftest_r6_' || v_name,'author functions')->>'agent_id')::uuid;
+      PERFORM allgres_public.fn_set_agent_autonomy(v_ag,v_name);
+      v_sid := (allgres_public.fn_create_session(v_ag,'selftest r6 author')->>'session_id')::uuid;
+      SELECT task_id INTO STRICT v_tid FROM allgres_private.tasks WHERE session_id = v_sid;
+      PERFORM allgres_public.fn_next_step(v_tid);
+      r := allgres_public.fn_submit_result(v_tid,jsonb_build_object('type','llm_response',
+        'content','{"action":"create_function"}','parsed',jsonb_build_object('action','create_function',
+        'name','Http_Get','description','d','body','BEGIN RETURN p_args; END;')));
+      ok := ok AND NOT EXISTS (SELECT 1 FROM allgres_private.functions WHERE name = 'http_get')
+        AND NOT EXISTS (SELECT 1 FROM allgres_private.change_proposals WHERE task_id = v_tid)
+        AND EXISTS (SELECT 1 FROM allgres_private.execution_logs WHERE task_id = v_tid AND role = 'error'
+          AND content->>'reason' = 'create_function_rejected' AND content->>'message' LIKE '%reserved%');
+    END LOOP;
+    v := v || jsonb_build_array(jsonb_build_object('name','agent_create_function_reserved_name_rejected','ok',ok));
+
+    INSERT INTO allgres_private.change_proposals(agent_id,task_id,kind,proposed_changes,reason,base_generation)
+    VALUES(v_ag,v_tid,'create_function',jsonb_build_object('name','http_request','description','d',
+      'body','BEGIN RETURN p_args; END;','param_schema','{}'::jsonb),'selftest legacy proposal',0)
+    RETURNING proposal_id INTO v_proposal;
+    ok := false;
+    BEGIN
+      PERFORM allgres_public.fn_decide_proposal(v_proposal,true);
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN ok := SQLERRM LIKE '%reserved%';
+    END;
+    ok := ok AND EXISTS (SELECT 1 FROM allgres_private.change_proposals WHERE proposal_id = v_proposal AND status = 'pending')
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.functions WHERE name = 'http_request');
+    v := v || jsonb_build_array(jsonb_build_object('name','reserved_create_function_proposal_approval_refused','ok',ok));
+
+    v_ag := (allgres_public.fn_create_agent('selftest_r6_builtin','HTTP')->>'agent_id')::uuid;
+    PERFORM allgres_public.fn_grant_permission(v_ag,'function','http_get');
+    PERFORM allgres_public.fn_grant_permission(v_ag,'function','http_request');
+    PERFORM allgres_public.fn_grant_permission(v_ag,'http_host','allowed.selftest-r6.invalid');
+    -- Temporarily grant the other host to enqueue, then revoke before claim.
+    PERFORM allgres_public.fn_grant_permission(v_ag,'http_host','other.selftest-r6.invalid');
+    FOREACH v_name IN ARRAY ARRAY['http_get','http_request'] LOOP
+      v_sid := (allgres_public.fn_create_session(v_ag,'selftest r6 builtin')->>'session_id')::uuid;
+      SELECT task_id INTO STRICT v_tid FROM allgres_private.tasks WHERE session_id = v_sid;
+      PERFORM allgres_public.fn_next_step(v_tid);
+      r := allgres_public.fn_submit_result(v_tid,jsonb_build_object('type','llm_response','content','{"action":"call_function"}',
+        'parsed',jsonb_build_object('action','call_function','function',v_name,'args',jsonb_build_object('url',
+          CASE WHEN v_name = 'http_get' THEN 'https://allowed.selftest-r6.invalid/a' ELSE 'https://other.selftest-r6.invalid/b' END))));
+      IF v_name = 'http_get' THEN v_call := (r->>'call_id')::uuid;
+      ELSE v_other_call := (r->>'call_id')::uuid; v_other_tid := v_tid; END IF;
+    END LOOP;
+    ok := EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_call AND kind = 'function' AND function = 'http_get' AND status = 'queued')
+      AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_other_call AND kind = 'function' AND function = 'http_request' AND status = 'queued')
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.function_calls WHERE call_id IN (v_call,v_other_call));
+    PERFORM allgres_public.fn_revoke_permission(v_ag,'http_host','other.selftest-r6.invalid');
+    v_claimed := '[]';
+    FOR i IN 1..20 LOOP
+      v_claim := allgres_public.fn_claim_outbound(16);
+      v_claimed := v_claimed || (v_claim->'calls');
+      EXIT WHEN (v_claimed @> jsonb_build_array(jsonb_build_object('call_id',v_call))
+        AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_other_call AND status = 'lost'))
+        OR (v_claim->>'count')::int = 0;
+    END LOOP;
+    ok := ok AND v_claimed @> jsonb_build_array(jsonb_build_object('call_id',v_call))
+      AND NOT (v_claimed @> jsonb_build_array(jsonb_build_object('call_id',v_other_call)))
+      AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls WHERE call_id = v_other_call AND status = 'lost')
+      AND EXISTS (SELECT 1 FROM allgres_private.execution_logs WHERE task_id = v_other_tid AND role = 'error'
+        AND content->>'reason' = 'http_host_not_permitted' AND content->>'call_id' = v_other_call::text);
+    v := v || jsonb_build_array(jsonb_build_object('name','direct_builtin_grant_still_reaches_builtin','ok',ok,'detail',v_claimed));
+
+    -- fn_selftest and functions are both owned by allgres_owner. Disable only
+    -- this user trigger, inside the selftest's rollback scope, to model a dump
+    -- from an old install; unrelated legacy-row updates must still succeed.
+    ALTER TABLE allgres_private.functions DISABLE TRIGGER functions_refuse_reserved_name;
+    INSERT INTO allgres_private.functions(name,description,handler,body,build_status)
+    VALUES('http_get','selftest legacy builtin collision','plpgsql','BEGIN RETURN p_args; END;','built')
+    RETURNING function_id INTO v_fn;
+    ALTER TABLE allgres_private.functions ENABLE TRIGGER functions_refuse_reserved_name;
+    UPDATE allgres_private.functions SET description = 'legacy unrelated update', is_active = false WHERE function_id = v_fn;
+    UPDATE allgres_private.functions SET is_active = true, build_status = 'built' WHERE function_id = v_fn;
+    v_sid := (allgres_public.fn_create_session(v_ag,'selftest r6 legacy collision')->>'session_id')::uuid;
+    SELECT task_id INTO STRICT v_tid FROM allgres_private.tasks WHERE session_id = v_sid;
+    PERFORM allgres_public.fn_next_step(v_tid);
+    r := allgres_public.fn_submit_result(v_tid,jsonb_build_object('type','llm_response','content','{"action":"call_function"}',
+      'parsed',jsonb_build_object('action','call_function','function','http_get',
+        'args',jsonb_build_object('url','https://allowed.selftest-r6.invalid/legacy'))));
+    v_call := (r->>'call_id')::uuid;
+    ok := v_call IS NOT NULL AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls
+      WHERE call_id = v_call AND function = 'http_get' AND kind = 'function' AND url = 'https://allowed.selftest-r6.invalid/legacy')
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.function_calls WHERE task_id = v_tid);
+    r := allgres.dashboard_rpc(jsonb_build_object('action','permissions.options','session_token',v_tok));
+    ok := ok AND (SELECT count(*) FROM jsonb_array_elements(r->'function_catalog') e WHERE e->>'name' = 'http_get') = 1
+      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r->'function_catalog') e WHERE e->>'name' = 'http_get' AND e->>'kind' <> 'builtin');
+    v := v || jsonb_build_array(jsonb_build_object('name','legacy_reserved_name_row_is_inert','ok',ok));
+    DELETE FROM allgres_private.functions WHERE function_id = v_fn;
+  END;
+
   -- D3: permissions.options lists the real Function catalog. `functions`
   -- (what a direct grant may name) is the two built-ins plus active
   -- PL/pgSQL Functions; function_catalog lists every active Function, an MCP
