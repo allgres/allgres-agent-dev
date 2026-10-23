@@ -1073,11 +1073,13 @@ SET search_path = allgres_private, pg_temp
 AS $fn$
 BEGIN
   -- An `agent` grant names its target the way agent_has_permission
-  -- matches it (ignoring case and surrounding spaces); revoke the same way.
+  -- matches it (ignoring case and surrounding spaces), and an http_host
+  -- grant is stored lower-cased and trimmed (check_grant_target); revoke
+  -- both the same way, which also catches rows stored before that.
   DELETE FROM allgres_private.permissions
   WHERE agent_id = p_agent_id AND resource_type = p_type
     AND (resource_ref = p_ref
-         OR (p_type = 'agent' AND lower(resource_ref) = lower(btrim(p_ref))));
+         OR (p_type IN ('agent', 'http_host') AND lower(btrim(resource_ref)) = lower(btrim(p_ref))));
   PERFORM allgres_private.audit('permissions.revoke', jsonb_build_object('agent_id', p_agent_id, 'type', p_type, 'ref', p_ref));
   RETURN jsonb_build_object('ok', true);
 END;

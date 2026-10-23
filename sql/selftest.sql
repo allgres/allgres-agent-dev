@@ -5920,6 +5920,33 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'direct_mcp_function_row_does_not_run', 'ok', ok, 'detail', r));
   END;
 
+  -- http_host grants are stored lower-cased and trimmed, on every grant
+  -- path, so one host has one row and revoke finds it however it is typed.
+  DECLARE
+    v_ag uuid := (allgres_public.fn_create_agent('selftest_host_norm', 'hosts')->>'agent_id')::uuid;
+    v_tok text := (SELECT allgres_public.fn_login('selftest_direct_admin', 'selftest-direct-pw1')->>'session_token'
+                   WHERE allgres_private.pgcrypto_schema() IS NOT NULL);
+  BEGIN
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'http_host', '  API.Selftest-Host.Example ');
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'http_host', 'api.selftest-host.example');
+    r := allgres.dashboard_rpc(jsonb_build_object('action', 'permissions.grant', 'agent_id', v_ag,
+      'type', 'http_host', 'ref', ' Api.Selftest-Host.EXAMPLE', 'session_token', v_tok));
+    PERFORM allgres_public.fn_canvas_grant(v_ag, 'http_host', 'OTHER.selftest-host.example ', false);
+    ok := (r->>'ok')::boolean
+      AND (SELECT array_agg(resource_ref ORDER BY resource_ref) FROM allgres_private.permissions
+           WHERE agent_id = v_ag AND resource_type = 'http_host')
+          = ARRAY['api.selftest-host.example', 'other.selftest-host.example']
+      AND allgres_private.agent_has_permission(v_ag, 'http_host', allgres_private.url_host('https://API.selftest-host.example/x'));
+    PERFORM allgres_public.fn_revoke_permission(v_ag, 'http_host', ' API.SELFTEST-HOST.example');
+    -- A row stored before normalization (mixed case, spaces) is revoked too.
+    INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
+    VALUES (v_ag, 'http_host', ' Legacy.Selftest-Host.Example');
+    PERFORM allgres_public.fn_revoke_permission(v_ag, 'http_host', 'legacy.selftest-host.example');
+    ok := ok AND (SELECT array_agg(resource_ref) FROM allgres_private.permissions
+                  WHERE agent_id = v_ag AND resource_type = 'http_host') = ARRAY['other.selftest-host.example'];
+    v := v || jsonb_build_array(jsonb_build_object('name', 'http_host_grants_stored_lowercase_trimmed', 'ok', ok, 'detail', r));
+  END;
+
   RETURN v;
 END;
 $fn$;
