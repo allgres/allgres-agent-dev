@@ -4,6 +4,7 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- README explains why installing needs a superuser and lists the cluster roles, schemas, and workers it creates.
 - **Breaking:** the cluster-wide roles `operator`, `worker`, and `sandbox` are now `allgres_operator`, `allgres_worker`, and `allgres_sandbox`, so they no longer collide with roles a cluster may already have. Roles are cluster-wide and survive `DROP EXTENSION`; see KNOWN_ISSUES.md, "Cluster roles renamed", for renaming or dropping the old ones.
 - Building from source needs rustc 1.96 or newer (pgrx 0.19.2's `rust-version`). README and the source guide say so, `Cargo.toml` declares `rust-version = "1.96"`, and `make` stops early with an update hint instead of failing inside `cargo install cargo-pgrx`.
 - `tests/cleanup.sql` retires what `tests/*.sql` leave behind (fixture agents renamed to `selftest_*` and deactivated, their sessions hidden, grants and test-only functions removed) and fails if any is still visible; `scripts/run_sql_tests.sh`, CI, and `scripts/smoke.sh` run it last. `e2e_mock.sql` now uses its own `e2e_mock_runner` agent instead of repointing the seeded `analyst` at the mock model, and `smoke.sql` no longer overwrites the `openai` provider's key.

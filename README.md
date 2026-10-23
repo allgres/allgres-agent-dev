@@ -112,6 +112,16 @@ ALLGRES_BOOTSTRAP_ADMIN_USER=admin ALLGRES_BOOTSTRAP_ADMIN_PASSWORD='choose-a-st
 
 Install the matching PostgreSQL server development package, C toolchain, and OpenSSL development files first. Building needs **rustc 1.96 or newer** (pgrx 0.19.2 requires it; `rustup update stable` if yours is older). `make` installs Rust through rustup when it is missing and stops early with this message when it is too old. `make install` copies extension files; `make quickstart` configures a live database. The [source guide](docs/deployment/source-install.md) covers prerequisites, privileges, and a persistent `shared_preload_libraries` setup.
 
+### Why installing needs a superuser
+
+`allgres.control` sets `superuser = true`, so `CREATE EXTENSION allgres` must run as a superuser, and the background workers connect as the bootstrap superuser. That is because the extension sets up cluster-level pieces an ordinary database owner cannot create:
+
+- **Roles (cluster-wide; they survive `DROP EXTENSION`).** Fixed roles: `allgres_owner` (owns every Allgres object; `NOLOGIN NOINHERIT`), `allgres_role_admin` (`CREATEROLE`, owns only the functions that create per-agent and per-user roles), `allgres_signal_admin` (member of `pg_signal_backend`, to cancel the runtime's own queries), `allgres_settings_reader` (member of `pg_read_all_settings` and `pg_read_all_stats`, to start workers without a restart), `allgres_function_admin`, `allgres_llm_admin`, `allgres_operator` and `allgres_worker` (`LOGIN`), and `allgres_sandbox` (`NOLOGIN`, what agent SQL runs as). Later, one `NOLOGIN` role per agent (`allgres_agent_<id>`) and per account (`allgres_user_<id>`) is created on demand.
+- **Objects in the database.** The schemas `allgres`, `allgres_public`, `allgres_private`, and `allgres_functions`, owned by `allgres_owner`, with `SECURITY DEFINER` functions, and the C functions in the `allgres` library.
+- **Background workers.** `allgres runtime` and `allgres web` come from `shared_preload_libraries` (or are started on demand). The runtime drops to `allgres_worker` for each transaction, and further to the agent's role or `allgres_sandbox` for agent SQL (`ALLGRES_DROP_PRIVILEGES`). It stays the bootstrap superuser only so a missing role cannot crash-loop it at startup.
+
+After installing, nobody needs superuser for day-to-day use. The dashboard and API run through `SECURITY DEFINER` functions and these roles. Use a dedicated cluster or database if sharing those role names is a concern. [Security](docs/security.md) has the full privilege model.
+
 ### RPM: package PostgreSQL 18
 
 The [RPM guide](docs/deployment/rpm.md) finds the newest published Fedora 43/PostgreSQL 18 RPM automatically, and also covers building the package from source.
