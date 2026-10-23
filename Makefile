@@ -30,7 +30,7 @@ CARGO_PGRX_VERSION := $(shell grep -E '^pgrx = ' Cargo.toml | sed -E 's/.*versio
 PG_MAJOR := $(shell $(PG_CONFIG) --version 2>/dev/null | sed -E 's/PostgreSQL ([0-9]+).*/\1/')
 PG_INCLUDEDIR_SERVER := $(shell $(PG_CONFIG) --includedir-server 2>/dev/null)
 
-.PHONY: build install quickstart bootstrap-admin clean check tools
+.PHONY: build install quickstart bootstrap-admin clean check tools canvas
 
 check:
 ifeq ($(PG_MAJOR),)
@@ -192,6 +192,12 @@ bootstrap-admin:
 	else \
 	  echo "An existing dashboard account was retained; bootstrap was skipped."; \
 	fi
+
+# Rebuilds web/canvas.html from web/canvas/src. Only needed after editing the
+# canvas: the generated file is committed, so `make`/`make install` never
+# need Node.js (docs/canvas.md, "Building").
+canvas:
+	cd web/canvas && npm ci --ignore-scripts && npm run build
 
 clean:
 	cargo clean

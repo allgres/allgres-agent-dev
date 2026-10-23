@@ -1,0 +1,952 @@
+<title>Allgres Agent Canvas</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: toolbar / (block palette | infinite canvas | inspector) / master dock — dark-first, follows the existing Allgres dashboard tokens */
+:root{
+  --bg:#0b0d10;--panel:#11151a;--panel2:#161b22;--line:#262d36;--text:#e6edf3;--muted:#8b949e;
+  --accent:#7ee787;--accent2:#58a6ff;--bad:#ff7b72;--warn:#d29922;
+  --grid:#1c232c;--g-fill:rgba(88,166,255,.05);--g-line:#2b3a4d;--g-head:#9cc4f5;--shadow:0 6px 24px rgba(0,0,0,.45);
+  --on-accent:#08110a;
+  --ui:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  --bg:#f5f7fa;--panel:#ffffff;--panel2:#eef1f5;--line:#d7dee6;--text:#0b0d10;--muted:#5b6570;
+  --accent:#1a7f37;--accent2:#0969da;--bad:#cf222e;--warn:#9a6700;
+  --grid:#dfe5ec;--g-fill:rgba(9,105,218,.04);--g-line:#b9cbe0;--g-head:#0a4f9e;--shadow:0 6px 20px rgba(20,30,50,.12);
+  --on-accent:#ffffff;color-scheme:light}}
+:root[data-theme="light"]{
+  --bg:#f5f7fa;--panel:#ffffff;--panel2:#eef1f5;--line:#d7dee6;--text:#0b0d10;--muted:#5b6570;
+  --accent:#1a7f37;--accent2:#0969da;--bad:#cf222e;--warn:#9a6700;
+  --grid:#dfe5ec;--g-fill:rgba(9,105,218,.04);--g-line:#b9cbe0;--g-head:#0a4f9e;--shadow:0 6px 20px rgba(20,30,50,.12);
+  --on-accent:#ffffff;color-scheme:light}
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font:14px/1.45 var(--ui);overflow:hidden}
+*{box-sizing:border-box}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+
+.app{display:grid;grid-template-rows:auto 1fr auto;height:100%}
+
+/* toolbar */
+.bar{display:flex;align-items:center;gap:10px;padding-block:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:var(--panel);min-width:0;flex-wrap:wrap}
+.brand{font-weight:760;letter-spacing:-.4px;font-size:16px;white-space:nowrap}
+.brand small{font-weight:500;color:var(--muted);font-size:12px;margin-left:6px;letter-spacing:0}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:6px 12px;color:var(--muted)}
+.seg button.on{background:var(--panel2);color:var(--text);font-weight:600}
+.btn{border:1px solid var(--line);background:var(--panel2);padding:6px 11px;border-radius:8px;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:650}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--bad)}
+.btn.sm{padding:3px 8px;font-size:12px}
+.spacer{flex:1}
+.zoomlbl{font:12px var(--mono);color:var(--muted);min-width:42px;text-align:center}
+.multi{display:none}
+.multi.show{display:inline-flex}
+.palbtn{display:none}
+
+/* main row */
+.main{display:grid;grid-template-columns:232px 1fr auto;min-height:0;position:relative}
+
+/* palette */
+.pal{border-right:1px solid var(--line);background:var(--panel);overflow:auto;padding:14px 12px;display:flex;flex-direction:column;gap:18px}
+.pal h4{margin:0 0 8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.pal-list{display:flex;flex-direction:column;gap:6px}
+.pal-item{display:flex;align-items:center;gap:9px;border:1px solid var(--line);background:var(--panel2);border-radius:9px;padding:8px 10px;cursor:grab;user-select:none;touch-action:none}
+.pal-item:hover{border-color:var(--accent2)}
+.pal-item .ic{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;font-size:12px;font-weight:700;flex:none;background:var(--bg);border:1px solid var(--line)}
+.pal-item b{display:block;font-size:13px;font-weight:600}
+.pal-item small{display:block;color:var(--muted);font-size:11px}
+.pal-note{font-size:12px;color:var(--muted);line-height:1.5}
+
+/* canvas */
+.canvas{position:relative;overflow:hidden;background-color:var(--bg);background-image:radial-gradient(var(--grid) 1.2px,transparent 1.3px);touch-action:none;cursor:default;min-width:0}
+.canvas.panning{cursor:grabbing}
+.world{position:absolute;left:0;top:0;transform-origin:0 0}
+.layer{position:absolute;left:0;top:0}
+svg.edges{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+.edge{fill:none;stroke:var(--muted);stroke-width:1.6;opacity:.75}
+.edge.sel{stroke:var(--accent2);opacity:1;stroke-width:2.4}
+.edge-hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+.edge.temp{stroke:var(--accent2);stroke-dasharray:5 5;opacity:1}
+.trace{fill:none;stroke:var(--accent);stroke-width:2.6;stroke-dasharray:7 7;opacity:.95}
+.trace.now{animation:dash .6s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-14}}
+.edge-x{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:1px solid var(--bad);background:var(--panel);color:var(--bad);font-size:13px;line-height:1;display:grid;place-items:center;padding:0}
+
+/* groups */
+.group{position:absolute;border:1.5px dashed var(--g-line);background:var(--g-fill);border-radius:14px}
+.group.d0{border-style:solid}
+.group.sel{border-color:var(--accent2);border-style:solid}
+.group.drop{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.g-head{position:absolute;left:10px;top:6px;display:flex;align-items:center;gap:8px;cursor:grab;user-select:none;padding:2px 6px;border-radius:6px;max-width:calc(100% - 20px)}
+.g-head:hover{background:var(--panel2)}
+.g-head b{font-size:12.5px;color:var(--g-head);font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.g-head small{font:11px var(--mono);color:var(--muted);white-space:nowrap}
+
+/* nodes */
+.node{position:absolute;width:210px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);user-select:none;cursor:grab;transition:opacity .2s,box-shadow .2s}
+.node:hover{border-color:var(--muted)}
+.node.sel{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 35%,transparent),var(--shadow)}
+.node.dragging{cursor:grabbing;opacity:.92;z-index:5}
+.node.flash{animation:flash 1.4s ease-out}
+@keyframes flash{0%{box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 50%,transparent)}100%{box-shadow:var(--shadow)}}
+.node.drop-target{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 40%,transparent)}
+.n-head{display:flex;gap:9px;align-items:center;padding:10px 11px 6px}
+.ava{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-weight:700;font-size:13px;flex:none;background:color-mix(in srgb,var(--accent2) 16%,var(--panel2));color:var(--accent2)}
+.n-title{min-width:0;flex:1}
+.n-title b{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n-title small{display:block;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sdot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.sdot.idle{background:var(--accent);opacity:.7}
+.n-model{margin:0 11px;font:11px var(--mono);color:var(--muted);display:flex;align-items:center;gap:6px}
+.n-model i{font-style:normal;width:6px;height:6px;border-radius:2px;background:var(--warn);display:inline-block}
+.n-skills{display:flex;flex-wrap:wrap;gap:4px;padding:7px 11px 0}
+.chip{font-size:11px;border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:1px 8px;white-space:nowrap}
+.chip.empty{border-style:dashed;color:var(--muted);background:transparent}
+.n-foot{display:flex;justify-content:space-between;gap:6px;padding:7px 11px 10px;font-size:11px;color:var(--muted)}
+.badge-master{color:var(--accent);font-weight:600}
+.port{position:absolute;left:50%;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--panel);border:2px solid var(--muted)}
+.port.in{top:-7px;pointer-events:none}
+.port.out{bottom:-7px;cursor:crosshair}
+.port.out:hover{border-color:var(--accent2);background:var(--accent2)}
+.step-b{position:absolute;right:-8px;top:-10px;min-width:22px;height:22px;border-radius:11px;background:var(--accent);color:var(--on-accent);font:700 11px var(--mono);display:none;place-items:center;padding:0 6px}
+
+/* flow view */
+.flow .node{opacity:.32}
+.flow .node.involved{opacity:1}
+.flow .node.active{border-color:var(--accent);animation:pulse 1s ease-in-out infinite}
+.flow .node.involved .step-b{display:grid}
+.flow .edge{opacity:.18}
+@keyframes pulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 25%,transparent),var(--shadow)}}
+.from-master{position:absolute;left:50%;top:-30px;transform:translateX(-50%);font:600 11px var(--mono);color:var(--accent);white-space:nowrap;display:none}
+.flow .node.from-m .from-master{display:block}
+
+/* canvas overlays */
+.empty{position:absolute;inset:0;display:none;place-items:center;pointer-events:none}
+.empty.show{display:grid}
+.empty div{text-align:center;max-width:340px;color:var(--muted);pointer-events:auto}
+.empty b{display:block;color:var(--text);font-size:16px;margin-bottom:6px}
+.runcard{position:absolute;right:14px;top:14px;width:min(330px,calc(100% - 28px));max-height:calc(100% - 28px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:12px 14px;display:none}
+.flow .runcard{display:block}
+.runcard h3{margin:0 0 2px;font-size:13.5px}
+.runcard .sub{color:var(--muted);font-size:12px;margin-bottom:10px}
+.step{display:grid;grid-template-columns:22px 1fr auto;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px;opacity:.4}
+.step.done,.step.now{opacity:1}
+.step.now{color:var(--accent)}
+.step .no{font:700 11px var(--mono);color:var(--muted)}
+.step .who{font-weight:600}
+.step .act{font:11px var(--mono);color:var(--muted)}
+.step .cost{font:11px var(--mono);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.runtotal{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding-top:8px;margin-top:2px;font:12px var(--mono);color:var(--muted)}
+.hint{position:absolute;left:14px;bottom:12px;font-size:11.5px;color:var(--muted);background:color-mix(in srgb,var(--panel) 85%,transparent);border:1px solid var(--line);border-radius:8px;padding:6px 10px;max-width:calc(100% - 28px)}
+
+/* inspector */
+.insp{width:340px;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+.insp[hidden]{display:none!important}
+.i-head{display:flex;gap:10px;align-items:center;padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.i-head .t{flex:1;min-width:0}
+.i-head b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.i-head small{color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--line)}
+.tabs button{border:0;background:transparent;color:var(--muted);padding:8px 10px;border-bottom:2px solid transparent}
+.tabs button.on{color:var(--text);border-bottom-color:var(--accent2)}
+.i-body{flex:1;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px;min-height:0}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+.inp,.sel{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+.check input{margin-top:3px}
+.note{font-size:12px;color:var(--muted);line-height:1.5}
+.skill-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}
+.skill-row .t{flex:1;min-width:0}
+.skill-row small{display:block;color:var(--muted);font-size:11px}
+.xbtn{border:0;background:transparent;color:var(--muted);font-size:16px;line-height:1;padding:2px 4px}
+.xbtn:hover{color:var(--bad)}
+.hist{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.hist small{color:var(--muted);font-size:11px}
+.st{font:11px var(--mono)}
+.st.ok{color:var(--accent)}.st.wait{color:var(--warn)}.st.fail{color:var(--bad)}
+.i-foot{border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;justify-content:space-between}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:var(--panel2)}
+.stat b{display:block;font-size:18px;font-variant-numeric:tabular-nums}
+.stat small{color:var(--muted);font-size:11px}
+
+/* chat (shared by dock and inspector) */
+.msgs{display:flex;flex-direction:column;gap:8px;overflow:auto;min-height:0}
+.m{max-width:86%;padding:8px 11px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);font-size:13px;white-space:pre-wrap;word-break:break-word}
+.m.me{align-self:flex-end;background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.m.sys{align-self:stretch;max-width:none;border-style:dashed;background:transparent}
+.m .who{display:block;font-size:11px;color:var(--muted);margin-bottom:3px;font-weight:600}
+.calls{display:flex;flex-direction:column;gap:3px;margin-top:7px;padding-top:7px;border-top:1px solid var(--line);white-space:normal}
+.call{display:flex;align-items:center;gap:8px;font-size:11.5px}
+.call code{font-family:var(--mono);color:var(--text)}
+.tg{font:600 10px var(--mono);border-radius:4px;padding:0 5px;border:1px solid}
+.tg.have{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,transparent)}
+.tg.ext{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.tg.new{color:var(--accent2);border-color:color-mix(in srgb,var(--accent2) 50%,transparent)}
+.actions{display:flex;gap:6px;margin-top:8px}
+.composer{display:flex;gap:8px}
+.composer .inp{flex:1;min-width:0}
+.typing{color:var(--muted);font-size:12px}
+
+/* master dock */
+.dock{border-top:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;height:250px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:env(safe-area-inset-bottom,0px);min-height:0}
+.dock.min{height:auto}
+.dock.min .d-body{display:none}
+.d-head{display:flex;align-items:center;gap:10px;padding-block:8px;flex-wrap:wrap}
+.d-head .ava{width:26px;height:26px;background:color-mix(in srgb,var(--accent) 18%,var(--panel2));color:var(--accent);font-size:12px}
+.d-head b{font-size:13.5px}
+.d-head .sub{color:var(--muted);font-size:12px}
+.legend{display:flex;gap:10px;align-items:center;font-size:11px;color:var(--muted);flex-wrap:wrap}
+.d-body{display:grid;grid-template-columns:1fr;grid-template-rows:1fr auto auto;gap:8px;min-height:0;flex:1;padding-bottom:10px}
+.d-body .msgs{padding-right:4px}
+.d-body .m{max-width:min(720px,86%)}
+.d-body .m.sys{max-width:min(720px,100%)}
+.sugs{display:flex;gap:6px;flex-wrap:wrap}
+.sug{border:1px solid var(--line);background:transparent;border-radius:999px;padding:3px 10px;font-size:12px;color:var(--muted)}
+.sug:hover{color:var(--text);border-color:var(--accent2)}
+
+/* toast + ghost */
+.toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;box-shadow:var(--shadow);display:flex;gap:12px;align-items:flex-start;max-width:min(560px,calc(100% - 28px));z-index:20;font-size:13px}
+.toast[hidden]{display:none!important}
+.toast .calls{border-top:0;margin-top:4px;padding-top:0}
+.dragghost{position:fixed;pointer-events:none;z-index:50;opacity:.9;transform:translate(-50%,-50%)}
+
+@media (max-width:820px){
+  .main{grid-template-columns:1fr}
+  .pal{position:absolute;left:0;top:0;bottom:0;width:240px;z-index:15;box-shadow:var(--shadow);display:none}
+  .pal.open{display:flex}
+  .palbtn{display:inline-flex}
+  .insp{position:absolute;right:0;top:0;bottom:0;width:min(340px,100%);z-index:16;box-shadow:var(--shadow)}
+  .dock{height:210px}
+  .legend{display:none}
+  .hint{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .trace.now,.flow .node.active,.node.flash{animation:none}
+}
+</style>
+
+<div class="app" id="app">
+  <header class="bar">
+    <span class="brand">Allgres<small>에이전트 캔버스 · 목업</small></span>
+    <button class="btn sm palbtn" id="palToggle" type="button">블록</button>
+    <div class="seg" role="tablist" aria-label="보기 전환">
+      <button type="button" id="vOrg" class="on">조직 보기</button>
+      <button type="button" id="vFlow">흐름 보기</button>
+    </div>
+    <button class="btn sm primary multi" id="groupSel" type="button">선택한 항목을 그룹으로 묶기</button>
+    <span class="spacer"></span>
+    <button class="btn sm ghost" id="undoBtn" type="button" title="되돌리기 (⌘Z)">되돌리기</button>
+    <button class="btn sm ghost" id="zOut" type="button" aria-label="축소">−</button>
+    <span class="zoomlbl" id="zLbl">100%</span>
+    <button class="btn sm ghost" id="zIn" type="button" aria-label="확대">+</button>
+    <button class="btn sm" id="fitBtn" type="button">전체 보기</button>
+    <div class="seg" aria-label="시작 상태">
+      <button type="button" id="sEmpty">첫 로그인</button>
+      <button type="button" id="sOrg" class="on">예시 조직</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <aside class="pal" id="pal" aria-label="블록 팔레트">
+      <section>
+        <h4>블록</h4>
+        <div class="pal-list">
+          <div class="pal-item" data-kind="agent"><span class="ic">A</span><span><b>에이전트</b><small>캔버스에 놓으면 생성</small></span></div>
+          <div class="pal-item" data-kind="group"><span class="ic">▢</span><span><b>그룹 박스</b><small>팀, 본부, 프로젝트</small></span></div>
+        </div>
+      </section>
+      <section>
+        <h4>스킬</h4>
+        <div class="pal-list" id="palSkills"></div>
+      </section>
+      <section>
+        <h4>저장한 구성</h4>
+        <div class="pal-list" id="palTpl"></div>
+      </section>
+      <p class="pal-note">블록을 캔버스로 끌어다 놓으세요. 스킬은 에이전트 노드 위에, 구성은 빈 곳이나 그룹 안에 놓습니다.</p>
+    </aside>
+
+    <div class="canvas" id="canvas">
+      <div class="world" id="world">
+        <div class="layer" id="groups"></div>
+        <svg class="edges" id="edges"></svg>
+        <div class="layer" id="nodes"></div>
+      </div>
+      <div class="empty" id="empty"><div><b>아직 조직이 없습니다</b>아래 마스터에게 첫 팀을 만들어 달라고 해 보세요. 왼쪽 팔레트에서 에이전트를 직접 끌어 놓아도 됩니다.</div></div>
+      <div class="runcard" id="runcard"></div>
+      <div class="hint" id="hint">노드 끌기: 이동·그룹 넣기 · 아래 점 끌기: 하위 연결 · 선 클릭: 연결 해제 · Shift+클릭: 여러 개 선택 · 빈 곳 끌기: 화면 이동 · 휠: 확대</div>
+      <div class="toast" id="toast" hidden></div>
+    </div>
+
+    <aside class="insp" id="insp" hidden aria-label="상세 설정"></aside>
+  </div>
+
+  <section class="dock" id="dock" aria-label="마스터 에이전트">
+    <div class="d-head">
+      <span class="ava">M</span>
+      <b>마스터</b><span class="sub" id="mStatus">대기 중 · Opus 5.5</span>
+      <span class="spacer"></span>
+      <span class="legend">호출 표시: <span class="tg have">있음</span> 지금 Allgres에 있음 <span class="tg ext">확장</span> 있지만 넓혀야 함 <span class="tg new">신규</span> 새로 만들어야 함</span>
+      <button class="btn sm ghost" id="dockToggle" type="button">접기</button>
+    </div>
+    <div class="d-body">
+      <div class="msgs" id="mMsgs"></div>
+      <div class="sugs" id="mSugs"></div>
+      <form class="composer" id="mForm"><input class="inp" id="mInput" autocomplete="off" placeholder="마스터에게 요청하기 · 예: 개발팀에 문서화 담당 추가해줘"><button class="btn primary" type="submit">보내기</button></form>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+const W = 210;
+const MODELS = {
+  opus:   {label:'Opus 5.5',  id:'claude-opus-5-5',   per1k:0.015},
+  sonnet: {label:'Sonnet 5.5',id:'claude-sonnet-5-5', per1k:0.006},
+  haiku:  {label:'Haiku 5.5', id:'claude-haiku-5-5',  per1k:0.0015},
+  local:  {label:'Qwen3 32B · 로컬', id:'ollama/qwen3:32b', per1k:0}
+};
+const SKILLS = {
+  web:     {label:'웹 검색',   kind:'함수 · http_get'},
+  sql:     {label:'SQL 조회',  kind:'SQL 샌드박스 뷰'},
+  memory:  {label:'메모리',    kind:'remember / recall'},
+  review:  {label:'주문 검토', kind:'프로시저'},
+  slack:   {label:'Slack 알림',kind:'API 연결'},
+  schedule:{label:'정기 실행', kind:'스케줄'}
+};
+const AUTONOMY = {admin_approval:'관리자 승인 후 적용', self_approve:'스스로 승인', auto:'자동 적용'};
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let uid = 0; const nid = p => p + '_' + (++uid) + Math.random().toString(36).slice(2,5);
+
+const S = {agents:{}, groups:{}, sel:new Set(), selGroup:null, selEdge:null, tab:'chat', view:'org', run:null, chats:{}, templates:[]};
+const cam = {x:0, y:0, s:1};
+const nodeH = {};
+const undoStack = [];
+
+function A(id,name,role,model,skills,group,parent,x,y,autonomy){
+  return {id,name,role,model,skills:[...skills],group,parent,x,y,autonomy:autonomy||'admin_approval',perTask:false,inherit:true};
+}
+function seedOrg(){
+  S.groups = {
+    g_prod:{id:'g_prod',name:'제품 본부',parent:null,x:0,y:0,w:260,h:150},
+    g_res:{id:'g_res',name:'리서치팀',parent:'g_prod',x:0,y:0,w:260,h:150},
+    g_dev:{id:'g_dev',name:'개발팀',parent:'g_prod',x:0,y:0,w:260,h:150}
+  };
+  S.agents = {
+    lead_r:A('lead_r','리서치 팀장','조사 계획과 결과 취합','sonnet',['web','memory'],'g_res',null,120,110),
+    collector:A('collector','자료 수집','웹에서 원자료 수집','haiku',['web'],'g_res','lead_r',0,300,'auto'),
+    summarizer:A('summarizer','요약','자료를 비교표로 정리','haiku',['memory'],'g_res','lead_r',240,300,'auto'),
+    lead_d:A('lead_d','개발 팀장','작업 분배와 코드 리뷰','opus',['sql','review'],'g_dev',null,700,110),
+    backend:A('backend','백엔드','DB 조회와 데이터 처리','sonnet',['sql'],'g_dev','lead_d',580,300),
+    qa:A('qa','QA','결과 검증과 회귀 확인','local',[],'g_dev','lead_d',820,300),
+    solo:A('solo','일정 비서','회의와 마감 일정 관리','haiku',['schedule','slack'],null,null,1200,140,'self_approve')
+  };
+}
+S.templates = [{name:'고객지원 팀', desc:'팀장 + 2명', group:'고객지원팀', agents:[
+  {k:'a',name:'지원 팀장',role:'문의 분류와 배정',model:'sonnet',skills:['memory','slack'],p:null,dx:120,dy:0},
+  {k:'b',name:'1차 응대',role:'자주 묻는 질문 처리',model:'haiku',skills:['memory'],p:'a',dx:0,dy:190},
+  {k:'c',name:'환불 처리',role:'주문 확인 후 환불 판단',model:'sonnet',skills:['review'],p:'a',dx:240,dy:190}
+]}];
+
+/* ---------- undo ---------- */
+function snap(){ undoStack.push(JSON.stringify({agents:S.agents,groups:S.groups})); if(undoStack.length>60) undoStack.shift(); }
+function undo(){
+  const j = undoStack.pop(); if(!j){ toast('되돌릴 변경이 없습니다'); return; }
+  const o = JSON.parse(j); S.agents = o.agents; S.groups = o.groups;
+  S.sel.clear(); S.selGroup = null; S.selEdge = null;
+  renderAll(); renderInspector(); toast('마지막 변경을 되돌렸습니다', null, false);
+}
+
+/* ---------- geometry ---------- */
+const canvasEl = $('#canvas'), worldEl = $('#world');
+function applyCam(){ worldEl.style.transform = `translate(${cam.x}px,${cam.y}px) scale(${cam.s})`; $('#zLbl').textContent = Math.round(cam.s*100)+'%'; }
+function toWorld(cx,cy){ const r = canvasEl.getBoundingClientRect(); return {x:(cx-r.left-cam.x)/cam.s, y:(cy-r.top-cam.y)/cam.s}; }
+function union(a,b){ if(!a) return {...b}; const x=Math.min(a.x,b.x), y=Math.min(a.y,b.y); return {x,y,w:Math.max(a.x+a.w,b.x+b.w)-x,h:Math.max(a.y+a.h,b.y+b.h)-y}; }
+function nodeRect(a){ return {x:a.x,y:a.y,w:W,h:nodeH[a.id]||120}; }
+function gDepth(id){ let d=0,g=S.groups[id]; while(g && g.parent){ d++; g=S.groups[g.parent]; } return d; }
+function isGroupDesc(id, anc){ let g=S.groups[id]; while(g){ if(g.id===anc) return true; g=S.groups[g.parent]; } return false; }
+function gBounds(id, ex={}){
+  const g = S.groups[id]; let r = null;
+  for(const a of Object.values(S.agents)) if(a.group===id && a.id!==ex.node) r = union(r, nodeRect(a));
+  for(const c of Object.values(S.groups)) if(c.parent===id && !(ex.group && isGroupDesc(c.id, ex.group))) r = union(r, gBounds(c.id, ex));
+  if(!r) return {x:g.x,y:g.y,w:g.w,h:g.h,empty:true};
+  const pad = 22, head = 30;
+  return {x:r.x-pad, y:r.y-pad-head, w:r.w+pad*2, h:r.h+pad*2+head};
+}
+function groupAt(p, ex={}){
+  let best=null, bd=-1;
+  for(const g of Object.values(S.groups)){
+    if(ex.group && isGroupDesc(g.id, ex.group)) continue;
+    const b = gBounds(g.id, ex);
+    if(p.x>=b.x && p.x<=b.x+b.w && p.y>=b.y && p.y<=b.y+b.h){ const d=gDepth(g.id); if(d>bd){ bd=d; best=g.id; } }
+  }
+  return best;
+}
+function isAncestor(anc, id){ let a=S.agents[id]; const seen=new Set(); while(a && a.parent && !seen.has(a.id)){ seen.add(a.id); if(a.parent===anc) return true; a=S.agents[a.parent]; } return false; }
+function groupMembers(id){ return Object.values(S.agents).filter(a => a.group && isGroupDesc(a.group, id)); }
+
+/* ---------- render ---------- */
+const nodesEl = $('#nodes'), groupsEl = $('#groups'), edgesEl = $('#edges');
+const groupEls = {};
+function nodeHTML(a){
+  const kids = Object.values(S.agents).filter(c => c.parent===a.id).length;
+  const sk = a.skills.length ? a.skills.map(k => `<span class="chip">${esc(SKILLS[k].label)}</span>`).join('') : '<span class="chip empty">스킬 없음</span>';
+  return `<div class="port in"></div><span class="from-master">◀ 마스터에게서 받음</span><span class="step-b"></span>
+    <div class="n-head"><span class="ava">${esc(a.name[0])}</span><div class="n-title"><b>${esc(a.name)}</b><small>${esc(a.role)}</small></div><span class="sdot idle" title="대기 중"></span></div>
+    <div class="n-model"><i></i>${esc(MODELS[a.model].label)}</div>
+    <div class="n-skills">${sk}</div>
+    <div class="n-foot"><span>${a.parent ? '상위: '+esc(S.agents[a.parent]?.name||'') : '<span class="badge-master">마스터 직속</span>'}</span><span>${kids ? '하위 '+kids : ''}</span></div>
+    <div class="port out" title="끌어서 하위 에이전트로 연결"></div>`;
+}
+function renderNodes(){
+  nodesEl.innerHTML = '';
+  for(const a of Object.values(S.agents)){
+    const el = document.createElement('div');
+    el.className = 'node' + (S.sel.has(a.id) ? ' sel' : '');
+    el.dataset.id = a.id; el.innerHTML = nodeHTML(a);
+    el.style.left = a.x+'px'; el.style.top = a.y+'px';
+    nodesEl.appendChild(el);
+  }
+  for(const el of nodesEl.children) nodeH[el.dataset.id] = el.offsetHeight;
+  $('#empty').classList.toggle('show', Object.keys(S.agents).length===0 && Object.keys(S.groups).length===0);
+}
+function layout(ex={}, dropTarget=null){
+  for(const el of nodesEl.children){ const a=S.agents[el.dataset.id]; if(a){ el.style.left=a.x+'px'; el.style.top=a.y+'px'; } }
+  for(const id of Object.keys(groupEls)) if(!S.groups[id]){ groupEls[id].remove(); delete groupEls[id]; }
+  const order = Object.values(S.groups).sort((a,b) => gDepth(a.id)-gDepth(b.id));
+  for(const g of order){
+    let el = groupEls[g.id];
+    if(!el){ el = document.createElement('div'); el.dataset.gid = g.id; el.innerHTML = '<div class="g-head"><b></b><small></small></div>'; groupEls[g.id] = el; }
+    groupsEl.appendChild(el);
+    const b = gBounds(g.id, ex);
+    if(!b.empty && !ex.node && !ex.group){ g.x=b.x; g.y=b.y; g.w=b.w; g.h=b.h; }
+    const d = gDepth(g.id);
+    el.className = `group d${Math.min(d,2)}` + (S.selGroup===g.id?' sel':'') + (dropTarget===g.id?' drop':'');
+    Object.assign(el.style, {left:b.x+'px', top:b.y+'px', width:b.w+'px', height:b.h+'px'});
+    const n = groupMembers(g.id).length, subs = Object.values(S.groups).filter(c=>c.parent===g.id).length;
+    el.querySelector('b').textContent = g.name;
+    el.querySelector('small').textContent = `${n}명` + (subs ? ` · 하위 그룹 ${subs}` : '');
+  }
+  drawEdges();
+}
+function edgePath(p, c){
+  const sx=p.x+W/2, sy=p.y+(nodeH[p.id]||120), ex=c.x+W/2, ey=c.y;
+  const dy = Math.max(40, Math.abs(ey-sy)/2);
+  return `M${sx},${sy} C${sx},${sy+dy} ${ex},${ey-dy} ${ex},${ey}`;
+}
+let tempEdge = null;
+function drawEdges(){
+  let h = '';
+  for(const c of Object.values(S.agents)){
+    const p = S.agents[c.parent]; if(!p) continue;
+    const d = edgePath(p,c), key = p.id+'>'+c.id;
+    h += `<path class="edge${S.selEdge===key?' sel':''}" d="${d}"/><path class="edge-hit" data-edge="${key}" d="${d}"/>`;
+  }
+  if(S.view==='flow' && S.run){
+    S.run.steps.forEach((st,i) => {
+      if(i>S.run.i || !st.to || st.who==='master') return;
+      const p=S.agents[st.who], c=S.agents[st.to]; if(!p||!c) return;
+      h += `<path class="trace${i===S.run.i?' now':''}" d="${edgePath(p,c)}"/>`;
+    });
+  }
+  if(tempEdge) h += `<path class="edge temp" d="${tempEdge}"/>`;
+  edgesEl.innerHTML = h;
+  document.querySelectorAll('.edge-x').forEach(e => e.remove());
+  if(S.selEdge){
+    const [pid,cid] = S.selEdge.split('>'), p=S.agents[pid], c=S.agents[cid];
+    if(p && c && c.parent===pid){
+      const b = document.createElement('button'); b.className='edge-x'; b.type='button'; b.textContent='×'; b.title='연결 해제';
+      b.style.left = ((p.x+c.x)/2+W/2)+'px'; b.style.top = ((p.y+(nodeH[p.id]||120)+c.y)/2)+'px';
+      b.addEventListener('pointerdown', e => e.stopPropagation());
+      b.addEventListener('click', () => removeEdge(pid,cid));
+      nodesEl.appendChild(b);
+    }
+  }
+}
+function renderAll(){ renderNodes(); layout(); applyRunState(); }
+
+/* ---------- toast ---------- */
+let toastT = null;
+function tag(k){ return `<span class="tg ${k}">${{have:'있음',ext:'확장',new:'신규'}[k]}</span>`; }
+function callsHTML(calls){ return calls && calls.length ? `<div class="calls">${calls.map(([n,k]) => `<div class="call"><code>${esc(n)}</code>${tag(k)}</div>`).join('')}</div>` : ''; }
+function toast(msg, calls, canUndo=true){
+  const t = $('#toast');
+  t.innerHTML = `<div style="min-width:0">${esc(msg)}${callsHTML(calls)}</div>` + (canUndo ? '<button class="btn sm" type="button" id="tUndo">되돌리기</button>' : '');
+  t.hidden = false;
+  if(canUndo) $('#tUndo').onclick = () => { undo(); };
+  clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 4200);
+}
+
+/* ---------- selection & inspector ---------- */
+function select(id, add){
+  S.selGroup = null; S.selEdge = null;
+  if(add){ S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id); } else { S.sel.clear(); if(id) S.sel.add(id); }
+  for(const el of nodesEl.children) if(el.dataset.id) el.classList.toggle('sel', S.sel.has(el.dataset.id));
+  $('#groupSel').classList.toggle('show', S.sel.size>=2);
+  $('#groupSel').textContent = `선택한 ${S.sel.size}개를 그룹으로 묶기`;
+  layout(); renderInspector();
+}
+function selectGroup(id){ S.sel.clear(); S.selEdge=null; S.selGroup=id; for(const el of nodesEl.children) el.classList?.remove('sel'); $('#groupSel').classList.remove('show'); layout(); renderInspector(); }
+
+const insp = $('#insp');
+function renderInspector(){
+  if(S.view==='flow' || (S.sel.size!==1 && !S.selGroup)){ insp.hidden = true; return; }
+  insp.hidden = false;
+  if(S.selGroup){ return renderGroupInspector(S.groups[S.selGroup]); }
+  const a = S.agents[[...S.sel][0]]; if(!a){ insp.hidden = true; return; }
+  const tabs = [['chat','대화'],['set','설정'],['skills','스킬'],['hist','이력']];
+  let body = '';
+  if(S.tab==='chat'){
+    const msgs = S.chats[a.id] || [];
+    body = `<p class="note">이 창의 메시지는 마스터를 거치지 않고 ${esc(a.name)}에게만 전달됩니다.</p>
+      <div class="msgs" id="aMsgs">${msgs.map(m => `<div class="m ${m.me?'me':''}">${m.me?'':`<span class="who">${esc(a.name)}</span>`}${esc(m.t)}${callsHTML(m.calls)}</div>`).join('') || '<p class="note">아직 대화가 없습니다.</p>'}</div>
+      <form class="composer" id="aForm"><input class="inp" id="aInput" autocomplete="off" placeholder="${esc(a.name)}에게 직접 지시"><button class="btn primary" type="submit">보내기</button></form>`;
+  } else if(S.tab==='set'){
+    body = `<div class="field"><label for="fName">이름</label><input class="inp" id="fName" value="${esc(a.name)}"></div>
+      <div class="field"><label for="fRole">역할</label><input class="inp" id="fRole" value="${esc(a.role)}"></div>
+      <div class="field"><label for="fModel">모델 ${tag('have')}</label><select class="sel" id="fModel">${Object.entries(MODELS).map(([k,m]) => `<option value="${k}"${a.model===k?' selected':''}>${esc(m.label)} · ${esc(m.id)}</option>`).join('')}</select></div>
+      <label class="check"><input type="checkbox" id="fPerTask"${a.perTask?' checked':''}><span>작업마다 다른 모델 허용 ${tag('new')}<br><span class="note">작업을 맡길 때 모델을 지정하면 이 설정보다 우선합니다.</span></span></label>
+      <div class="field"><label for="fAuto">자율성 ${tag('have')}</label><select class="sel" id="fAuto">${Object.entries(AUTONOMY).map(([k,l]) => `<option value="${k}"${a.autonomy===k?' selected':''}>${l}</option>`).join('')}</select></div>
+      <label class="check"><input type="checkbox" id="fInherit"${a.inherit?' checked':''}><span>상위 에이전트 설정 상속 ${tag('new')}<br><span class="note">상위의 모델과 기본 프롬프트를 따라갑니다. 권한은 상속과 관계없이 상위가 가진 범위까지만 받을 수 있습니다.</span></span></label>`;
+  } else if(S.tab==='skills'){
+    body = (a.skills.map(k => `<div class="skill-row"><div class="t"><b>${esc(SKILLS[k].label)}</b><small>${esc(SKILLS[k].kind)}</small></div><button class="xbtn" type="button" data-rm="${k}" title="스킬 회수">×</button></div>`).join('') || '<p class="note">아직 스킬이 없습니다.</p>')
+      + `<p class="note">왼쪽 팔레트에서 스킬을 끌어 이 노드에 놓으면 추가됩니다. 실제로는 <code>permissions.grant</code>로 기록되고, 상위 에이전트에게 없는 스킬은 승인을 거칩니다.</p>`;
+  } else {
+    const rows = [['경쟁사 가격 비교','2시간 전','완료','ok'],['주간 지표 요약','어제','완료','ok'],['결제 오류 원인 조사','어제','승인 대기','wait'],['배포 체크리스트','3일 전','실패','fail']];
+    body = rows.map(r => `<div class="hist"><span>${r[0]}<br><small>${r[1]} · ${esc(MODELS[a.model].label)}</small></span><span class="st ${r[3]}">${r[2]}</span></div>`).join('') + '<p class="note">예시 이력입니다. 실제로는 tasks와 execution_logs에서 읽어 옵니다.</p>';
+  }
+  insp.innerHTML = `<div class="i-head"><span class="ava">${esc(a.name[0])}</span><div class="t"><b>${esc(a.name)}</b><small>${esc(MODELS[a.model].label)} · ${a.parent?'상위: '+esc(S.agents[a.parent]?.name||''):'마스터 직속'}</small></div><button class="xbtn" type="button" id="iClose" aria-label="닫기">×</button></div>
+    <div class="tabs">${tabs.map(([k,l]) => `<button type="button" data-tab="${k}" class="${S.tab===k?'on':''}">${l}</button>`).join('')}</div>
+    <div class="i-body">${body}</div>
+    <div class="i-foot"><button class="btn sm" type="button" id="iSaveTpl">이 에이전트를 구성으로 저장</button><button class="btn sm danger" type="button" id="iDel">해제</button></div>`;
+  $('#iClose').onclick = () => select(null);
+  insp.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; renderInspector(); });
+  $('#iDel').onclick = () => deleteAgent(a.id);
+  $('#iSaveTpl').onclick = () => { S.templates.push({name:a.name, desc:'단일 에이전트', group:null, agents:[{k:'a',name:a.name,role:a.role,model:a.model,skills:a.skills,p:null,dx:0,dy:0}]}); renderPalette(); toast(`${a.name}을(를) 저장한 구성에 추가했습니다`, [['canvas_templates.save','new']], false); };
+  if(S.tab==='chat'){
+    const box = $('#aMsgs'); box.scrollTop = box.scrollHeight;
+    $('#aForm').onsubmit = e => { e.preventDefault(); const v=$('#aInput').value.trim(); if(!v) return;
+      (S.chats[a.id] ||= []).push({me:true,t:v}); renderInspector();
+      setTimeout(() => { S.chats[a.id].push({t:`지시를 받았습니다. "${v}" 작업을 시작합니다. (목업 응답)`, calls:[['chat.send','have'],['run → '+MODELS[a.model].id,'have']]}); if(S.sel.has(a.id)) renderInspector(); }, 600);
+      setTimeout(() => $('#aInput')?.focus(), 0); };
+  }
+  if(S.tab==='set'){
+    const upd = (f, fn, calls) => $(f).onchange = e => { snap(); fn(e.target); renderAll(); renderInspector(); toast('설정을 저장했습니다', calls); };
+    upd('#fName', t => a.name = t.value.trim() || a.name, [['agents.update','have']]);
+    upd('#fRole', t => a.role = t.value.trim(), [['agents.update','have']]);
+    upd('#fModel', t => a.model = t.value, [['agents.update (llm_config)','have']]);
+    upd('#fPerTask', t => a.perTask = t.checked, [['policies.allow_task_model','new']]);
+    upd('#fAuto', t => a.autonomy = t.value, [['agents.set_autonomy','have']]);
+    upd('#fInherit', t => a.inherit = t.checked, [['agents.inherit_from_parent','new']]);
+  }
+  if(S.tab==='skills') insp.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { snap(); const k=b.dataset.rm; a.skills = a.skills.filter(s => s!==k); renderAll(); renderInspector(); toast(`${a.name}에게서 ${SKILLS[k].label} 스킬을 회수했습니다`, [['permissions.revoke','have']]); });
+}
+function renderGroupInspector(g){
+  const mem = groupMembers(g.id), subs = Object.values(S.groups).filter(c => c.parent===g.id);
+  const models = {}; mem.forEach(a => models[MODELS[a.model].label] = (models[MODELS[a.model].label]||0)+1);
+  insp.innerHTML = `<div class="i-head"><span class="ava">▢</span><div class="t"><b>${esc(g.name)}</b><small>${g.parent ? '상위 그룹: '+esc(S.groups[g.parent]?.name||'') : '최상위 그룹'}</small></div><button class="xbtn" type="button" id="iClose" aria-label="닫기">×</button></div>
+    <div class="i-body">
+      <div class="field"><label for="gName">그룹 이름</label><input class="inp" id="gName" value="${esc(g.name)}"></div>
+      <div class="stats"><div class="stat"><b>${mem.length}</b><small>소속 에이전트</small></div><div class="stat"><b>${subs.length}</b><small>하위 그룹</small></div></div>
+      <div><div class="note" style="margin-bottom:6px">사용 중인 모델</div>${Object.entries(models).map(([m,n]) => `<span class="chip" style="margin:0 4px 4px 0;display:inline-block">${esc(m)} × ${n}</span>`).join('') || '<span class="note">없음</span>'}</div>
+      <div><div class="note" style="margin-bottom:6px">구성원</div>${mem.map(a => `<div class="hist"><span>${esc(a.name)}<br><small>${esc(a.role)}</small></span><span class="st">${esc(MODELS[a.model].label)}</span></div>`).join('') || '<p class="note">그룹이 비어 있습니다. 노드를 끌어다 넣어 보세요.</p>'}</div>
+      <p class="note">다른 그룹 박스 위로 끌어 놓으면 그 안의 하위 그룹이 됩니다. 두 그룹을 하나로 합치려면 마스터에게 "합쳐줘"라고 요청해 보세요.</p>
+    </div>
+    <div class="i-foot"><button class="btn sm" type="button" id="gTpl">구성으로 저장</button><button class="btn sm danger" type="button" id="gUngroup">그룹 해제</button></div>`;
+  $('#iClose').onclick = () => selectGroup(null);
+  $('#gName').onchange = e => { snap(); g.name = e.target.value.trim() || g.name; layout(); renderInspector(); toast('그룹 이름을 바꿨습니다', [['teams.update','new']]); };
+  $('#gTpl').onclick = () => saveGroupTemplate(g.id);
+  $('#gUngroup').onclick = () => { snap(); for(const a of Object.values(S.agents)) if(a.group===g.id) a.group=g.parent; for(const c of Object.values(S.groups)) if(c.parent===g.id) c.parent=g.parent; delete S.groups[g.id]; S.selGroup=null; renderAll(); renderInspector(); toast(`${g.name} 그룹을 해제했습니다. 구성원은 그대로 남습니다`, [['teams.dissolve','new']]); };
+}
+
+/* ---------- mutations ---------- */
+function removeEdge(pid, cid){
+  snap(); const c = S.agents[cid]; c.parent = null; S.selEdge = null; renderAll(); renderInspector();
+  toast(`${S.agents[pid].name} → ${c.name} 연결을 해제했습니다. ${c.name}은(는) 마스터 직속이 됩니다`, [['agents.set_parent','new'],['permissions.revoke (agent)','have']]);
+}
+function deleteAgent(id){
+  snap(); const a = S.agents[id];
+  for(const c of Object.values(S.agents)) if(c.parent===id) c.parent = a.parent;
+  delete S.agents[id]; S.sel.delete(id); renderAll(); renderInspector();
+  toast(`${a.name}을(를) 해제했습니다. 하위 에이전트는 한 단계 위로 올라갑니다`, [['agents.archive','new']]);
+}
+function ceilingCheck(agentId, skill){
+  const missing = []; let p = S.agents[S.agents[agentId].parent];
+  while(p){ if(!p.skills.includes(skill)) missing.push(p); p = S.agents[p.parent]; }
+  return missing;
+}
+function grantSkill(agentId, skill){
+  const a = S.agents[agentId];
+  if(a.skills.includes(skill)){ toast(`${a.name}은(는) 이미 ${SKILLS[skill].label} 스킬이 있습니다`, null, false); return; }
+  const missing = ceilingCheck(agentId, skill);
+  if(missing.length){
+    openDock();
+    pushMaster({sys:true, t:`권한 상한 확인 · ${a.name}에게 ${SKILLS[skill].label}을(를) 주려면 상위인 ${missing.map(m=>m.name).join(', ')}에게도 있어야 합니다.`, calls:[['permission_ceiling_check','new']],
+      actions:[['상위에도 함께 부여', () => { snap(); missing.forEach(m => m.skills.push(skill)); a.skills.push(skill); renderAll(); renderInspector(); pushMaster({t:`${[...missing.map(m=>m.name), a.name].join(', ')}에게 ${SKILLS[skill].label} 스킬을 부여했습니다.`, calls:[['permissions.grant','have'],['audit_log','have']]}); }],
+               ['취소', () => pushMaster({t:'부여하지 않았습니다.'})]]});
+    return;
+  }
+  snap(); a.skills.push(skill); renderAll(); renderInspector();
+  toast(`${a.name}에게 ${SKILLS[skill].label} 스킬을 부여했습니다`, [['permissions.grant','have']]);
+}
+function flash(ids){ setTimeout(() => ids.forEach(id => nodesEl.querySelector(`[data-id="${id}"]`)?.classList.add('flash')), 30); }
+function instantiate(tpl, p){
+  snap(); const parentG = groupAt(p); let gid = parentG;
+  if(tpl.group){ gid = nid('g'); S.groups[gid] = {id:gid, name:tpl.group, parent:parentG, x:p.x, y:p.y, w:260, h:150}; }
+  const map = {}; tpl.agents.forEach(t => map[t.k] = nid('a'));
+  tpl.agents.forEach(t => S.agents[map[t.k]] = A(map[t.k], t.name, t.role, t.model, t.skills, gid, t.p ? map[t.p] : null, p.x+t.dx, p.y+t.dy));
+  renderAll(); flash(Object.values(map));
+  return Object.values(map);
+}
+function saveGroupTemplate(gid){
+  const g = S.groups[gid], mem = groupMembers(gid); if(!mem.length){ toast('빈 그룹은 저장할 수 없습니다', null, false); return; }
+  const mx = Math.min(...mem.map(a=>a.x)), my = Math.min(...mem.map(a=>a.y)), ids = new Set(mem.map(a=>a.id));
+  S.templates.push({name:g.name, desc:`${mem.length}명`, group:g.name, agents:mem.map(a => ({k:a.id,name:a.name,role:a.role,model:a.model,skills:a.skills,p:ids.has(a.parent)?a.parent:null,dx:a.x-mx,dy:a.y-my}))});
+  renderPalette(); toast(`${g.name} 구성을 저장했습니다. 팔레트에서 끌어 놓으면 같은 팀이 하나 더 생깁니다`, [['canvas_templates.save','new']], false);
+}
+
+/* ---------- pointer interactions ---------- */
+let drag = null;
+canvasEl.addEventListener('pointerdown', e => {
+  if(e.button!==0) return;
+  const port = e.target.closest('.port.out'), node = e.target.closest('.node'), ghead = e.target.closest('.g-head'), hit = e.target.closest('.edge-hit');
+  if(port && node){
+    e.preventDefault(); drag = {type:'port', from:node.dataset.id}; return;
+  }
+  if(hit){ S.sel.clear(); S.selGroup=null; S.selEdge = hit.dataset.edge; renderAll(); renderInspector(); return; }
+  if(node){
+    const a = S.agents[node.dataset.id];
+    drag = {type:'node', id:a.id, sx:e.clientX, sy:e.clientY, ox:a.x, oy:a.y, moved:false, shift:e.shiftKey, el:node}; return;
+  }
+  if(ghead){
+    const gid = ghead.parentElement.dataset.gid;
+    const agents = Object.values(S.agents).filter(a => a.group && isGroupDesc(a.group, gid)).map(a => [a, a.x, a.y]);
+    const groups = Object.values(S.groups).filter(g => isGroupDesc(g.id, gid)).map(g => [g, g.x, g.y]);
+    drag = {type:'group', id:gid, sx:e.clientX, sy:e.clientY, agents, groups, moved:false}; return;
+  }
+  drag = {type:'pan', sx:e.clientX, sy:e.clientY, ox:cam.x, oy:cam.y, moved:false};
+});
+window.addEventListener('pointermove', e => {
+  if(!drag) return;
+  if(drag.type==='pal'){ moveGhost(e); return; }
+  if(drag.type==='port'){
+    const a = S.agents[drag.from], p = toWorld(e.clientX, e.clientY);
+    const sx=a.x+W/2, sy=a.y+(nodeH[a.id]||120), dy=Math.max(40,Math.abs(p.y-sy)/2);
+    tempEdge = `M${sx},${sy} C${sx},${sy+dy} ${p.x},${p.y-dy} ${p.x},${p.y}`; drawEdges();
+    nodesEl.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'));
+    const t = document.elementFromPoint(e.clientX, e.clientY)?.closest('.node'); if(t && t.dataset.id!==drag.from) t.classList.add('drop-target');
+    return;
+  }
+  const dx = (e.clientX-drag.sx), dy = (e.clientY-drag.sy);
+  if(!drag.moved && Math.hypot(dx,dy) < 4) return;
+  drag.moved = true;
+  if(drag.type==='pan'){ canvasEl.classList.add('panning'); cam.x = drag.ox+dx; cam.y = drag.oy+dy; applyCam(); return; }
+  if(drag.type==='node'){
+    const a = S.agents[drag.id]; a.x = drag.ox+dx/cam.s; a.y = drag.oy+dy/cam.s; drag.el.classList.add('dragging');
+    layout({node:a.id}, groupAt(toWorld(e.clientX,e.clientY), {node:a.id})); return;
+  }
+  if(drag.type==='group'){
+    drag.agents.forEach(([a,x,y]) => { a.x = x+dx/cam.s; a.y = y+dy/cam.s; });
+    drag.groups.forEach(([g,x,y]) => { g.x = x+dx/cam.s; g.y = y+dy/cam.s; });
+    layout({group:drag.id}, groupAt(toWorld(e.clientX,e.clientY), {group:drag.id}));
+  }
+});
+window.addEventListener('pointerup', e => {
+  if(!drag) return; const d = drag; drag = null; canvasEl.classList.remove('panning');
+  if(d.type==='pal'){ dropPalette(e, d); return; }
+  if(d.type==='port'){
+    tempEdge = null; nodesEl.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'));
+    const t = document.elementFromPoint(e.clientX, e.clientY)?.closest('.node');
+    if(t && t.dataset.id!==d.from){
+      const parent = S.agents[d.from], child = S.agents[t.dataset.id];
+      if(isAncestor(child.id, parent.id)){ drawEdges(); toast(`${child.name}은(는) ${parent.name}의 상위라서 연결할 수 없습니다`, null, false); return; }
+      if(child.parent===parent.id){ drawEdges(); return; }
+      snap(); child.parent = parent.id; renderAll(); renderInspector();
+      toast(`${child.name}이(가) ${parent.name}의 하위가 됐습니다. ${parent.name}이(가) 일을 맡길 수 있습니다`, [['agents.set_parent','new'],['permissions.grant (agent → agent)','ext']]);
+    } else drawEdges();
+    return;
+  }
+  if(!d.moved){
+    if(d.type==='node') select(d.id, d.shift);
+    else if(d.type==='group') selectGroup(d.id);
+    else { S.selEdge=null; select(null); }
+    return;
+  }
+  if(d.type==='node'){
+    const a = S.agents[d.id]; d.el.classList.remove('dragging');
+    const target = groupAt(toWorld(e.clientX,e.clientY), {node:a.id});
+    if(target!==a.group){
+      const nx=a.x, ny=a.y; a.x=d.ox; a.y=d.oy; snap(); a.x=nx; a.y=ny;
+      const from = a.group; a.group = target;
+      toast(target ? `${a.name}을(를) ${S.groups[target].name}(으)로 옮겼습니다` : `${a.name}을(를) ${S.groups[from].name}에서 꺼냈습니다`, [[target?'teams.move_member':'teams.remove_member','new']]);
+      renderAll(); renderInspector();
+    } else layout();
+    return;
+  }
+  if(d.type==='group'){
+    const g = S.groups[d.id], target = groupAt(toWorld(e.clientX,e.clientY), {group:d.id});
+    if(target!==g.parent){
+      const cur = {a:d.agents.map(([a])=>[a,a.x,a.y]), g:d.groups.map(([gg])=>[gg,gg.x,gg.y])};
+      d.agents.forEach(([a,x,y]) => {a.x=x;a.y=y;}); d.groups.forEach(([gg,x,y]) => {gg.x=x;gg.y=y;}); snap();
+      cur.a.forEach(([a,x,y]) => {a.x=x;a.y=y;}); cur.g.forEach(([gg,x,y]) => {gg.x=x;gg.y=y;});
+      const from = g.parent; g.parent = target;
+      toast(target ? `${g.name}을(를) ${S.groups[target].name} 안의 하위 그룹으로 넣었습니다` : `${g.name}을(를) ${S.groups[from].name}에서 꺼내 최상위 그룹으로 만들었습니다`, [['teams.set_parent','new']]);
+      renderAll(); renderInspector();
+    } else layout();
+  }
+});
+canvasEl.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = canvasEl.getBoundingClientRect(), mx = e.clientX-r.left, my = e.clientY-r.top;
+  const ns = Math.min(1.8, Math.max(0.3, cam.s * Math.exp(-e.deltaY*0.0015)));
+  cam.x = mx - (mx-cam.x)*ns/cam.s; cam.y = my - (my-cam.y)*ns/cam.s; cam.s = ns; applyCam();
+}, {passive:false});
+function zoomBy(f){ const r = canvasEl.getBoundingClientRect(), mx=r.width/2, my=r.height/2, ns=Math.min(1.8,Math.max(0.3,cam.s*f)); cam.x = mx-(mx-cam.x)*ns/cam.s; cam.y = my-(my-cam.y)*ns/cam.s; cam.s=ns; applyCam(); }
+function fit(){
+  let r = null;
+  Object.values(S.agents).forEach(a => r = union(r, nodeRect(a)));
+  Object.values(S.groups).forEach(g => r = union(r, gBounds(g.id)));
+  const c = canvasEl.getBoundingClientRect();
+  if(!r){ cam.s=1; cam.x=c.width/2; cam.y=c.height/2; applyCam(); return; }
+  const pad = 60; cam.s = Math.min(1.1, Math.max(0.3, Math.min((c.width-pad*2)/r.w, (c.height-pad*2)/r.h)));
+  cam.x = (c.width - r.w*cam.s)/2 - r.x*cam.s; cam.y = (c.height - r.h*cam.s)/2 - r.y*cam.s + 10; applyCam();
+}
+
+/* ---------- palette ---------- */
+function renderPalette(){
+  $('#palSkills').innerHTML = Object.entries(SKILLS).map(([k,s]) => `<div class="pal-item" data-kind="skill" data-key="${k}"><span class="ic">${esc(s.label[0])}</span><span><b>${esc(s.label)}</b><small>${esc(s.kind)}</small></span></div>`).join('');
+  $('#palTpl').innerHTML = S.templates.map((t,i) => `<div class="pal-item" data-kind="tpl" data-key="${i}"><span class="ic">≡</span><span><b>${esc(t.name)}</b><small>${esc(t.desc)}</small></span></div>`).join('');
+}
+$('#pal').addEventListener('pointerdown', e => {
+  const it = e.target.closest('.pal-item'); if(!it || e.button!==0) return;
+  e.preventDefault();
+  const g = it.cloneNode(true); g.classList.add('dragghost'); g.style.width = it.offsetWidth+'px'; document.body.appendChild(g);
+  drag = {type:'pal', kind:it.dataset.kind, key:it.dataset.key, ghost:g}; moveGhost(e);
+});
+function moveGhost(e){
+  drag.ghost.style.left = e.clientX+'px'; drag.ghost.style.top = e.clientY+'px';
+  nodesEl.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'));
+  if(drag.kind==='skill'){ const t = document.elementFromPoint(e.clientX,e.clientY)?.closest('.node'); if(t) t.classList.add('drop-target'); }
+}
+function dropPalette(e, d){
+  d.ghost.remove(); nodesEl.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'));
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  if(!under || !under.closest('#canvas')) return;
+  if(window.innerWidth<=820) $('#pal').classList.remove('open');
+  const p = toWorld(e.clientX, e.clientY);
+  if(d.kind==='skill'){
+    const n = under.closest('.node'); if(!n){ toast('스킬은 에이전트 노드 위에 놓아 주세요', null, false); return; }
+    grantSkill(n.dataset.id, d.key); return;
+  }
+  if(d.kind==='agent'){
+    snap(); const id = nid('a'), g = groupAt(p);
+    S.agents[id] = A(id, '새 에이전트', '역할을 입력하세요', 'sonnet', [], g, null, p.x-W/2, p.y-40);
+    renderAll(); S.tab='set'; select(id); flash([id]);
+    toast(`새 에이전트를 만들었습니다${g?` (${S.groups[g].name})`:''}`, [['agents.create','have'], ...(g?[['teams.add_member','new']]:[])]); return;
+  }
+  if(d.kind==='group'){
+    snap(); const id = nid('g'), parent = groupAt(p);
+    S.groups[id] = {id, name:'새 그룹', parent, x:p.x-130, y:p.y-75, w:260, h:150};
+    renderAll(); selectGroup(id); toast('새 그룹을 만들었습니다. 노드를 끌어다 넣어 보세요', [['teams.create','new']]); return;
+  }
+  if(d.kind==='tpl'){
+    const t = S.templates[+d.key]; instantiate(t, {x:p.x-120, y:p.y-40});
+    toast(`${t.name} 구성을 배치했습니다`, [['canvas_templates.instantiate','new'],['agents.create','have'],['permissions.grant','have']]);
+  }
+}
+
+/* ---------- master dock ---------- */
+const mMsgs = $('#mMsgs'), master = [];
+function pushMaster(m){ master.push(m); renderMaster(); }
+function renderMaster(){
+  mMsgs.innerHTML = '';
+  master.forEach(m => {
+    const el = document.createElement('div');
+    el.className = 'm' + (m.me?' me':'') + (m.sys?' sys':'');
+    el.innerHTML = (m.me ? '' : `<span class="who">${m.sys?'승인 필요':'마스터'}</span>`) + esc(m.t) + callsHTML(m.calls);
+    if(m.actions && !m.used){
+      const row = document.createElement('div'); row.className = 'actions';
+      m.actions.forEach(([label, fn], i) => { const b = document.createElement('button'); b.type='button'; b.className = 'btn sm' + (i===0?' primary':''); b.textContent = label; b.onclick = () => { m.used = true; renderMaster(); fn(); }; row.appendChild(b); });
+      el.appendChild(row);
+    }
+    mMsgs.appendChild(el);
+  });
+  if(typingNow){ const t = document.createElement('div'); t.className='typing'; t.textContent='마스터가 작업 중…'; mMsgs.appendChild(t); }
+  mMsgs.scrollTop = mMsgs.scrollHeight;
+}
+let typingNow = false;
+function masterSays(fn, delay=700){ typingNow = true; $('#mStatus').textContent = '작업 중 · Opus 5.5'; renderMaster(); setTimeout(() => { typingNow = false; $('#mStatus').textContent = '대기 중 · Opus 5.5'; fn(); renderMaster(); }, delay); }
+function renderSugs(){
+  const hasRes = !!S.groups.g_res || Object.values(S.groups).some(g => g.name==='리서치팀');
+  const list = hasRes ? ['경쟁사 가격 조사 시켜줘','개발팀에 문서화 담당 추가해줘','마케팅팀 만들어줘','리서치팀이랑 개발팀 합쳐줘'] : ['리서치팀 만들어줘','마케팅팀 만들어줘'];
+  $('#mSugs').innerHTML = list.map(s => `<button class="sug" type="button">${esc(s)}</button>`).join('');
+  $('#mSugs').querySelectorAll('.sug').forEach(b => b.onclick = () => sendMaster(b.textContent));
+}
+function openDock(){ $('#dock').classList.remove('min'); $('#dockToggle').textContent='접기'; }
+$('#mForm').onsubmit = e => { e.preventDefault(); const v = $('#mInput').value.trim(); if(!v) return; $('#mInput').value=''; sendMaster(v); };
+function rightEdge(){ let r=null; Object.values(S.agents).forEach(a => r=union(r,nodeRect(a))); Object.values(S.groups).forEach(g => r=union(r,gBounds(g.id))); return r ? r.x+r.w : 0; }
+function sendMaster(text){
+  pushMaster({me:true, t:text});
+  if(/리서치팀.*(만들|생성)/.test(text)){
+    if(S.groups.g_res){ masterSays(() => pushMaster({t:'리서치팀은 이미 있습니다. 다른 팀을 만들거나 일을 맡겨 보세요.'})); return; }
+    masterSays(() => {
+      snap(); const x0 = Object.keys(S.agents).length ? rightEdge()+140 : 0;
+      S.groups.g_res = {id:'g_res', name:'리서치팀', parent:null, x:x0, y:0, w:260, h:150};
+      S.agents.lead_r = A('lead_r','리서치 팀장','조사 계획과 결과 취합','sonnet',['web','memory'],'g_res',null,x0+120,110);
+      S.agents.collector = A('collector','자료 수집','웹에서 원자료 수집','haiku',['web'],'g_res','lead_r',x0,300,'auto');
+      S.agents.summarizer = A('summarizer','요약','자료를 비교표로 정리','haiku',['memory'],'g_res','lead_r',x0+240,300,'auto');
+      renderAll(); fit(); flash(['lead_r','collector','summarizer']); renderSugs();
+      pushMaster({t:'리서치팀을 만들었습니다. 팀장은 Sonnet 5.5, 실무 두 명은 비용을 줄이려고 Haiku 5.5로 배정했습니다. 팀장이 두 명에게 일을 맡길 수 있게 연결해 두었습니다.',
+        calls:[['teams.create','new'],['create_agent × 3','ext'],['agents.update (llm_config)','ext'],['permissions.grant (agent → agent)','ext'],['permissions.grant (function: 웹 검색)','ext']]});
+    }, 1000); return;
+  }
+  if(/문서/.test(text)){
+    const lead = S.agents.lead_d;
+    if(!lead){ masterSays(() => pushMaster({t:'개발 팀장이 없어서 붙일 곳이 없습니다. 먼저 개발팀을 구성해 주세요.'})); return; }
+    masterSays(() => {
+      snap(); const sib = Object.values(S.agents).filter(a => a.parent==='lead_d');
+      const x = sib.length ? Math.max(...sib.map(a=>a.x))+240 : lead.x, y = sib.length ? sib[0].y : lead.y+190;
+      const id = nid('a'); S.agents[id] = A(id,'문서화','API 문서와 변경 기록 작성','haiku',['memory'],lead.group,'lead_d',x,y);
+      renderAll(); flash([id]);
+      pushMaster({t:'개발팀에 "문서화" 에이전트를 추가했습니다. 개발 팀장 아래에 두었고, 글쓰기 위주라 Haiku 5.5를 배정했습니다. 메모리 스킬만 줬습니다.',
+        calls:[['create_agent','ext'],['agents.update (llm_config)','ext'],['permissions.grant (agent → agent)','ext'],['teams.add_member','new']]});
+    }); return;
+  }
+  if(/마케팅/.test(text)){
+    if(Object.values(S.groups).some(g => g.name==='마케팅팀')){ masterSays(() => pushMaster({t:'마케팅팀은 이미 있습니다.'})); return; }
+    masterSays(() => {
+      snap(); const x0 = Object.keys(S.agents).length ? rightEdge()+140 : 0, gid = nid('g'), a1 = nid('a'), a2 = nid('a');
+      S.groups[gid] = {id:gid, name:'마케팅팀', parent:null, x:x0, y:0, w:260, h:150};
+      S.agents[a1] = A(a1,'마케팅 팀장','캠페인 기획과 승인 요청','sonnet',['memory','slack'],gid,null,x0,110);
+      S.agents[a2] = A(a2,'카피라이터','광고 문구 초안 작성','haiku',['memory'],gid,a1,x0,300,'auto');
+      renderAll(); fit(); flash([a1,a2]); renderSugs();
+      pushMaster({t:'마케팅팀을 새로 만들고 팀장과 카피라이터를 배치했습니다. Slack 알림은 외부로 나가는 작업이라 팀장에게만 주고, 보낼 때마다 사람 승인을 받도록 했습니다.',
+        calls:[['teams.create','new'],['create_agent × 2','ext'],['permissions.grant (API 연결: Slack)','ext'],['await_human (발송 전 승인)','have']]});
+    }, 900); return;
+  }
+  if(/합쳐|병합|합치/.test(text)){
+    if(!S.groups.g_res || !S.groups.g_dev){ masterSays(() => pushMaster({t:'합칠 리서치팀과 개발팀이 모두 있어야 합니다.'})); return; }
+    masterSays(() => {
+      const n = groupMembers('g_res').length + groupMembers('g_dev').length;
+      pushMaster({sys:true, t:`리서치팀과 개발팀을 "리서치·개발팀"으로 합치려고 합니다. 에이전트 ${n}명의 소속이 바뀌고, 상하관계는 그대로 유지합니다. 조직 구조 변경은 승인 후 적용됩니다.`, calls:[['change_proposals (구조 변경)','ext']],
+        actions:[['승인', () => {
+          snap();
+          for(const a of Object.values(S.agents)) if(a.group==='g_res') a.group='g_dev';
+          for(const g of Object.values(S.groups)) if(g.parent==='g_res') g.parent='g_dev';
+          delete S.groups.g_res; S.groups.g_dev.name = '리서치·개발팀';
+          renderAll(); renderSugs(); renderInspector();
+          pushMaster({t:'두 팀을 합쳤습니다. 이 변경은 감사 로그에 남았고, 캔버스 위 되돌리기로 이전 구조로 돌아갈 수 있습니다.', calls:[['teams.merge','new'],['audit_log','have']]});
+        }], ['취소', () => pushMaster({t:'합치지 않았습니다.'})]]});
+    }); return;
+  }
+  if(/조사|시켜|경쟁사/.test(text)){ masterSays(() => runFlow(), 600); return; }
+  masterSays(() => pushMaster({t:'목업이라 정해진 요청만 동작합니다. 아래 예시 버튼을 눌러 보세요.'}));
+}
+
+/* ---------- flow run ---------- */
+function runFlow(){
+  const need = ['lead_r','collector','summarizer'];
+  if(!need.every(id => S.agents[id])){ pushMaster({t:'리서치팀 구성이 바뀌어서 예시 실행을 할 수 없습니다. "첫 로그인"이나 "예시 조직"으로 다시 시작해 보세요.'}); return; }
+  const tok = (id, n) => ({id, n, cost: n/1000 * MODELS[S.agents[id]?.model || 'opus'].per1k});
+  S.run = {i:-1, steps:[
+    {who:'master', to:'lead_r', act:'delegate · wait', text:'경쟁사 3곳 가격 정책 조사', ...tok('lead_r',0), m:'opus', n:1800, cost:1.8*MODELS.opus.per1k},
+    {who:'lead_r', to:'collector', act:'delegate · wait', text:'3사 가격 페이지 수집', ...tok('lead_r',2400)},
+    {who:'collector', act:'call_function', text:'웹 검색 × 3', ...tok('collector',5200)},
+    {who:'collector', act:'final_answer', text:'원자료 3건 반환', ...tok('collector',900)},
+    {who:'lead_r', to:'summarizer', act:'delegate · wait', text:'비교표로 정리', ...tok('lead_r',1600)},
+    {who:'summarizer', act:'remember', text:'경쟁사 가격 메모 저장', ...tok('summarizer',3100)},
+    {who:'summarizer', act:'final_answer', text:'비교표 반환', ...tok('summarizer',700)},
+    {who:'lead_r', act:'await_children → final_answer', text:'보고서 완성', ...tok('lead_r',2100)},
+    {who:'master', act:'보고', text:'요약을 대화창에 전달', m:'opus', n:900, cost:0.9*MODELS.opus.per1k}
+  ]};
+  setView('flow');
+  pushMaster({t:'리서치 팀장에게 경쟁사 가격 조사를 맡겼습니다. 흐름 보기에서 진행 상황을 따라갈 수 있습니다.', calls:[['delegate (wait: true)','have']]});
+  let i = 0;
+  const tick = () => {
+    if(!S.run) return;
+    S.run.i = i; applyRunState(); drawEdges(); renderRun();
+    i++;
+    if(i < S.run.steps.length) S.runT = setTimeout(tick, 950);
+    else pushMaster({t:'조사가 끝났습니다. A사는 월 구독, B사는 사용량 과금, C사는 두 방식을 섞어 씁니다. 비교표는 요약 에이전트의 메모리에 저장해 두었습니다. (예시 결과)', calls:[['sessions.get','have'],['execution_logs','have']]});
+  };
+  tick();
+}
+function stepWho(st){ return st.who==='master' ? '마스터' : (S.agents[st.who]?.name || st.who); }
+function renderRun(){
+  const rc = $('#runcard');
+  if(!S.run){ rc.innerHTML = '<h3>실행 흐름</h3><p class="sub">아직 실행 기록이 없습니다. 마스터에게 일을 맡기면 이곳과 캔버스에 경로가 표시됩니다.</p><button class="sug" type="button" id="rcTry">경쟁사 가격 조사 시켜줘</button>'; $('#rcTry').onclick = () => sendMaster('경쟁사 가격 조사 시켜줘'); return; }
+  const r = S.run; let total = 0, toks = 0;
+  const rows = r.steps.map((st,i) => {
+    if(i<=r.i){ total += st.cost; toks += st.n; }
+    const model = st.m ? MODELS[st.m].label : MODELS[S.agents[st.who]?.model||'opus'].label;
+    return `<div class="step ${i<r.i?'done':i===r.i?'now':''}"><span class="no">${i+1}</span><span><span class="who">${esc(stepWho(st))}${st.to?' → '+esc(S.agents[st.to]?.name||''):''}</span><br><span class="act">${esc(st.act)} · ${esc(model)}</span><br>${esc(st.text)}</span><span class="cost">${st.n.toLocaleString()} tok<br>$${st.cost.toFixed(4)}</span></div>`;
+  }).join('');
+  rc.innerHTML = `<h3>경쟁사 가격 조사</h3><p class="sub">${r.i>=r.steps.length-1?'완료':'진행 중'} · 단계 ${Math.min(r.i+1,r.steps.length)}/${r.steps.length} · 토큰과 비용은 예시 값</p>${rows}<div class="runtotal"><span>합계 ${toks.toLocaleString()} tok</span><span>$${total.toFixed(4)}</span></div>`;
+}
+function applyRunState(){
+  const r = S.run;
+  for(const el of nodesEl.querySelectorAll('.node')){
+    el.classList.remove('involved','active','from-m');
+    const b = el.querySelector('.step-b'); if(b) b.textContent = '';
+  }
+  if(!r) return;
+  r.steps.forEach((st,i) => {
+    if(i>r.i) return;
+    [st.who, st.to].forEach(id => { const el = id && nodesEl.querySelector(`[data-id="${id}"]`); if(el){ el.classList.add('involved'); el.querySelector('.step-b').textContent = i+1; } });
+    if(st.who==='master' && st.to) nodesEl.querySelector(`[data-id="${st.to}"]`)?.classList.add('from-m');
+  });
+  const cur = r.steps[r.i]; if(cur){ const id = cur.to && cur.act.startsWith('delegate') ? cur.to : cur.who; nodesEl.querySelector(`[data-id="${id}"]`)?.classList.add('active'); }
+}
+function setView(v){
+  S.view = v; $('#vOrg').classList.toggle('on', v==='org'); $('#vFlow').classList.toggle('on', v==='flow');
+  $('#app').classList.toggle('flow', v==='flow'); renderRun(); applyRunState(); drawEdges(); renderInspector();
+}
+
+/* ---------- controls ---------- */
+$('#vOrg').onclick = () => setView('org');
+$('#vFlow').onclick = () => setView('flow');
+$('#zIn').onclick = () => zoomBy(1.2); $('#zOut').onclick = () => zoomBy(1/1.2); $('#fitBtn').onclick = fit;
+$('#undoBtn').onclick = undo;
+$('#palToggle').onclick = () => $('#pal').classList.toggle('open');
+$('#dockToggle').onclick = () => { const d = $('#dock'); d.classList.toggle('min'); $('#dockToggle').textContent = d.classList.contains('min') ? '펼치기' : '접기'; requestAnimationFrame(fit); };
+$('#groupSel').onclick = () => {
+  const ids = [...S.sel]; if(ids.length<2) return; snap();
+  const gs = new Set(ids.map(id => S.agents[id].group)), parent = gs.size===1 ? [...gs][0] : null, gid = nid('g');
+  S.groups[gid] = {id:gid, name:'새 그룹', parent, x:0, y:0, w:260, h:150};
+  ids.forEach(id => S.agents[id].group = gid);
+  S.sel.clear(); renderAll(); selectGroup(gid);
+  toast(`${ids.length}명을 새 그룹으로 묶었습니다. 오른쪽에서 이름을 바꿀 수 있습니다`, [['teams.create','new'],['teams.add_member','new']]);
+};
+function reset(kind){
+  clearTimeout(S.runT); S.run = null; undoStack.length = 0; S.sel.clear(); S.selGroup = null; S.selEdge = null; master.length = 0; S.chats = {};
+  if(kind==='org') seedOrg(); else { S.agents = {}; S.groups = {}; }
+  $('#sEmpty').classList.toggle('on', kind!=='org'); $('#sOrg').classList.toggle('on', kind==='org');
+  setView('org'); renderAll(); renderInspector(); renderSugs(); openDock();
+  pushMaster({t: kind==='org'
+    ? '이 캔버스의 조직을 관리하는 마스터입니다. 팀을 만들거나, 에이전트를 붙이거나, 일을 맡겨 보세요. 캔버스에서 직접 끌어 옮긴 변경도 저는 바로 알 수 있습니다.'
+    : '처음 오셨네요. 저는 마스터 에이전트입니다. 어떤 일을 하고 싶은지 알려 주시면 필요한 팀과 에이전트를 만들어 드릴게요. 예를 들어 "리서치팀 만들어줘"라고 해 보세요.'});
+  requestAnimationFrame(fit);
+}
+$('#sEmpty').onclick = () => reset('empty');
+$('#sOrg').onclick = () => reset('org');
+window.addEventListener('keydown', e => {
+  if(e.target.closest('input,textarea,select')) return;
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); }
+  else if(e.key==='Escape'){ S.selEdge=null; select(null); selectGroup(null); }
+  else if((e.key==='Delete'||e.key==='Backspace') && S.selEdge){ const [p,c] = S.selEdge.split('>'); removeEdge(p,c); }
+});
+window.addEventListener('resize', () => { layout(); fit(); });
+
+renderPalette(); applyCam(); reset('org');
+})();
+</script>

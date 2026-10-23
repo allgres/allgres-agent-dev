@@ -140,7 +140,10 @@ impl CancelGuard {
         if let Ok(mut map) = OUTBOUND_CANCEL_FLAGS.lock() {
             map.insert(call_id.to_string(), flag.clone());
         }
-        CancelGuard { call_id: call_id.to_string(), flag }
+        CancelGuard {
+            call_id: call_id.to_string(),
+            flag,
+        }
     }
 }
 
@@ -169,7 +172,10 @@ impl ureq::unversioned::transport::Connector for CancellableConnector {
         chained: Option<()>,
     ) -> Result<Option<Self::Out>, ureq::Error> {
         match self.inner.connect(details, chained)? {
-            Some(inner) => Ok(Some(CancellableTransport { inner, cancel: self.cancel.clone() })),
+            Some(inner) => Ok(Some(CancellableTransport {
+                inner,
+                cancel: self.cancel.clone(),
+            })),
             None => Ok(None),
         }
     }
@@ -215,7 +221,9 @@ impl CancellableTransport {
         reason: ureq::Timeout,
     ) -> ureq::unversioned::transport::NextTimeout {
         ureq::unversioned::transport::NextTimeout {
-            after: ureq::unversioned::transport::time::Duration::Exact(after.min(CANCEL_POLL_INTERVAL)),
+            after: ureq::unversioned::transport::time::Duration::Exact(
+                after.min(CANCEL_POLL_INTERVAL),
+            ),
             reason,
         }
     }
@@ -238,7 +246,10 @@ impl ureq::unversioned::transport::Transport for CancellableTransport {
             if remaining.is_zero() {
                 return self.inner.transmit_output(amount, timeout);
             }
-            match self.inner.transmit_output(amount, Self::sliced(remaining, timeout.reason)) {
+            match self
+                .inner
+                .transmit_output(amount, Self::sliced(remaining, timeout.reason))
+            {
                 Ok(()) => return Ok(()),
                 Err(ureq::Error::Timeout(_)) => continue,
                 Err(e) => return Err(e),
@@ -246,14 +257,20 @@ impl ureq::unversioned::transport::Transport for CancellableTransport {
         }
     }
 
-    fn maybe_await_input(&mut self, timeout: ureq::unversioned::transport::NextTimeout) -> Result<bool, ureq::Error> {
+    fn maybe_await_input(
+        &mut self,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<bool, ureq::Error> {
         if self.buffers().can_use_input() {
             return Ok(true);
         }
         self.await_input(timeout)
     }
 
-    fn await_input(&mut self, timeout: ureq::unversioned::transport::NextTimeout) -> Result<bool, ureq::Error> {
+    fn await_input(
+        &mut self,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<bool, ureq::Error> {
         let deadline = Instant::now() + *timeout.after;
         loop {
             self.check_cancelled()?;
@@ -261,7 +278,10 @@ impl ureq::unversioned::transport::Transport for CancellableTransport {
             if remaining.is_zero() {
                 return self.inner.await_input(timeout);
             }
-            match self.inner.await_input(Self::sliced(remaining, timeout.reason)) {
+            match self
+                .inner
+                .await_input(Self::sliced(remaining, timeout.reason))
+            {
                 Ok(true) => return Ok(true),
                 Ok(false) => continue,
                 // A sliced sub-timeout expiring is not the real deadline -- only
@@ -286,6 +306,22 @@ impl ureq::unversioned::transport::Transport for CancellableTransport {
     }
 }
 
+/// Never turn a failed/truncated body into a successful empty response.
+/// status 0 means dispatch happened but the result is unknown; -1 is reserved
+/// for failures before the application/tool request was dispatched.
+fn read_response(mut response: ureq::http::Response<ureq::Body>) -> (i32, String) {
+    let status = response.status().as_u16() as i32;
+    match response
+        .body_mut()
+        .with_config()
+        .limit(MAX_RESPONSE_BYTES as u64)
+        .read_to_string()
+    {
+        Ok(text) => (status, text),
+        Err(e) => (0, format!("response body unavailable (HTTP {status}): {e}")),
+    }
+}
+
 /// Same SSRF-guarded POST as `perform_http`'s own generic (llm/mcp/
 /// embedding/recall) branch below, minus the cancellation wiring: this is
 /// called synchronously, in-process, by `allgres.native_llm_http_send`
@@ -303,7 +339,7 @@ pub(crate) fn guarded_post_json(
 ) -> (i32, String) {
     let lowered = url.to_ascii_lowercase();
     if !(lowered.starts_with("http://") || lowered.starts_with("https://")) {
-        return (0, "outbound URL scheme not allowed".into());
+        return (-1, "outbound URL scheme not allowed".into());
     }
     let config = ureq::Agent::config_builder()
         .timeout_global(Some(HTTP_TIMEOUT))
@@ -324,11 +360,7 @@ pub(crate) fn guarded_post_json(
         }
     }
     match req.send_json(body) {
-        Ok(mut r) => {
-            let status = r.status().as_u16() as i32;
-            let text = r.body_mut().read_to_string().unwrap_or_default();
-            (status, truncate_utf8(&text, MAX_RESPONSE_BYTES).to_string())
-        }
+        Ok(r) => read_response(r),
         Err(e) => (0, e.to_string()),
     }
 }
@@ -337,13 +369,13 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
     let cancel_guard = CancelGuard::register(call_id);
     let cancel_flag = cancel_guard.flag.clone();
     let Some(url) = call.get("url").and_then(Value::as_str) else {
-        return (0, "missing outbound URL".into());
+        return (-1, "missing outbound URL".into());
     };
     // The SQL layer validates scheme and host before queueing; this is a cheap
     // second check so a malformed row can never become a file:// fetch.
     let lowered = url.to_ascii_lowercase();
     if !(lowered.starts_with("http://") || lowered.starts_with("https://")) {
-        return (0, "outbound URL scheme not allowed".into());
+        return (-1, "outbound URL scheme not allowed".into());
     }
 
     let kind = call.get("kind").and_then(Value::as_str).unwrap_or("llm");
@@ -352,7 +384,10 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
     // Only an LLM provider can ever carry this, and only when the operator
     // opted it in (allow_private_network); http_get always queues false. See
     // GuardedResolver.
-    let allow_private = call.get("allow_private").and_then(Value::as_bool).unwrap_or(false);
+    let allow_private = call
+        .get("allow_private")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     let config = ureq::Agent::config_builder()
         .timeout_global(Some(HTTP_TIMEOUT))
@@ -388,52 +423,83 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                 let mut req = agent.post(url);
                 if let Some(h) = headers {
                     for (k, v) in h {
-                        if let Some(s) = v.as_str() { req = req.header(k, s); }
+                        if let Some(s) = v.as_str() {
+                            req = req.header(k, s);
+                        }
                     }
                 }
-                if let Some(s) = $session { req = req.header("mcp-session-id", s); }
+                if let Some(s) = $session {
+                    req = req.header("mcp-session-id", s);
+                }
                 req
             }};
         }
         match mcp_request!(None::<&str>).send_json(&initialize) {
-            Ok(mut init_response) if init_response.status().is_success() => {
-                let session = init_response.headers().get("mcp-session-id")
-                    .and_then(|h| h.to_str().ok()).map(str::to_string);
-                let init_body = init_response.body_mut().read_to_string().unwrap_or_default();
+            Ok(init_response) if init_response.status().is_success() => {
+                let session = init_response
+                    .headers()
+                    .get("mcp-session-id")
+                    .and_then(|h| h.to_str().ok())
+                    .map(str::to_string);
+                let (init_status, init_body) = read_response(init_response);
+                if init_status == 0 {
+                    return (-1, init_body);
+                }
                 let init_json = serde_json::from_str::<Value>(&init_body).ok();
-                let init_valid = init_json.as_ref()
+                let init_valid = init_json
+                    .as_ref()
                     .is_some_and(|v| v.get("result").is_some() && v.get("error").is_none());
                 if !init_valid {
-                    if init_json.as_ref().and_then(|v| v.pointer("/error/code")).and_then(Value::as_i64) == Some(-32601) {
+                    if init_json
+                        .as_ref()
+                        .and_then(|v| v.pointer("/error/code"))
+                        .and_then(Value::as_i64)
+                        == Some(-32601)
+                    {
                         return match mcp_request!(None::<&str>).send_json(&body) {
-                            Ok(mut r) => (r.status().as_u16() as i32,
-                                truncate_utf8(&r.body_mut().read_to_string().unwrap_or_default(), MAX_RESPONSE_BYTES).to_string()),
+                            Ok(r) => read_response(r),
                             Err(e) => (0, e.to_string()),
                         };
                     }
-                    return (502, truncate_utf8(&format!("MCP initialize failed: {init_body}"), MAX_RESPONSE_BYTES).to_string());
+                    return (
+                        -1,
+                        truncate_utf8(
+                            &format!("MCP initialize failed: {init_body}"),
+                            MAX_RESPONSE_BYTES,
+                        )
+                        .to_string(),
+                    );
                 }
                 let initialized = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
                 match mcp_request!(session.as_deref()).send_json(&initialized) {
-                    Ok(r) if r.status().is_success() =>
-                        mcp_request!(session.as_deref()).send_json(&body),
-                    Ok(r) => return (r.status().as_u16() as i32, "MCP initialized notification rejected".into()),
-                    Err(e) => return (0, format!("MCP initialized notification failed: {e}")),
+                    Ok(r) if r.status().is_success() => {
+                        mcp_request!(session.as_deref()).send_json(&body)
+                    }
+                    Ok(_r) => return (-1, "MCP initialized notification rejected".into()),
+                    Err(e) => return (-1, format!("MCP initialized notification failed: {e}")),
                 }
             }
-            Ok(mut r) => {
-                let status = r.status().as_u16() as i32;
-                let text = r.body_mut().read_to_string().unwrap_or_default();
+            Ok(r) => {
+                let (status, text) = read_response(r);
+                if status == 0 {
+                    return (-1, text);
+                }
                 if status == 400 || status == 404 || status == 405 {
                     return match mcp_request!(None::<&str>).send_json(&body) {
-                        Ok(mut fallback) => (fallback.status().as_u16() as i32,
-                            truncate_utf8(&fallback.body_mut().read_to_string().unwrap_or_default(), MAX_RESPONSE_BYTES).to_string()),
+                        Ok(fallback) => read_response(fallback),
                         Err(e) => (0, e.to_string()),
                     };
                 }
-                return (status, truncate_utf8(&format!("MCP initialize rejected: {text}"), MAX_RESPONSE_BYTES).to_string());
+                return (
+                    -1,
+                    truncate_utf8(
+                        &format!("MCP initialize rejected: {text}"),
+                        MAX_RESPONSE_BYTES,
+                    )
+                    .to_string(),
+                );
             }
-            Err(e) => return (0, format!("MCP initialize failed: {e}")),
+            Err(e) => return (-1, format!("MCP initialize failed: {e}")),
         }
     } else if kind == "function" {
         // http_get always queued "GET" here (the column defaults to it); the
@@ -441,7 +507,11 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
         // else. GET/DELETE take no body (ureq's WithoutBody builder has no
         // send_json at all); POST/PUT/PATCH always send one, defaulting to
         // an empty JSON object when the SQL layer didn't attach a real body.
-        let method = call.get("method").and_then(Value::as_str).unwrap_or("GET").to_ascii_uppercase();
+        let method = call
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or("GET")
+            .to_ascii_uppercase();
         match method.as_str() {
             "POST" | "PUT" | "PATCH" => {
                 let mut req = match method.as_str() {
@@ -459,7 +529,11 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                 req.send_json(&body)
             }
             _ => {
-                let mut req = if method == "DELETE" { agent.delete(url) } else { agent.get(url) };
+                let mut req = if method == "DELETE" {
+                    agent.delete(url)
+                } else {
+                    agent.get(url)
+                };
                 if let Some(h) = headers {
                     for (k, v) in h {
                         if let Some(s) = v.as_str() {
@@ -510,11 +584,7 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
     };
 
     match outcome {
-        Ok(mut r) => {
-            let status = r.status().as_u16() as i32;
-            let text = r.body_mut().read_to_string().unwrap_or_default();
-            (status, truncate_utf8(&text, MAX_RESPONSE_BYTES).to_string())
-        }
+        Ok(r) => read_response(r),
         Err(e) => (0, e.to_string()),
     }
 }
@@ -540,7 +610,12 @@ pub(crate) fn spawn_http_pool(threads: usize) -> (Sender<OutboundJob>, Receiver<
                 let Ok(job) = job else { return };
                 let (status, body) = perform_http(&job.call_id, &job.call);
                 if out
-                    .send(OutboundResult { call_id: job.call_id, queue: job.queue, status, body })
+                    .send(OutboundResult {
+                        call_id: job.call_id,
+                        queue: job.queue,
+                        status,
+                        body,
+                    })
                     .is_err()
                 {
                     return;

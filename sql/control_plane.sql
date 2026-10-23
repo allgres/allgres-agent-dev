@@ -682,6 +682,7 @@ DECLARE
   v_compactor uuid;
   v_compactor_active boolean;
   v_compactor_config jsonb;
+  v_compactor_llm jsonb;
   v_prev_summary text;
   v_old_logs jsonb;
   v_comp_session uuid;
@@ -694,9 +695,18 @@ BEGIN
   -- regardless of which agent owns the session. Defaults (60/10) match
   -- this function's behavior before agent_config existed -- an admin who
   -- never touches these settings sees no change at all.
-  SELECT agent_id, is_active, agent_config INTO v_compactor, v_compactor_active, v_compactor_config
-  FROM allgres_private.agents WHERE name = 'session_compactor';
+  SELECT a.agent_id, a.is_active, a.agent_config, p.llm_config
+  INTO v_compactor, v_compactor_active, v_compactor_config, v_compactor_llm
+  FROM allgres_private.agents a
+  JOIN allgres_private.policies p USING (agent_id)
+  WHERE a.name = 'session_compactor';
   IF v_compactor IS NULL OR NOT v_compactor_active THEN
+    RETURN;
+  END IF;
+  -- A fresh install has no model on the seeded compactor. Do not enqueue a
+  -- task that cannot run merely because a session (or selftest) grew long.
+  IF NULLIF(v_compactor_llm->>'provider', '') IS NULL
+     OR NULLIF(v_compactor_llm->>'model', '') IS NULL THEN
     RETURN;
   END IF;
   c_threshold := COALESCE((v_compactor_config->>'compaction_threshold')::int, 60);
@@ -4159,6 +4169,7 @@ BEGIN
       || v_functions::text
       || E'\nPick action from final_answer | execute_sql | call_function | run_procedure | create_function | update_function | delegate | search_agents | search_capabilities | recall | await_children | await_human | propose_change | remember.'
       || E'\nFor numeric questions, execute_sql first. Do not invent keys.'
+      || E'\nFor an explicit retry of a previous external call, add top-level retry_of_call_id with that call UUID and keep its arguments unchanged. A new action without it is a new operation, even with identical arguments. Never retry an unknown external result without operator confirmation.'
       || E'\nsearch_capabilities: {"action":"search_capabilities","query":"what you need to do"}'
       || E' -- returns permission-filtered Agent, Function, and Procedure candidates. Search never executes a candidate;'
       || E' inspect its description and input metadata, then explicitly use delegate, call_function, or run_procedure.'
@@ -4386,6 +4397,10 @@ BEGIN
     ) owners LIMIT 1
   );
   v_cfg := p.llm_config || COALESCE(v_user_cfg,'{}'::jsonb);
+  -- A model chosen for this one task (fn_canvas_run, sql/canvas.sql) beats
+  -- both the Agent default and the chat preference; a function/procedure
+  -- override below still beats it.
+  v_cfg := v_cfg || COALESCE(t.llm_override, '{}'::jsonb);
   IF v_effective_override IS NOT NULL THEN
     v_cfg := v_cfg || jsonb_build_object(
       'provider', v_effective_override->>'provider', 'model', v_effective_override->>'model'
@@ -4808,12 +4823,7 @@ BEGIN
         'jsonrpc', '2.0', 'id', 1, 'method', 'tools/call',
         'params', jsonb_build_object('name', v_args->>'tool', 'arguments', COALESCE(v_orig_args, '{}'::jsonb))
       );
-      IF NOT (v_req_headers ? 'idempotency-key') THEN
-        v_req_headers := v_req_headers || jsonb_build_object(
-          'idempotency-key',
-          md5(p_task_id::text || '|' || v_method || '|' || v_url || '|' || v_req_body::text)
-        );
-      END IF;
+
     ELSE
       -- 'http_request': method/headers/body, and an optional named
       -- allgres_private.api_connections credential -- see that table's own
@@ -4884,25 +4894,6 @@ BEGIN
         v_req_body := CASE WHEN jsonb_typeof(v_args->'body') IS NOT NULL THEN v_args->'body' ELSE '{}'::jsonb END;
       END IF;
 
-      -- External call idempotency (see outbound_calls.idempotency_key's own
-      -- comment for the crash scenario this mitigates): every mutating
-      -- method gets a deterministic 'idempotency-key' header, unless the
-      -- agent already set one itself (respected as-is -- an agent that
-      -- knows a destination's own idempotency contract gets to drive it).
-      -- Derived from this task plus the exact method/url/body, not from
-      -- call_id (which is different on every queued row, including a
-      -- genuine retry): an agent retrying the identical request after
-      -- seeing an error or a 'lost' outcome produces the identical key, so
-      -- an idempotency-aware destination can recognize the retry and
-      -- return its original result instead of repeating the effect. A
-      -- deliberately different request (a changed body, a different task)
-      -- produces a different key, same as it should.
-      IF v_method IN ('POST', 'PUT', 'PATCH', 'DELETE') AND NOT (v_req_headers ? 'idempotency-key') THEN
-        v_req_headers := v_req_headers || jsonb_build_object(
-          'idempotency-key',
-          md5(p_task_id::text || '|' || v_method || '|' || v_url || '|' || v_req_body::text)
-        );
-      END IF;
     END IF;
 
     v_reason := allgres_private.check_outbound_url(v_url, COALESCE(v_conn.allow_private_network, false));
@@ -4929,6 +4920,20 @@ BEGIN
       SET step_count = step_count + 1, updated_at = now()
       WHERE task_id = p_task_id;
       RETURN jsonb_build_object('action', 'continue');
+    END IF;
+
+    IF v_method IN ('POST', 'PUT', 'PATCH', 'DELETE') THEN
+      BEGIN
+        v_req_headers := v_req_headers || jsonb_build_object('idempotency-key',
+          allgres_private.outbound_operation_key(p_task_id, v_parsed->>'retry_of_call_id',
+            v_method, v_url, v_req_body, v_req_headers, v_conn.connection_id,
+            v_req_headers->>'idempotency-key'));
+      EXCEPTION WHEN others THEN
+        PERFORM allgres_private.append_log(p_task_id, t.step_count + 1, 'error',
+          jsonb_build_object('reason', 'invalid_retry', 'message', SQLERRM));
+        UPDATE allgres_private.tasks SET step_count = step_count + 1, updated_at = now() WHERE task_id = p_task_id;
+        RETURN jsonb_build_object('action', 'continue', 'reason', 'invalid_retry');
+      END;
     END IF;
 
     INSERT INTO allgres_private.outbound_calls (
@@ -6353,6 +6358,7 @@ BEGIN
     FOR UPDATE OF o SKIP LOCKED
     LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 4), 16))
   LOOP
+    IF NOT allgres_private.guard_queued_call('outbound_calls', r.call_id) THEN CONTINUE; END IF;
     UPDATE allgres_private.outbound_calls
     SET status = 'in_flight', updated_at = now()
     WHERE call_id = r.call_id;
@@ -6433,6 +6439,7 @@ BEGIN
     FOR UPDATE OF sc SKIP LOCKED
     LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 4), 16))
   LOOP
+    IF NOT allgres_private.guard_queued_call('sql_calls', r.call_id) THEN CONTINUE; END IF;
     UPDATE allgres_private.sql_calls
     SET status = 'in_flight', updated_at = now()
     WHERE call_id = r.call_id;
@@ -6548,11 +6555,12 @@ BEGIN
     JOIN allgres_private.tasks t ON t.task_id = fc.task_id
     JOIN allgres_private.functions f ON f.function_id = fc.function_id
     JOIN allgres_private.agents a ON a.agent_id = fc.agent_id
-    WHERE fc.status = 'queued' AND t.status = 'running' AND f.build_status = 'built'
+    WHERE fc.status = 'queued' AND t.status = 'running'
     ORDER BY fc.created_at
     FOR UPDATE OF fc SKIP LOCKED
     LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 4), 16))
   LOOP
+    IF NOT allgres_private.guard_queued_call('function_calls', r.call_id) THEN CONTINUE; END IF;
     UPDATE allgres_private.function_calls
     SET status = 'in_flight', updated_at = now()
     WHERE call_id = r.call_id;
@@ -6725,11 +6733,12 @@ BEGIN
     JOIN allgres_private.tasks t ON t.task_id = pc.task_id
     JOIN allgres_private.procedures p ON p.procedure_id = pc.procedure_id
     JOIN allgres_private.agents a ON a.agent_id = pc.agent_id
-    WHERE pc.status = 'queued' AND t.status = 'running' AND p.build_status = 'built'
+    WHERE pc.status = 'queued' AND t.status = 'running'
     ORDER BY pc.created_at
     FOR UPDATE OF pc SKIP LOCKED
     LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 4), 16))
   LOOP
+    IF NOT allgres_private.guard_queued_call('procedure_calls', r.call_id) THEN CONTINUE; END IF;
     UPDATE allgres_private.procedure_calls
     SET status = 'in_flight', updated_at = now()
     WHERE call_id = r.call_id;
@@ -6936,6 +6945,15 @@ BEGIN
     );
   END IF;
 
+  -- A transport/body failure or 5xx can follow a committed mutation.
+  IF c.kind IN ('function', 'mcp') AND c.method <> 'GET'
+     AND (p_status IS NULL OR p_status = 0 OR p_status >= 500) THEN
+    UPDATE allgres_private.outbound_calls SET response_status = p_status,
+      response_body = left(COALESCE(p_body, ''), 200000) WHERE call_id = p_call_id;
+    PERFORM allgres_private.pause_ambiguous_outbound(p_call_id, 'transport_or_server_result_unknown');
+    RETURN jsonb_build_object('call_id', p_call_id, 'submit', jsonb_build_object('action', 'wait'));
+  END IF;
+
   UPDATE allgres_private.outbound_calls
   SET status = 'harvested',
       response_status = p_status,
@@ -6955,6 +6973,7 @@ BEGIN
       'type', 'function_result',
       'content', jsonb_build_object(
         'status', p_status,
+        'call_id', p_call_id,
         'body', left(COALESCE(p_body, ''), 16000),
         'procedure_function_id', c.procedure_function_id,
         'procedure_id', c.procedure_id
@@ -7412,21 +7431,7 @@ BEGIN
       -- http_request -- a remote MCP tool is no less likely to have a
       -- real side effect than an arbitrary POST.
       IF r.kind IN ('function', 'mcp') AND COALESCE(r.method, 'GET') <> 'GET' THEN
-        UPDATE allgres_private.tasks
-        SET status = 'waiting_human', updated_at = now()
-        WHERE task_id = r.task_id;
-        INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at)
-        VALUES (
-          r.task_id, 'pending',
-          jsonb_build_object(
-            'reason', format(
-              'An outbound %s call to %s timed out without confirmation -- it may already have executed on the destination. Confirm whether it is safe to retry before the agent proceeds.',
-              r.method, COALESCE(r.url, r.function)
-            ),
-            'ambiguous_outbound_call_id', r.call_id
-          ),
-          now() + interval '24 hours'
-        );
+        PERFORM allgres_private.pause_ambiguous_outbound(r.call_id, 'worker_result_unknown');
       ELSE
         BEGIN
           PERFORM allgres_public.fn_submit_result(

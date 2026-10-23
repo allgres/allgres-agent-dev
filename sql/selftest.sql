@@ -120,7 +120,19 @@ DECLARE
   v_live_rpc_actions text[];
   v_missing_rpc_actions text[];
   v_extra_rpc_actions text[];
+  v_result jsonb;
+  v_execution_approval uuid;
 BEGIN
+  -- Run fixtures in a subtransaction. Catching the sentinel after the
+  -- result is computed rolls back every fixture, including append-only
+  -- execution logs, without weakening their mutation trigger.
+  BEGIN
+  -- dashboard_rpc stamps this transaction as a web request before calling
+  -- us. The first case exercises a direct SQL call, so reset that context
+  -- only inside this disposable subtransaction. Its parent context returns
+  -- automatically when the sentinel rolls the fixtures back.
+  PERFORM set_config('allgres.audit_operator', '__sql__', true);
+  PERFORM set_config('allgres.audit_user_id', '__sql__', true);
   -- Clear out any leftover fixtures from an interrupted prior run before
   -- creating new ones, so a crash mid-selftest can't leave stale rows
   -- behind indefinitely.
@@ -151,6 +163,11 @@ BEGIN
   v := v || jsonb_build_array(jsonb_build_object('name', 'audit_log_direct_sql_call_records_origin_sql', 'ok', ok));
 
   SELECT agent_id INTO v_agent FROM allgres_private.agents WHERE name = 'analyst' LIMIT 1;
+  -- Self-test creates and claims its own analyst tasks. Operator execution
+  -- rules must keep governing production work, but cannot make this
+  -- disposable diagnostic nondeterministic; the surrounding subtransaction
+  -- rolls this delete back before fn_selftest returns.
+  DELETE FROM allgres_private.execution_rules WHERE agent_id = v_agent;
   SELECT system_prompt INTO v_saved_prompt FROM allgres_private.policies WHERE agent_id = v_agent;
 
   -- 1. next_step messages[0] is the current prompt
@@ -461,6 +478,39 @@ BEGIN
   ok := (comp->'submit'->>'action') = 'continue' AND n_logs = 1 AND detail = 'harvested';
   v := v || jsonb_build_array(jsonb_build_object('name', 'complete_sql_appends_function_log', 'ok', ok));
 
+  -- A policy-required approval is tied to this queued call and its live
+  -- authorization snapshot. Approving it resumes this exact call directly;
+  -- the model does not get a chance to replace the SQL while it is paused.
+  v_sid := (allgres_public.fn_create_session(v_agent, 'selftest execution approval')->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  PERFORM allgres_public.fn_next_step(v_tid);
+  sub := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+    'type', 'llm_response', 'content', '{"action":"execute_sql"}',
+    'parsed', jsonb_build_object('action', 'execute_sql', 'sql', 'SELECT region FROM allgres_public.v_sales')
+  ));
+  v_call := (sub->>'call_id')::uuid;
+  PERFORM allgres_public.fn_set_execution_rule(v_agent, 'execute_sql', '*', 'approve');
+  claim := allgres_public.fn_claim_sql(10);
+  SELECT approval_id INTO v_execution_approval
+  FROM allgres_private.human_approvals
+  WHERE task_id = v_tid AND status = 'pending' AND payload->>'call_id' = v_call::text;
+  ok := NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(claim->'calls') c WHERE (c->>'call_id')::uuid = v_call
+    )
+    AND (SELECT status FROM allgres_private.tasks WHERE task_id = v_tid) = 'waiting_human'
+    AND v_execution_approval IS NOT NULL;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'execution_rule_holds_exact_call_for_approval', 'ok', ok));
+
+  PERFORM allgres_public.fn_decide_approval(v_execution_approval, true, 'Approved exact query.');
+  claim := allgres_public.fn_claim_sql(10);
+  ok := (SELECT status FROM allgres_private.tasks WHERE task_id = v_tid) = 'running'
+    AND EXISTS (
+      SELECT 1 FROM jsonb_array_elements(claim->'calls') c WHERE (c->>'call_id')::uuid = v_call
+    );
+  v := v || jsonb_build_array(jsonb_build_object('name', 'execution_approval_resumes_exact_snapshot', 'ok', ok));
+  PERFORM allgres_public.fn_complete_sql(v_call, true, '[]'::jsonb, 0, false, NULL);
+  PERFORM allgres_public.fn_set_execution_rule(v_agent, 'execute_sql', '*', 'allow');
+
   -- a worker-side execution failure (sandbox unavailable, statement timeout,
   -- ...) is logged as an error and retried, not treated as validation having
   -- missed something
@@ -584,6 +634,23 @@ BEGIN
   ok := ok AND v_approval IS NOT NULL
     AND v_expires > now() AND v_expires <= now() + interval '24 hours 1 minute';
   v := v || jsonb_build_array(jsonb_build_object('name', 'await_human_creates_pending_approval', 'ok', ok));
+
+  -- The decision endpoint itself must enforce expiry. Waiting for the
+  -- watchdog leaves a window in which a stale approval could otherwise be
+  -- accepted and resume work.
+  UPDATE allgres_private.human_approvals
+  SET expires_at = clock_timestamp() - interval '1 second'
+  WHERE approval_id = v_approval;
+  BEGIN
+    PERFORM allgres_public.fn_decide_approval(v_approval, true, 'late approval');
+    ok := false;
+  EXCEPTION WHEN others THEN
+    ok := SQLERRM = 'approval expired';
+  END;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'expired_approval_cannot_resume_task', 'ok', ok));
+  UPDATE allgres_private.human_approvals
+  SET expires_at = clock_timestamp() + interval '24 hours'
+  WHERE approval_id = v_approval;
 
   comp := allgres_public.fn_decide_approval(v_approval, true, 'Use the fiscal-year quarter.');
   SELECT count(*) INTO n_logs
@@ -1936,10 +2003,8 @@ BEGIN
     AND (r->'request_headers'->>'idempotency-key') = (r->>'idempotency_key');
   v := v || jsonb_build_array(jsonb_build_object('name', 'http_request_mutating_call_gets_idempotency_key', 'ok', ok));
 
-  -- The same task retrying the exact same method/url/body (the ordinary
-  -- shape of an agent retry after an error) reproduces the identical key --
-  -- derived from the request's own content, not from call_id, which is
-  -- different on every queued row including a genuine retry.
+  -- Identical new actions are distinct operations. Only retry_of_call_id
+  -- reuses a previous key.
   UPDATE allgres_private.tasks SET status = 'running' WHERE task_id = v_tid;
   comp := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
     'type', 'llm_response', 'content', '{}', 'parsed', jsonb_build_object(
@@ -1951,8 +2016,8 @@ BEGIN
   v_call2 := (comp->>'call_id')::uuid;
   ok := v_call2 <> v_call
     AND (SELECT idempotency_key FROM allgres_private.outbound_calls WHERE call_id = v_call2)
-      = (SELECT idempotency_key FROM allgres_private.outbound_calls WHERE call_id = v_call);
-  v := v || jsonb_build_array(jsonb_build_object('name', 'http_request_retry_of_same_call_reuses_idempotency_key', 'ok', ok));
+      <> (SELECT idempotency_key FROM allgres_private.outbound_calls WHERE call_id = v_call);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'http_request_identical_new_operation_gets_distinct_key', 'ok', ok));
 
   -- A materially different request (a changed body) must not collide with
   -- it -- this is content-derived isolation, not just a random per-call id.
@@ -2898,6 +2963,30 @@ BEGIN
     comp := allgres_public.fn_login('selftest_user', 'selftest-user-pw1');
     v_user_tok := comp->>'session_token';
 
+    -- Regular users get general assigned at create so Chat works on first
+    -- login. health_monitor and other seeded agents stay unassigned; admins
+    -- get no assignment rows (they bypass the table).
+    ok := (allgres_private.require_agent_access(
+             v_user_tok,
+             (SELECT agent_id FROM allgres_private.agents WHERE name = 'general')
+           )).user_id IS NOT NULL;
+    BEGIN
+      PERFORM allgres_private.require_agent_access(
+        v_user_tok,
+        (SELECT agent_id FROM allgres_private.agents WHERE name = 'health_monitor')
+      );
+      ok := false;
+    EXCEPTION WHEN others THEN
+      ok := ok AND SQLERRM LIKE '%not assigned%';
+    END;
+    ok := ok AND NOT EXISTS (
+      SELECT 1
+      FROM allgres_private.user_agent_assignments uaa
+      JOIN allgres_private.users u USING (user_id)
+      WHERE u.username = 'selftest_admin'
+    );
+    v := v || jsonb_build_array(jsonb_build_object('name', 'fn_create_user_assigns_general_to_regular_users', 'ok', ok));
+
     -- An admin reaches any active agent with no assignment row at all; a
     -- regular user is rejected from the same agent until explicitly
     -- assigned, then allowed.
@@ -3793,7 +3882,8 @@ BEGIN
       AND v_approval IS NOT NULL
       AND (r->>'ambiguous_outbound_call_id')::uuid = v_call
       AND r->>'reason' LIKE '%POST%'
-      AND NOT EXISTS (SELECT 1 FROM allgres_private.execution_logs WHERE task_id = v_watchdog_tid AND role = 'error');
+      AND EXISTS (SELECT 1 FROM allgres_private.execution_logs WHERE task_id = v_watchdog_tid
+        AND role = 'error' AND content->>'reason' = 'outbound_result_unknown');
     v := v || jsonb_build_array(jsonb_build_object('name', 'watchdog_lost_mutating_call_pauses_for_human_instead_of_retrying', 'ok', ok));
 
     -- Approving it resumes the task through the exact same path any other
@@ -4209,6 +4299,15 @@ BEGIN
       INSERT INTO allgres_private.execution_logs (task_id, step_number, role, content, created_at)
       VALUES (v_tid, v_i, 'assistant', to_jsonb('selftest turn ' || v_i::text), v_comp_base + (v_i * interval '1 second'));
     END LOOP;
+    PERFORM allgres_public.fn_next_step(v_tid);
+    ok := NOT EXISTS (
+      SELECT 1 FROM allgres_private.sessions
+      WHERE goal = 'session_compact:' || v_sid::text
+    );
+    v := v || jsonb_build_array(jsonb_build_object('name', 'compaction_waits_for_a_configured_model', 'ok', ok));
+    UPDATE allgres_private.policies
+    SET llm_config = jsonb_build_object('provider', 'allgres_mock', 'model', 'mock')
+    WHERE agent_id = (SELECT agent_id FROM allgres_private.agents WHERE name = 'session_compactor');
     PERFORM allgres_public.fn_next_step(v_tid);
 
     SELECT s.session_id INTO v_comp_sid FROM allgres_private.sessions s
@@ -5169,7 +5268,7 @@ BEGIN
   ) AS m;
   SELECT array_agg(a ORDER BY a) INTO v_missing_rpc_actions
   FROM unnest(ARRAY[
-    'overview', 'agents.list', 'agents.set_autonomy', 'agents.set_function_override_autonomy_preset', 'agents.create',
+    'overview', 'agents.list', 'agents.set_execution_rule', 'agents.set_autonomy', 'agents.set_function_override_autonomy_preset', 'agents.create',
     'agents.update', 'policy.history', 'policy.rollback', 'agents.evaluate', 'proposals.list',
     'proposals.decide', 'fixes.list', 'fixes.decide', 'permissions.list', 'permissions.grant',
     'permissions.revoke', 'permissions.options', 'allowlist.list', 'allowlist.add', 'allowlist.remove',
@@ -5186,13 +5285,17 @@ BEGIN
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
     'providers.oauth_device_status', 'providers.oauth_callback', 'providers.probe_start', 'providers.probe_status',
     'events', 'approvals.list',
-    'approvals.decide', 'function_experiments.list', 'model_prices.list', 'model_prices.set', 'model_prices.delete', 'sql.execute', 'selftest'
+    'approvals.decide', 'function_experiments.list', 'model_prices.list', 'model_prices.set', 'model_prices.delete', 'sql.execute', 'selftest',
+    'canvas.state', 'canvas.layout.save', 'canvas.groups.create', 'canvas.groups.update', 'canvas.groups.delete',
+    'canvas.groups.merge', 'canvas.groups.set_member', 'canvas.delegation.add', 'canvas.delegation.remove',
+    'canvas.grant', 'canvas.templates.save', 'canvas.templates.delete', 'canvas.templates.instantiate',
+    'canvas.run', 'agents.set_task_model'
   ]::text[]) a
   WHERE a <> ALL(COALESCE(v_live_rpc_actions, ARRAY[]::text[]));
   SELECT array_agg(a ORDER BY a) INTO v_extra_rpc_actions
   FROM unnest(v_live_rpc_actions) a
   WHERE a <> ALL(ARRAY[
-    'overview', 'agents.list', 'agents.set_autonomy', 'agents.set_function_override_autonomy_preset', 'agents.create',
+    'overview', 'agents.list', 'agents.set_execution_rule', 'agents.set_autonomy', 'agents.set_function_override_autonomy_preset', 'agents.create',
     'agents.update', 'policy.history', 'policy.rollback', 'agents.evaluate', 'proposals.list',
     'proposals.decide', 'fixes.list', 'fixes.decide', 'permissions.list', 'permissions.grant',
     'permissions.revoke', 'permissions.options', 'allowlist.list', 'allowlist.add', 'allowlist.remove',
@@ -5209,7 +5312,11 @@ BEGIN
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
     'providers.oauth_device_status', 'providers.oauth_callback', 'providers.probe_start', 'providers.probe_status',
     'events', 'approvals.list',
-    'approvals.decide', 'function_experiments.list', 'model_prices.list', 'model_prices.set', 'model_prices.delete', 'sql.execute', 'selftest'
+    'approvals.decide', 'function_experiments.list', 'model_prices.list', 'model_prices.set', 'model_prices.delete', 'sql.execute', 'selftest',
+    'canvas.state', 'canvas.layout.save', 'canvas.groups.create', 'canvas.groups.update', 'canvas.groups.delete',
+    'canvas.groups.merge', 'canvas.groups.set_member', 'canvas.delegation.add', 'canvas.delegation.remove',
+    'canvas.grant', 'canvas.templates.save', 'canvas.templates.delete', 'canvas.templates.instantiate',
+    'canvas.run', 'agents.set_task_model'
   ]::text[]);
   ok := v_missing_rpc_actions IS NULL AND v_extra_rpc_actions IS NULL;
   v := v || jsonb_build_array(jsonb_build_object(
@@ -5217,12 +5324,14 @@ BEGIN
     'missing_from_dispatch', to_jsonb(v_missing_rpc_actions), 'not_yet_cataloged', to_jsonb(v_extra_rpc_actions)
   ));
 
+  v := v || allgres_private.canvas_selftest_cases();
+
   PERFORM allgres_private.selftest_cleanup();
 
   -- Leave the agent as we found it.
   UPDATE allgres_private.policies SET system_prompt = v_saved_prompt WHERE agent_id = v_agent;
 
-  RETURN jsonb_build_object(
+  v_result := jsonb_build_object(
     'passed', (SELECT count(*) FROM jsonb_array_elements(v) e WHERE (e->>'ok')::boolean IS TRUE),
     -- A missing/JSON-null/non-boolean result is not a pass. Treating SQL
     -- NULL as neither passed nor failed made the old summary capable of
@@ -5230,7 +5339,120 @@ BEGIN
     'failed', (SELECT count(*) FROM jsonb_array_elements(v) e WHERE (e->>'ok')::boolean IS DISTINCT FROM TRUE),
     'cases', v
   );
+  RAISE EXCEPTION 'selftest finished' USING ERRCODE = 'Z0001';
+  EXCEPTION WHEN SQLSTATE 'Z0001' THEN
+    RETURN v_result;
+  END;
 END;
 $fn$;
 
 REVOKE ALL ON FUNCTION allgres_public.fn_selftest() FROM PUBLIC;
+
+-- Canvas (sql/canvas.sql). Called from fn_selftest, so everything here is
+-- rolled back with the rest of the run.
+CREATE OR REPLACE FUNCTION allgres_private.canvas_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  v_lead uuid;
+  v_worker uuid;
+  v_sys uuid;
+  g_div uuid;
+  g_team uuid;
+  g_other uuid;
+  v_tpl uuid;
+BEGIN
+  v_lead := (allgres_public.fn_create_agent('selftest_canvas_lead', 'lead')->>'agent_id')::uuid;
+  v_worker := (allgres_public.fn_create_agent('selftest_canvas_worker', 'worker')->>'agent_id')::uuid;
+  SELECT agent_id INTO v_sys FROM allgres_private.agents WHERE is_system LIMIT 1;
+
+  g_div := (allgres_public.fn_canvas_create_group('selftest division', 'division')->>'group_id')::uuid;
+  g_team := (allgres_public.fn_canvas_create_group('selftest team', 'team', g_div,
+    '{"x": 10, "y": 20, "width": 400, "height": 300}')->>'group_id')::uuid;
+  g_other := (allgres_public.fn_canvas_create_group('selftest other')->>'group_id')::uuid;
+
+  BEGIN
+    PERFORM allgres_public.fn_canvas_update_group(g_div, NULL, NULL, g_team);
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%inside itself%';
+  END;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_group_refuses_nesting_cycle', 'ok', ok));
+
+  IF v_sys IS NOT NULL THEN
+    BEGIN
+      PERFORM allgres_public.fn_canvas_set_group_member(v_sys, g_team);
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      ok := SQLERRM LIKE '%system agents%';
+    END;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_system_agent_cannot_join_group', 'ok', ok));
+  END IF;
+
+  PERFORM allgres_public.fn_canvas_set_group_member(v_lead, g_team);
+  PERFORM allgres_public.fn_canvas_set_group_member(v_worker, g_team);
+  PERFORM allgres_public.fn_canvas_add_delegation(v_lead, v_worker);
+  ok := allgres_private.agent_has_permission(v_lead, 'agent', 'selftest_canvas_worker')
+    AND EXISTS (SELECT 1 FROM allgres_private.canvas_superiors(v_worker) s WHERE s.agent_id = v_lead);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_line_is_an_agent_grant', 'ok', ok));
+
+  -- The ceiling: the worker may not get what its lead lacks, unless the
+  -- lead is granted it too in the same call.
+  r := allgres_public.fn_canvas_grant(v_worker, 'http_host', 'Example.COM');
+  ok := (r->>'applied')::boolean IS FALSE
+    AND r->'missing' @> jsonb_build_array(jsonb_build_object('agent_id', v_lead))
+    AND NOT allgres_private.agent_has_permission(v_worker, 'http_host', 'example.com');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_grant_stops_at_ceiling', 'ok', ok, 'detail', r));
+
+  r := allgres_public.fn_canvas_grant(v_worker, 'http_host', 'example.com', true);
+  ok := (r->>'applied')::boolean
+    AND allgres_private.agent_has_permission(v_worker, 'http_host', 'example.com')
+    AND allgres_private.agent_has_permission(v_lead, 'http_host', 'example.com');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_grant_includes_superiors', 'ok', ok));
+
+  PERFORM allgres_public.fn_canvas_save_positions(jsonb_build_array(
+    jsonb_build_object('kind', 'agent', 'id', v_lead, 'x', 40, 'y', 60),
+    jsonb_build_object('kind', 'agent', 'id', v_worker, 'x', 40, 'y', 200)
+  ));
+  v_tpl := (allgres_public.fn_canvas_save_template('selftest canvas config', g_div)->>'template_id')::uuid;
+  r := allgres_public.fn_canvas_instantiate_template(v_tpl, 1000, 1000);
+  ok := jsonb_array_length(r->'agent_ids') = 2
+    AND EXISTS (SELECT 1 FROM allgres_private.agents WHERE name = 'selftest_canvas_lead_2')
+    AND allgres_private.agent_has_permission(
+      (SELECT agent_id FROM allgres_private.agents WHERE name = 'selftest_canvas_lead_2'), 'agent', 'selftest_canvas_worker_2')
+    AND allgres_private.agent_has_permission(
+      (SELECT agent_id FROM allgres_private.agents WHERE name = 'selftest_canvas_worker_2'), 'http_host', 'example.com')
+    AND (SELECT count(*) FROM allgres_private.agent_groups g
+         WHERE g.parent_group_id = (r->>'group_id')::uuid AND g.name = 'selftest team') = 1
+    AND (SELECT x FROM allgres_private.canvas_positions
+         WHERE item_kind = 'agent' AND item_id = (SELECT agent_id FROM allgres_private.agents WHERE name = 'selftest_canvas_worker_2')) = 1040;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_template_round_trip', 'ok', ok, 'detail', r));
+
+  PERFORM allgres_public.fn_canvas_delete_group(g_team);
+  ok := (SELECT group_id FROM allgres_private.agent_group_members WHERE agent_id = v_lead) = g_div;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delete_group_keeps_agents', 'ok', ok));
+
+  PERFORM allgres_public.fn_canvas_merge_groups(g_div, g_other);
+  ok := (SELECT group_id FROM allgres_private.agent_group_members WHERE agent_id = v_worker) = g_other
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.agent_groups WHERE group_id = g_div);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_merge_moves_members', 'ok', ok));
+
+  BEGIN
+    PERFORM allgres_public.fn_canvas_run(v_worker, 'selftest canvas run', NULL, 'some-model');
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%own model%';
+  END;
+  PERFORM allgres_public.fn_set_task_model_allowed(v_worker, true);
+  r := allgres_public.fn_canvas_run(v_worker, 'selftest canvas run', NULL, 'some-model');
+  ok := ok AND (SELECT llm_override->>'model' FROM allgres_private.tasks WHERE task_id = (r->>'task_id')::uuid) = 'some-model';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_task_model_needs_opt_in', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;

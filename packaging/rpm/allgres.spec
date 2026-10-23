@@ -1,9 +1,9 @@
 Name:           allgres
 Version:        0.1.0
-Release:        0.alpha.1%{?dist}
+Release:        0.alpha.3%{?dist}
 Summary:        PostgreSQL-native agent control plane
 License:        Apache-2.0
-URL:            https://github.com/allgres/allgres-agent
+URL:            https://github.com/allgres/allgres-agent-dev
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cargo
@@ -45,5 +45,11 @@ find target/release/allgres-pg18/usr/share/pgsql/extension -type f \( -name 'all
 /usr/share/pgsql/extension/allgres--*.sql
 
 %changelog
+* Tue Sep 22 2026 Allgres Maintainers <maintainers@allgres.io> - 0.1.0-0.alpha.3
+- First-run mock Test connection, General assignment, and health_monitor fold
+
+* Tue Sep 22 2026 Allgres Maintainers <maintainers@allgres.io> - 0.1.0-0.alpha.2
+- Improve first-run chat, selftest isolation, and dashboard usability
+
 * Mon Sep 21 2026 Allgres Maintainers <maintainers@allgres.io> - 0.1.0-0.alpha.1
 - Initial public alpha package

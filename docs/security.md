@@ -122,17 +122,15 @@ complete," and its own retry logic may reasonably queue the identical
 deduplication of its own would perform the effect (create the ticket, charge
 the card, send the message) a second time.
 
-The mitigation: every mutating `http_request` call (`POST`/`PUT`/`PATCH`/
-`DELETE`) is queued with a deterministic `idempotency-key` header —
-`md5(task_id || method || url || body)`, mirrored onto
-`outbound_calls.idempotency_key` for visibility — unless the agent already
-set that header itself, which is honored as-is. The key is derived from
-the request's own content, not from `call_id` (a fresh value on every
-queued row, including a genuine retry), so an agent retrying the *exact
-same* request reproduces the *identical* key; a materially different
-request (a changed body, say) gets a different one. This is the same
-header Stripe, GitHub, PayPal, and Square already accept and deduplicate
-on.
+Every mutating `http_request` call (`POST`/`PUT`/`PATCH`/`DELETE`) carries
+an `idempotency-key`, mirrored onto `outbound_calls.idempotency_key` for
+visibility. New calls receive a new random key even when their method, URL,
+and body match. To retry one completed or lost call, the agent must provide
+its `retry_of_call_id`; the extension verifies that the task and complete
+request match, then reuses that prior key. A caller-supplied key is accepted
+only when it agrees with the retried call. This preserves legitimate repeated
+operations while allowing destinations such as Stripe, GitHub, PayPal, and
+Square to deduplicate an explicit retry.
 
 **This is a mitigation, not a guarantee.** It only protects a call against
 a destination that actually implements idempotency-key deduplication —
@@ -162,6 +160,47 @@ still cannot answer "did it actually execute" (only checking the
 destination system can); it stops the extension from *guessing* on the
 agent's behalf when a wrong guess means a duplicate ticket, charge, or
 message.
+
+The same pause now covers a worker-reported transport error, a response-body
+read failure, and a `5xx` response for a mutating call. Each can arrive after
+the destination has committed the operation. The approval records the call
+and asks the operator to check the destination before an explicit retry.
+
+## Execution approval and live authorization
+
+An administrator can set an execution rule for an agent and action
+(`call_function`, `execute_sql`, or `run_procedure`) to `allow`, `approve`,
+or `deny`. An `approve` rule holds the queued request before execution. The
+approval snapshot includes the exact request, policy generation, applicable
+rules, and referenced function, procedure, provider, or connection state.
+Approving resumes that same queued request; it does not give the model a new
+turn to change it. A changed snapshot or an expired approval requires a new
+approval.
+
+For PL/pgSQL procedures, this snapshot also includes every bound function's
+definition and generation, and the binding set. Function rules apply to those
+dependencies at claim time: a denied dependency blocks the procedure, and an
+approval requirement pauses the whole procedure with its exact arguments.
+Generated functions and procedures also check rules before entering their
+body, including nested or dynamic calls. An approval covers only its root
+routine and declared bound functions; an undeclared call cannot borrow it.
+The worker establishes the context in a protected backend/transaction-scoped
+table, not an agent-writable session setting. Changed definitions, bindings,
+rules, or expired approvals are rejected again at runtime.
+While a local routine runs, PostgreSQL's security context also prohibits
+role/session-authorization changes, including dynamically constructed SQL
+and `set_config('role', ...)`, so nested code cannot change its identity.
+
+Existing installations must rebuild previously generated PL/pgSQL functions
+and procedures when installing this runtime change; old PostgreSQL routine
+objects do not acquire the entry guard merely by replacing the extension
+library. Mark their build status pending and let the build worker recreate
+them before resuming agent work.
+
+Every queue claim also rechecks the agent's active status, current grants,
+and referenced connection or provider configuration. Revoking a grant or
+disabling a dependency therefore blocks queued work that has not yet been
+claimed. A request that has already left the process cannot be recalled.
 
 ## Secrets at rest
 

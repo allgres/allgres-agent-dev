@@ -29,15 +29,20 @@ without it fails with "no matches for kind Cluster ... ensure CRDs are
 installed first" (confirmed live too). See that file's own header comment
 for the one-line Helm install if you don't already have it running.
 
-A pre-built image is published to GHCR the same way the plain-Docker image
-is (`.github/workflows/publish-image.yml`): `:main` on every push to
-main, plus a real version tag and `:latest` once one is actually pushed
-(no version has been tagged yet as of this writing, so use `:main` for
-now):
+A pre-built image is published to GHCR by
+`.github/workflows/publish-image.yml`: `:main` on pushes to main, plus
+`:latest` and a version tag on release pushes. Wait for the image workflow to finish before
+pulling a new image:
 
 ```bash
-docker pull ghcr.io/allgres/allgres-agent-dev-cnpg-ext:v0.1.0-alpha.1
+docker pull ghcr.io/allgres/allgres-agent-dev-cnpg-ext:latest
 ```
+
+The example omits `Database.spec.extensions[].version`, so a new database
+installs the image's default extension version. `:latest` is resolved when a
+pod is created; it does not upgrade an existing database. Alpha releases have
+no extension upgrade script yet, so use a fresh evaluation database when
+moving between versions.
 
 Use that directly as `cnpg/cluster-example.yaml`'s `image.reference` and
 skip building anything yourself. A personal build pushed to your own GHCR
@@ -54,8 +59,8 @@ instead (a fork, a local change to try before it's tagged):
 # from inside cnpg/) fails immediately with a clear "Cargo.toml not found"
 # error -- confirmed live, this is the one mistake real testing against
 # this Dockerfile actually hit.
-docker build -t ghcr.io/you/allgres-cnpg-ext:v0.1.0-alpha.1 -f cnpg/Dockerfile .
-docker push ghcr.io/you/allgres-cnpg-ext:v0.1.0-alpha.1
+docker build -t ghcr.io/you/allgres-cnpg-ext:latest -f cnpg/Dockerfile .
+docker push ghcr.io/you/allgres-cnpg-ext:latest
 ```
 
 `cnpg/cluster-example.yaml` wires the built image into a real `Cluster`:
@@ -67,13 +72,12 @@ own), and a companion `Database` CR is what actually runs `CREATE
 EXTENSION allgres;` once CNPG reconciles it. Read that file's own header
 comment for what each field does before applying it.
 
-Not verified end to end against a real running cluster as of this
-writing — no Kubernetes cluster was available in the environment this was
-built in. The image build itself has since been confirmed by a real test:
-the assumption that the base image's apt sources carry
-`postgresql-server-dev-${PG_MAJOR}` the same way they carry the
-`postgresql-${PG_MAJOR}` packages CNPG's own extension images (e.g.
-`pgvector`) install from there held up fine; the one real mistake that
-build hit was passing the wrong build context (see the `docker build`
-block above), now caught early by `cnpg/Dockerfile`'s own check instead of
-surfacing as a confusing `cargo-pgrx` error.
+The published `v0.1.0-alpha.1` extension image was verified on a local
+Kubernetes 1.36.4/k3s cluster with containerd 2.3.2 and CNPG 1.30.0. A
+single-instance PostgreSQL 18.6 `Cluster` reached Ready, the `Database`
+resource applied `pgcrypto` and `allgres` version `0.1.0-alpha.1`,
+`shared_preload_libraries` loaded `allgres`, and `fn_selftest()` reported
+361 passed and 0 failed. The `allgres runtime` worker ran and a pod port
+forward to `/healthz` returned HTTP 200. This was an isolated local smoke
+test; the three-instance example, failover, and a public-facing dashboard
+were not exercised. The image build also passed locally and in CI.

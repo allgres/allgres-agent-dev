@@ -37,9 +37,9 @@ agent turn and watching it fail. A 2xx response is stored as
 not just `is_enabled`) and its body -- OpenAI, xAI, and Anthropic's
 `/models`/`/v1/models` all return the same `{"data":[{"id":...}]}` shape --
 becomes `available_models`, which is exactly what backs the datalist above.
-An error is stored as `last_probe_status='error'` with the response body
-(or a transport error, e.g. a TLS failure) as `last_probe_error`, and never
-overwrites a previously-fetched model list.
+An error is stored as `last_probe_status='error'` with a short `last_probe_error` (a JSON `error` field when the body is `{"error":"..."}`, otherwise the response body or a transport error, e.g. a TLS failure), and never overwrites a previously-fetched model list.
+
+With `ALLGRES_ENABLE_MOCK=1` the dashboard also serves `GET /mock/models` in the same `{"data":[{"id":...}]}` shape, so Test connection succeeds against the built-in mock the same way a chat turn already did.
 
 A session is no longer a single one-shot exchange. `fn_continue_session`
 adds a follow-up message to an existing session — a new task in the same
@@ -78,7 +78,10 @@ leaving the conversation for My Agents first; Messenger has no picker,
 since an `@mention` can route to any of several agents. Which agents a regular user can reach at
 all is an explicit allow-list (`allgres_private.user_agent_assignments`,
 managed by an admin from the Users page), not everything minus a
-block-list. See KNOWN_ISSUES.md, item 30, for what this deliberately does
+block-list. Creating a regular user (`fn_create_user` with `role=user`)
+assigns the seeded `general` agent so Chat's first-run path works without
+an extra Users-page click; other seeded agents stay unassigned until an
+admin grants them. See KNOWN_ISSUES.md, item 30, for what this deliberately does
 not change: the pre-existing shared-token `dashboard_rpc` surface (agent
 CRUD, permissions, providers, the SQL sandbox allowlist) is untouched and
 still reachable by anyone holding that one token, same as every version
@@ -86,18 +89,18 @@ before this — login adds a second, narrower identity layer for chat/
 messenger/my-model specifically, not a retrofit of the first one (that
 remains KNOWN_ISSUES.md, item 10).
 
-## Chat: General, Messenger, and Project modes
+## Chat: General, Team messages, Sessions, and Projects
 
-The Chat page is one page with three mode buttons, not three separate nav
-entries: **General** (a plain, continuing 1:1 conversation — unchanged from
-before), **Messenger** (the Slack-style shared channel — unchanged, now
-also delivering to every agent a post `@mentions`, in text order, when more
-than one is addressed), and **Project** — a project (Settings/Projects,
-admin-managed) may be bound to one agent with a `preset_prompt` appended
+The Chat page has **General** (a continuing 1:1 conversation with the seeded
+`general` agent), **Team messages** (the shared channel; plain posts are
+stored, while `@agent-name` routes work to an agent), and **Sessions**
+(history). **Projects → Conversation** hosts project chat. A project
+(admin-managed) must be bound to one agent when created in the dashboard;
+it may have a `preset_prompt` appended
 after that agent's own system prompt (`fn_next_step`), giving it a focused,
 reusable context (e.g. "only ever answer about the Seoul region") without
 touching the agent's own policy. Project mode has its own continuing
 session per (user, project) pair (`user_project_chat_sessions`,
 `fn_project_chat_send`/`fn_project_chat_history`) — deliberately separate
-from that same agent's General-mode conversation, so a project's preset
+from that same agent's direct conversation, so a project's preset
 context never leaks into a plain chat with the same agent or vice versa.

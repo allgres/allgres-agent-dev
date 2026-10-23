@@ -72,9 +72,8 @@ rather than its own page; Approvals/Proposals/Fixes are three tabs of one
 **Approvals** page, open to regular users too (see [System
 agents](system-agents.md)).
 
-Settings also has a language switch (English/한국어) and a dark/light theme
-switch — both a plain per-browser `localStorage` preference with nothing
-server-side to configure. The language switch covers navigation, page
-chrome, and common actions/empty-states, not every field label in every
-modal, and never data that came from the database itself (an agent's own
-name, a log's own content) — see KNOWN_ISSUES item 31 for the exact scope.
+Settings has a dark/light theme switch stored in the browser's
+`localStorage`. The partial English/한국어 switch was removed: the current
+dashboard is English-only rather than presenting a partly translated UI.
+The top-level dashboard and Settings navigation buttons are labeled
+**Dashboard** and **Settings** respectively.

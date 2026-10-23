@@ -41,6 +41,9 @@ pub(crate) const DEFAULT_DB: &str = "postgres";
 /// is refused unless the operator opts in explicitly (see `check_exposure`).
 pub(crate) const DEFAULT_HTTP_ADDR: &str = "127.0.0.1:8088";
 pub(crate) const DASHBOARD_HTML: &str = include_str!("../web/index.html");
+/// Built from web/canvas (React) and committed, so building the extension
+/// never needs Node.js -- see docs/canvas.md, "Building".
+pub(crate) const CANVAS_HTML: &str = include_str!("../web/canvas.html");
 
 /// Outbound HTTP threads, and therefore the maximum number of calls claimed
 /// per pump.  The SQL watchdog timeout must stay above `HTTP_TIMEOUT`.
@@ -108,10 +111,11 @@ pub(crate) const SSE_TICKET_TTL: Duration = Duration::from_secs(30);
 // const-eval copy loop pgrx's extension_sql_file! macro runs at compile
 // time finishes comfortably inside rustc's default budget.
 extension_sql_file!("../sql/control_plane.sql", name = "control_plane");
+extension_sql_file!("../sql/execution_guards.sql", name = "execution_guards", requires = ["control_plane"]);
 extension_sql_file!(
     "../sql/operator_agents_and_policies.sql",
     name = "operator_agents_and_policies",
-    requires = ["control_plane"]
+    requires = ["execution_guards"]
 );
 extension_sql_file!(
     "../sql/capability_search.sql",
@@ -133,7 +137,10 @@ extension_sql_file!(
     name = "seed_data",
     requires = ["operator_accounts_and_chat"]
 );
-extension_sql_file!("../sql/selftest.sql", requires = ["seed_data"]);
+// Not one of the original sections: Canvas's groups, positions, and saved
+// configurations (docs/canvas.md), after the seed data it lays out.
+extension_sql_file!("../sql/canvas.sql", name = "canvas", requires = ["seed_data"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["canvas"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]

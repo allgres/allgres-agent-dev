@@ -6,3 +6,5 @@ target
 *-pgdata/**
 pgdata
 pgdata/**
+web/canvas/node_modules
+web/canvas/dist

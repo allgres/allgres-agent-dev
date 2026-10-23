@@ -10,7 +10,7 @@ use crate::web::{
     csrf_ok, mint_sse_ticket, percent_decode, rate_limited, record_auth_failure, WebConfig,
     RATE_AUTH_FAIL_LIMIT, RATE_GENERAL_LIMIT, RATE_GENERAL_WINDOW, RATE_LIMIT, SSE_TICKETS,
 };
-use crate::{DASHBOARD_HTML, SSE_TICKET_TTL};
+use crate::{CANVAS_HTML, DASHBOARD_HTML, SSE_TICKET_TTL};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -261,6 +261,16 @@ fn truncation_keeps_utf8_boundaries() {
 #[test]
 fn dashboard_html_carries_the_csp_nonce_placeholder() {
     assert_eq!(DASHBOARD_HTML.matches("__CSP_NONCE__").count(), 3);
+}
+
+#[test]
+fn canvas_html_is_self_contained_behind_the_csp_nonce() {
+    // web/canvas/scripts/emit.mjs stamps the bundle's one module script and
+    // one stylesheet; anything loaded by URL would be blocked by the CSP.
+    assert!(CANVAS_HTML.contains("<script nonce=\"__CSP_NONCE__\" type=\"module\""));
+    assert!(CANVAS_HTML.contains("<style nonce=\"__CSP_NONCE__\""));
+    assert!(!CANVAS_HTML.contains("<script src="));
+    assert!(!CANVAS_HTML.contains("<link "));
 }
 
 // --- node-dump reader -------------------------------------------------

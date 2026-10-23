@@ -1813,6 +1813,7 @@ DECLARE
   c allgres_private.provider_probes%ROWTYPE;
   v_parsed jsonb;
   v_models jsonb;
+  v_err text;
 BEGIN
   PERFORM set_config('statement_timeout', '2000', true);
 
@@ -1826,13 +1827,22 @@ BEGIN
   END IF;
 
   IF p_status IS NULL OR p_status < 200 OR p_status >= 300 THEN
+    v_err := COALESCE(NULLIF(p_body, ''), 'request failed');
+    BEGIN
+      v_parsed := p_body::jsonb;
+      IF jsonb_typeof(v_parsed->'error') = 'string' AND NULLIF(v_parsed->>'error', '') IS NOT NULL THEN
+        v_err := v_parsed->>'error';
+      END IF;
+    EXCEPTION WHEN others THEN
+      NULL;
+    END;
     UPDATE allgres_private.provider_probes
     SET status = 'harvested', response_status = p_status,
-        error = left(COALESCE(p_body, ''), 2000), updated_at = now()
+        error = left(v_err, 2000), updated_at = now()
     WHERE call_id = p_call_id;
     UPDATE allgres_private.llm_providers
     SET last_probe_status = 'error', last_probe_at = now(),
-        last_probe_error = left(COALESCE(NULLIF(p_body, ''), 'request failed'), 500)
+        last_probe_error = left(v_err, 500)
     WHERE provider_id = c.provider_id;
     RETURN jsonb_build_object('action', 'error', 'status', p_status);
   END IF;

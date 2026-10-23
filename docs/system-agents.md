@@ -23,7 +23,9 @@ maintenance agent strictly needs to be, on purpose. It compares against
 what it `remember`ed on its last run (already sitting in its own context,
 the same recall every other agent gets) and gives a short human-readable
 summary as its `final_answer` — visible in the Sessions thread view like
-any other run.
+any other run. The dashboard lists it with the folded System agents, not
+in the main Agents table, so a first-run operator does not mistake it for
+a conversation agent that already has a model.
 
 There is no scheduler: nothing runs `health_monitor` automatically. An
 operator triggers it from the Run page, or an external `cron` job hits
