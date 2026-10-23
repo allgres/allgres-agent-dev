@@ -55,10 +55,12 @@ separately, review audit #10).
 
 **Dump and restore into a new install fails on such pairs** with a raw
 `duplicate key value violates unique constraint "agents_name_ci_key"`
-while `pg_restore` loads `allgres_private.agents`; the later rows of each
-pair are not restored, and rows that reference them then fail on foreign
-keys. Nothing is renamed or merged automatically. Before dumping, run this
-on the existing database:
+while `pg_restore` loads `allgres_private.agents`. The table is loaded by
+one `COPY`, so the error aborts all of it: `agents` is restored empty, not
+just missing the later row of each pair, and every table that references
+agents (permissions, sessions, tasks, and others) then fails on foreign
+keys. Nothing is renamed or merged automatically. Before
+dumping, run this on the existing database:
 
 ```sql
 SELECT lower(btrim(name)) AS normalized_name,
@@ -88,6 +90,53 @@ On a database created by this build, `SELECT
 allgres_private.ensure_agent_names_unique();` performs the same check: it
 lists every colliding group with agent ids (error 23505) and, when there
 are none, creates `agents_name_ci_key` if it is missing.
+
+### `http_host` grants stored with spaces or capitals
+
+This build stores `http_host` grants lower-cased and trimmed on every grant
+path, and `fn_revoke_permission` matches ignoring case and surrounding spaces.
+Rows written before this (for example, `' API.Example.com '`) stay as they
+were: at run time the host check compares the normalized host, so such a row
+never matches and the grant is silently ineffective, and
+`allgres_private.canvas_delegation_gaps` reports it as a gap, so Canvas
+refuses a delegation line over an agent that holds it. Nothing is rewritten automatically.
+
+Check for rows that need cleanup:
+
+```sql
+SELECT agent_id, format('%L', resource_ref) AS stored, lower(btrim(resource_ref)) AS normalized
+  FROM allgres_private.permissions
+ WHERE resource_type = 'http_host' AND resource_ref <> lower(btrim(resource_ref));
+```
+
+Run this one-time cleanup on an existing database. The first `DELETE` drops
+an un-normalized row when an already-normalized row exists for the same agent
+and host. The second `DELETE` drops duplicate un-normalized spellings of the
+same host, keeping one row. Then the remaining rows are normalized:
+
+```sql
+BEGIN;
+DELETE FROM allgres_private.permissions p
+ WHERE p.resource_type = 'http_host'
+   AND p.resource_ref <> lower(btrim(p.resource_ref))
+   AND EXISTS (SELECT 1 FROM allgres_private.permissions q
+                WHERE q.agent_id = p.agent_id AND q.resource_type = 'http_host'
+                  AND q.resource_ref = lower(btrim(p.resource_ref)));
+DELETE FROM allgres_private.permissions p
+ USING allgres_private.permissions q
+ WHERE p.resource_type = 'http_host' AND q.resource_type = 'http_host'
+   AND p.agent_id = q.agent_id
+   AND p.resource_ref <> lower(btrim(p.resource_ref))
+   AND q.resource_ref <> lower(btrim(q.resource_ref))
+   AND lower(btrim(p.resource_ref)) = lower(btrim(q.resource_ref))
+   AND p.permission_id > q.permission_id;
+UPDATE allgres_private.permissions
+   SET resource_ref = lower(btrim(resource_ref))
+ WHERE resource_type = 'http_host' AND resource_ref <> lower(btrim(resource_ref));
+COMMIT;
+```
+
+The check query above returns no rows afterwards.
 
 ## Deployment coverage
 
