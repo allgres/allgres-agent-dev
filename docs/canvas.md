@@ -102,17 +102,30 @@ host the lead was never granted. When agents above are missing it, Canvas
 lists them and offers to grant all of them in the same transaction
 (`fn_canvas_grant`). If one of them is a system agent, it refuses.
 
-Drawing a line is held to the same ceiling (`fn_canvas_add_delegation`,
-also used when a saved configuration is placed). A line from A to B puts A,
-and every agent above A, on top of B and everything B can already hand work
-to. If anything in that lower part holds a view, function, procedure, or
-host that A or an agent above A lacks, the line is refused and the error
-lists each missing grant (the full list is in the error's `DETAIL` as JSON).
-Grant it upward first, then draw the line again. Lines into or out of a
-system agent are refused by the server, not only by the board.
+Every delegation line is held to the same ceiling, however it is made: a
+line drawn on the board, one placed with a saved configuration, a
+`permissions.grant` of type `agent` from the Agents page, or a direct
+`fn_grant_permission(..., 'agent', ...)` in SQL. All of them end in
+`fn_grant_permission`, which checks them in one place
+(`allgres_private.check_delegation`). A line from A to B puts A, and every
+agent above A, on top of B and everything B can already hand work to. If
+anything in that lower part holds a view, function, procedure, or host that
+A or an agent above A lacks, the line is refused and the error lists each
+missing grant (the full list is in the error's `DETAIL` as JSON). Grant it
+upward first, then draw the line again.
 
-This is the Canvas grant path's own rule. `permissions.grant` (Agents page,
-SQL) is the operator's unrestricted tool and does not apply it.
+The same check refuses a line into a system agent (system agents run the
+platform with platform-level permissions, so a line into one would be a
+privilege escalation), a line to an agent name that does not exist (a
+dangling name would let the agent be created later, past the check), and a
+line from an agent to itself. Board lines *out of* a system agent are
+refused by Canvas as well; in SQL a system agent may still be given lines,
+since system agents are configured there by design.
+
+Other grants (`view`, `function`, `procedure`, `http_host`) through
+`permissions.grant` or SQL are not checked against the ceiling: that remains
+the operator's unrestricted tool, and only the Canvas grant path
+(`fn_canvas_grant`) applies it.
 
 ## A model per task
 

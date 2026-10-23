@@ -480,30 +480,28 @@ AS $fn$
   WHERE NOT allgres_private.agent_has_permission(u.agent_id, h.resource_type, h.resource_ref)
 $fn$;
 
--- A line on the board: p_from may delegate to p_to. Stored as the same
--- `agent` permission the Agents page and permissions.grant write, so the
--- runtime's delegate check (agent_has_permission) sees it with no special
--- case.
---
--- Two server-side rules, so neither depends on the board's own checks:
---   * neither end may be a system agent (D2). A system agent's grants are
---     not editable from the board (forbid_system_agent_edit), and an
---     ordinary agent must not be able to hand work to one either -- a
---     system agent runs with platform-level permissions (fixer, creator,
---     self_improve, ...), so a line into it would be a privilege
---     escalation for whoever draws it.
---   * the delegation ceiling (D1, canvas_delegation_gaps): refused, with
---     every missing grant listed in the error detail, when p_to (or
---     anything below it) holds something p_from or anything above p_from
---     lacks. Grant it upward first (fn_canvas_grant with
---     p_include_superiors) and draw the line again. Template
---     instantiation goes through this function too, so a template cannot
---     smuggle a line past the ceiling either.
-CREATE OR REPLACE FUNCTION allgres_public.fn_canvas_add_delegation(p_from_agent_id uuid, p_to_agent_id uuid)
-RETURNS jsonb
+-- The delegation rules, enforced in exactly one place: fn_grant_permission
+-- calls this for every `agent` grant, so SQL, the dashboard's
+-- permissions.grant, Canvas lines, and Canvas templates all get the same
+-- answer. p_from_agent_id may delegate to the agent named p_to_ref only if:
+--   * the target exists (otherwise a grant could be written first and the
+--     agent created later, past every check below) and is not p_from itself;
+--   * the target is not a system agent (D2). A system agent runs with
+--     platform-level permissions (fixer, creator, self_improve, ...), so a
+--     line into it would be a privilege escalation for whoever draws it;
+--   * the delegation ceiling holds (D1, canvas_delegation_gaps): refused,
+--     with every missing grant listed in the error detail, when the target
+--     (or anything below it) holds something p_from or anything above
+--     p_from lacks. Grant it upward first (fn_canvas_grant with
+--     p_include_superiors), then delegate.
+-- A system agent as the *sender* is not refused here: system agents are
+-- configured over direct SQL by design (forbid_system_agent_edit keeps
+-- them out of the dashboard, and Canvas refuses them as its own rule).
+CREATE OR REPLACE FUNCTION allgres_private.check_delegation(p_from_agent_id uuid, p_to_ref text)
+RETURNS void
 LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = allgres_private, allgres_public, pg_temp
+STABLE
+SET search_path = allgres_private, pg_temp
 AS $fn$
 DECLARE
   f allgres_private.agents%ROWTYPE;
@@ -511,17 +509,23 @@ DECLARE
   v_gaps jsonb;
   v_summary text;
 BEGIN
-  f := allgres_private.canvas_require_agent(p_from_agent_id);
-  t := allgres_private.canvas_require_agent(p_to_agent_id);
+  SELECT * INTO f FROM allgres_private.agents WHERE agent_id = p_from_agent_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'agent not found' USING ERRCODE = 'P0001';
+  END IF;
+  -- Same name match agent_has_permission and canvas_subordinates_and_self use.
+  SELECT * INTO t FROM allgres_private.agents
+  WHERE lower(name) = lower(btrim(p_to_ref))
+  ORDER BY (name = btrim(p_to_ref)) DESC
+  LIMIT 1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'cannot delegate to %: no such agent', p_to_ref USING ERRCODE = 'P0001';
+  END IF;
   IF f.agent_id = t.agent_id THEN
     RAISE EXCEPTION 'an agent cannot delegate to itself' USING ERRCODE = 'P0001';
   END IF;
   IF t.is_system THEN
     RAISE EXCEPTION 'system agents run the platform itself and cannot take delegated work (% -> %)', f.name, t.name
-      USING ERRCODE = 'P0001';
-  END IF;
-  IF f.is_system THEN
-    RAISE EXCEPTION 'system agents cannot be given delegation lines from the board (% -> %)', f.name, t.name
       USING ERRCODE = 'P0001';
   END IF;
 
@@ -537,7 +541,31 @@ BEGIN
       t.name, f.name, v_summary, f.name, t.name
       USING ERRCODE = 'P0001', DETAIL = v_gaps::text;
   END IF;
+END;
+$fn$;
 
+-- A line on the board: p_from may delegate to p_to. Stored as the same
+-- `agent` permission the Agents page and permissions.grant write, through
+-- fn_grant_permission, which applies the D1/D2 rules (check_delegation);
+-- they are not repeated here. Template instantiation goes through
+-- fn_grant_permission too. The one Canvas-only rule: a system agent cannot
+-- be given lines from the board at all, as with the rest of its settings.
+CREATE OR REPLACE FUNCTION allgres_public.fn_canvas_add_delegation(p_from_agent_id uuid, p_to_agent_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  f allgres_private.agents%ROWTYPE;
+  t allgres_private.agents%ROWTYPE;
+BEGIN
+  f := allgres_private.canvas_require_agent(p_from_agent_id);
+  t := allgres_private.canvas_require_agent(p_to_agent_id);
+  IF f.is_system AND NOT t.is_system THEN
+    RAISE EXCEPTION 'system agents cannot be given delegation lines from the board (% -> %)', f.name, t.name
+      USING ERRCODE = 'P0001';
+  END IF;
   PERFORM allgres_public.fn_grant_permission(f.agent_id, 'agent', t.name);
   RETURN jsonb_build_object('ok', true, 'from', f.name, 'to', t.name);
 END;

@@ -81,6 +81,24 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   await leadNode.click();
   await expect(page.locator('.inspector')).toContainText('Hands work to');
   await expect(page.locator('.inspector')).toContainText(worker);
+  // The Agents page's permissions.grant is held to the same delegation rules
+  // as the board (fn_grant_permission enforces them for every path): no line
+  // into a system agent, none past the ceiling (general holds a procedure the
+  // new lead does not).
+  const refused = await page.evaluate(async ({ lead }) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const agents = (await call({ action: 'agents.list' })).agents;
+    const leadId = agents.find(a => a.name === lead).agent_id;
+    const out = [];
+    for (const ref of ['fixer', 'general']) out.push(await call({ action: 'permissions.grant', agent_id: leadId, type: 'agent', ref }));
+    return out;
+  }, { lead });
+  expect(refused[0].ok).toBe(false);
+  expect(refused[0].error).toMatch(/system agents .*cannot take delegated work/);
+  expect(refused[1].ok).toBe(false);
+  expect(refused[1].error).toMatch(/exceeds the ceiling/);
   // Shift+click adds the worker; the selection bar makes them a team.
   await fit();
   await page.waitForTimeout(400);

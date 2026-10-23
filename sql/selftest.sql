@@ -5507,11 +5507,14 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delegation_allowed_within_ceiling', 'ok', ok));
 
     -- Indirect: whatever sits below the recipient counts too. specialist ->
-    -- sub is drawn on the unrestricted path, so sub's view is reachable
-    -- from specialist; a new line boss -> specialist must account for it.
+    -- sub is written straight into the table (a line that predates the
+    -- ceiling; fn_grant_permission would refuse it now), so sub's view is
+    -- reachable from specialist; a new line boss -> specialist must account
+    -- for it.
     PERFORM allgres_public.fn_canvas_remove_delegation(v_lead, v_spec);
     PERFORM allgres_public.fn_grant_permission(v_sub, 'view', 'selftest_canvas_only_view');
-    PERFORM allgres_public.fn_grant_permission(v_spec, 'agent', 'selftest_canvas_sub');
+    INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
+    VALUES (v_spec, 'agent', 'selftest_canvas_sub');
     PERFORM allgres_public.fn_grant_permission(v_boss, 'http_host', 'specialist.example');
     BEGIN
       PERFORM allgres_public.fn_canvas_add_delegation(v_boss, v_spec);
@@ -5544,6 +5547,109 @@ BEGIN
         AND NOT v_detail::jsonb @> jsonb_build_array(jsonb_build_object('agent_id', v_lead));
     END;
     v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delegation_ceiling_counts_sender_superiors', 'ok', ok));
+  END;
+
+  -- The same D1/D2 rules hold off the board: fn_grant_permission is the
+  -- single enforcement point, so a direct SQL grant and the dashboard's
+  -- permissions.grant (what the Agents page calls) cannot draw a line
+  -- Canvas would refuse.
+  DECLARE
+    v_high uuid := (allgres_public.fn_create_agent('selftest_direct_high', 'high')->>'agent_id')::uuid;
+    v_low uuid := (allgres_public.fn_create_agent('selftest_direct_low', 'low')->>'agent_id')::uuid;
+    v_sys_name text := (SELECT name FROM allgres_private.agents WHERE agent_id = v_sys);
+    v_tok text;
+    v_msg text;
+    v_detail text;
+  BEGIN
+    PERFORM allgres_public.fn_grant_permission(v_low, 'http_host', 'direct-low.example');
+
+    -- Direct SQL, D2.
+    IF v_sys IS NOT NULL THEN
+      BEGIN
+        PERFORM allgres_public.fn_grant_permission(v_high, 'agent', v_sys_name);
+        ok := false;
+      EXCEPTION WHEN OTHERS THEN
+        ok := SQLERRM LIKE '%system agents%cannot take delegated work%';
+      END;
+      BEGIN
+        -- Name matching is case-insensitive, as it is for agent_has_permission.
+        PERFORM allgres_public.fn_grant_permission(v_high, 'agent', upper(v_sys_name));
+        ok := false;
+      EXCEPTION WHEN OTHERS THEN
+        ok := ok AND SQLERRM LIKE '%system agents%';
+      END;
+      ok := ok AND NOT EXISTS (
+        SELECT 1 FROM allgres_private.permissions
+        WHERE agent_id = v_high AND resource_type = 'agent' AND lower(resource_ref) = lower(v_sys_name));
+      v := v || jsonb_build_array(jsonb_build_object('name', 'grant_permission_agent_refuses_system_recipient', 'ok', ok));
+    END IF;
+
+    -- Direct SQL, D1.
+    BEGIN
+      PERFORM allgres_public.fn_grant_permission(v_high, 'agent', 'selftest_direct_low');
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL;
+      ok := v_msg LIKE '%exceeds the ceiling%'
+        AND v_detail::jsonb @> jsonb_build_array(jsonb_build_object(
+              'agent_id', v_high, 'type', 'http_host', 'ref', 'direct-low.example'));
+    END;
+    ok := ok AND NOT allgres_private.agent_has_permission(v_high, 'agent', 'selftest_direct_low');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'grant_permission_agent_refuses_above_ceiling', 'ok', ok));
+
+    -- Direct SQL: a line to no agent at all, or to oneself, is refused too
+    -- (a dangling name would let the agent be created later, unchecked).
+    BEGIN
+      PERFORM allgres_public.fn_grant_permission(v_high, 'agent', 'selftest_direct_nobody');
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      ok := SQLERRM LIKE '%no such agent%';
+    END;
+    BEGIN
+      PERFORM allgres_public.fn_grant_permission(v_high, 'agent', 'selftest_direct_high');
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      ok := ok AND SQLERRM LIKE '%cannot delegate to itself%';
+    END;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'grant_permission_agent_refuses_unknown_or_self', 'ok', ok));
+
+    -- The dashboard API path (permissions.grant), as an admin.
+    v_tok := NULL;
+    IF allgres_private.pgcrypto_schema() IS NOT NULL THEN
+      DELETE FROM allgres_private.users WHERE username = 'selftest_direct_admin';
+      PERFORM allgres_public.fn_create_user('selftest_direct_admin', 'selftest-direct-pw1', 'admin');
+      v_tok := allgres_public.fn_login('selftest_direct_admin', 'selftest-direct-pw1')->>'session_token';
+    END IF;
+    IF v_sys IS NOT NULL THEN
+      r := allgres.dashboard_rpc(jsonb_build_object(
+        'action', 'permissions.grant', 'agent_id', v_high, 'type', 'agent', 'ref', v_sys_name,
+        'session_token', v_tok));
+      ok := (r->>'ok')::boolean IS FALSE AND r->>'error' LIKE '%system agents%cannot take delegated work%';
+    ELSE
+      ok := true;
+    END IF;
+    r := allgres.dashboard_rpc(jsonb_build_object(
+      'action', 'permissions.grant', 'agent_id', v_high, 'type', 'agent', 'ref', 'selftest_direct_low',
+      'session_token', v_tok));
+    ok := ok AND (r->>'ok')::boolean IS FALSE AND r->>'error' LIKE '%exceeds the ceiling%';
+    ok := ok AND NOT EXISTS (
+      SELECT 1 FROM allgres_private.permissions WHERE agent_id = v_high AND resource_type = 'agent');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'permissions_grant_rpc_enforces_delegation_rules', 'ok', ok, 'detail', r));
+
+    -- Within the ceiling, both paths still work.
+    r := allgres.dashboard_rpc(jsonb_build_object(
+      'action', 'permissions.grant', 'agent_id', v_high, 'type', 'http_host', 'ref', 'direct-low.example',
+      'session_token', v_tok));
+    ok := (r->>'ok')::boolean IS TRUE;
+    r := allgres.dashboard_rpc(jsonb_build_object(
+      'action', 'permissions.grant', 'agent_id', v_high, 'type', 'agent', 'ref', 'selftest_direct_low',
+      'session_token', v_tok));
+    ok := ok AND (r->>'ok')::boolean IS TRUE
+      AND allgres_private.agent_has_permission(v_high, 'agent', 'selftest_direct_low');
+    PERFORM allgres_public.fn_revoke_permission(v_high, 'agent', 'selftest_direct_low');
+    r := allgres_public.fn_grant_permission(v_high, 'agent', 'selftest_direct_low');
+    ok := ok AND (r->>'ok')::boolean IS TRUE;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'grant_permission_agent_allowed_within_ceiling', 'ok', ok, 'detail', r));
   END;
 
   RETURN v;

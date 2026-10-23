@@ -1018,6 +1018,15 @@ SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
 BEGIN
+  -- An `agent` grant is a delegation line: p_agent_id may hand work to the
+  -- agent named p_ref. Every path that creates one (SQL, the dashboard's
+  -- permissions.grant, Canvas lines, Canvas templates) ends here, so this
+  -- is the one place the D1/D2 rules are enforced:
+  -- allgres_private.check_delegation (sql/canvas.sql, resolved at call
+  -- time; nothing calls this with type 'agent' during install).
+  IF p_type = 'agent' THEN
+    PERFORM allgres_private.check_delegation(p_agent_id, p_ref);
+  END IF;
   INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
   VALUES (p_agent_id, p_type, p_ref)
   ON CONFLICT (agent_id, resource_type, resource_ref) DO NOTHING;
