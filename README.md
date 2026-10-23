@@ -126,6 +126,35 @@ The [RPM guide](docs/deployment/rpm.md) finds the newest published Fedora 43/Pos
 
 `pgcrypto` and `pgvector` are optional extensions; see [configuration](docs/configuration.md) and [security](docs/security.md) for the tradeoffs.
 
+## Next work
+
+The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-plan.md) (Korean). It records the discussion so far, the principles that bind it, and the order of work. Nothing in it has been started yet. Each stage must pass the plan's validation scenarios before the next one begins:
+
+0. **Safety fixes.**
+   - Apply the delegation ceiling when a delegation line is drawn.
+   - Refuse delegation to system agents.
+   - List real functions in the permission picker.
+   - Show the empty-board guide on a fresh install.
+1. **People, approvals, and decision records.**
+   - Give people roles and approval routing.
+   - Register decision points as data.
+   - Record every decision in PostgreSQL in Laya's official training format, whether or not Laya is connected.
+2. **Dashboard UX.** Restructure the menus, add first-run guidance, and use one vocabulary.
+3. **Connections.**
+   - One-step model, MCP (including OAuth), API, and decision-model connections.
+   - Per-tool risk levels.
+   - Inbound events.
+   - Connection health.
+   - Local MCP servers also run outside PostgreSQL.
+4. **Capability creation.** A creator agent and its guide build PostgreSQL functions and procedures, or propose an MCP server when PostgreSQL cannot do the job.
+5. **Team collaboration.** Multiple group membership, team intake, and shared knowledge scopes.
+6. **Optional Laya delegation.** Turn delegation on or off per decision point, using official Laya components only.
+
+The principles stay fixed throughout:
+- PostgreSQL owns state and control decisions.
+- No model or external server runs inside PostgreSQL.
+- Anything PostgreSQL functions and procedures cannot cover is added through MCP servers.
+
 ## Alpha status
 
 The repository includes CI jobs for native PostgreSQL 16–18, Docker smoke tests, a CNPG extension-image build, browser navigation, and RPM build/lint. Check the repository's [Actions](https://github.com/allgres/allgres-agent-dev/actions) for the current commit's result. Local `nerdctl` checks passed for the Docker runtime and published Fedora RPM. The published CNPG image passed a live Kubernetes smoke test. The [readiness notes](docs/open-alpha-readiness.md) and [known issues](KNOWN_ISSUES.md) track remaining work.
