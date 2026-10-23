@@ -36,6 +36,27 @@ Pick one:
 If a login used `operator` or `worker` (for example `psql -U operator`),
 switch it to the new name.
 
+### Agent names that differ only in case or surrounding spaces
+
+Agent names are now unique ignoring case and leading/trailing spaces
+(`agents_name_ci_key` on `lower(btrim(name))`); `fn_create_agent` refuses
+`FIXER` or ` fixer ` while `fixer` exists. Earlier builds allowed such
+pairs, and grants and delegation matched them as one name, which let an
+ordinary agent stand in for a system agent. If a database carried over by
+dumping and restoring into a new install holds such a pair, installing
+stops with `agent names must be unique ignoring case and surrounding
+spaces; these agents collide: [...]`, listing each group with the agent
+ids. Nothing is renamed or merged automatically. Decide which agent keeps
+the name, then rename the others and the `agent` grants that name them:
+
+```sql
+UPDATE allgres_private.agents SET name = 'fixer_lookalike'
+ WHERE agent_id = '<id of the one to rename>';
+UPDATE allgres_private.permissions SET resource_ref = 'fixer_lookalike'
+ WHERE resource_type = 'agent' AND resource_ref = 'FIXER';
+SELECT allgres_private.ensure_agent_names_unique();  -- creates the index
+```
+
 ## Deployment coverage
 
 - PostgreSQL 16, 17, and 18 are covered by CI.

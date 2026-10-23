@@ -103,6 +103,12 @@ BEGIN
       RAISE EXCEPTION 'fn_create_agent: creator user not found or not yet provisioned' USING ERRCODE = 'P0001';
     END IF;
   END IF;
+  -- Friendlier than the agents_name_ci_key violation it would otherwise be.
+  SELECT name INTO v_role FROM allgres_private.agents WHERE lower(name) = lower(btrim(p_name));
+  IF FOUND THEN
+    RAISE EXCEPTION 'an agent named % already exists (names are compared ignoring case and surrounding spaces)', v_role
+      USING ERRCODE = '23505';
+  END IF;
   INSERT INTO allgres_private.agents (name, created_by_user_id)
   VALUES (btrim(p_name), p_creator_user_id)
   RETURNING agent_id INTO v_id;
@@ -1017,6 +1023,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
+DECLARE
+  v_ref text := p_ref;
 BEGIN
   -- An `agent` grant is a delegation line: p_agent_id may hand work to the
   -- agent named p_ref. Every path that creates one (SQL, the dashboard's
@@ -1025,12 +1033,12 @@ BEGIN
   -- allgres_private.check_delegation (sql/canvas.sql, resolved at call
   -- time; nothing calls this with type 'agent' during install).
   IF p_type = 'agent' THEN
-    PERFORM allgres_private.check_delegation(p_agent_id, p_ref);
+    v_ref := allgres_private.check_delegation(p_agent_id, p_ref);
   END IF;
   INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
-  VALUES (p_agent_id, p_type, p_ref)
+  VALUES (p_agent_id, p_type, v_ref)
   ON CONFLICT (agent_id, resource_type, resource_ref) DO NOTHING;
-  PERFORM allgres_private.audit('permissions.grant', jsonb_build_object('agent_id', p_agent_id, 'type', p_type, 'ref', p_ref));
+  PERFORM allgres_private.audit('permissions.grant', jsonb_build_object('agent_id', p_agent_id, 'type', p_type, 'ref', v_ref));
   RETURN jsonb_build_object('ok', true);
 END;
 $fn$;
@@ -1043,8 +1051,12 @@ SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
 BEGIN
+  -- An `agent` grant names its target the way agent_has_permission
+  -- matches it (ignoring case and surrounding spaces); revoke the same way.
   DELETE FROM allgres_private.permissions
-  WHERE agent_id = p_agent_id AND resource_type = p_type AND resource_ref = p_ref;
+  WHERE agent_id = p_agent_id AND resource_type = p_type
+    AND (resource_ref = p_ref
+         OR (p_type = 'agent' AND lower(resource_ref) = lower(btrim(p_ref))));
   PERFORM allgres_private.audit('permissions.revoke', jsonb_build_object('agent_id', p_agent_id, 'type', p_type, 'ref', p_ref));
   RETURN jsonb_build_object('ok', true);
 END;

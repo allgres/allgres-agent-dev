@@ -242,6 +242,45 @@ ALTER TABLE allgres_private.agents
 CREATE INDEX IF NOT EXISTS agents_parent_idx ON allgres_private.agents (parent_agent_id)
   WHERE parent_agent_id IS NOT NULL;
 
+-- Agent names are unique ignoring case and surrounding spaces. Everything
+-- that resolves an `agent` grant or a delegate target matches names
+-- case-insensitively (agent_has_permission, check_delegation, the delegate
+-- action), so a second agent named 'FIXER' or ' fixer' next to the system
+-- agent 'fixer' would be the same name to those checks and a different row
+-- to everything else -- a way around the system-agent rules (audit #1).
+--
+-- A database that already holds such a pair is never renamed or merged
+-- here: which one is "the" agent, and what its grants and tasks should
+-- point at, is the operator's call. ensure_agent_names_unique() refuses with
+-- the colliding names instead; rename all but one of each and retry.
+CREATE OR REPLACE FUNCTION allgres_private.ensure_agent_names_unique()
+RETURNS void
+LANGUAGE plpgsql
+AS $fn$
+DECLARE
+  v_list text;
+BEGIN
+  SELECT string_agg(format('[%s]', names), ', ' ORDER BY k)
+  INTO v_list
+  FROM (
+    SELECT lower(btrim(name)) AS k,
+           string_agg(quote_literal(name) || ' (' || agent_id || ')', ', ' ORDER BY name) AS names
+    FROM allgres_private.agents
+    GROUP BY 1
+    HAVING count(*) > 1
+  ) d;
+  IF v_list IS NOT NULL THEN
+    RAISE EXCEPTION 'agent names must be unique ignoring case and surrounding spaces; these agents collide: %', v_list
+      USING ERRCODE = '23505',
+            HINT = 'Nothing was renamed. Rename all but one agent in each group (UPDATE allgres_private.agents SET name = ''<new name>'' WHERE agent_id = ''<id>''; also update any permissions rows with resource_type = ''agent'' that name it), then run this again. See KNOWN_ISSUES.md.';
+  END IF;
+  IF to_regclass('allgres_private.agents_name_ci_key') IS NULL THEN
+    CREATE UNIQUE INDEX agents_name_ci_key ON allgres_private.agents (lower(btrim(name)));
+  END IF;
+END;
+$fn$;
+SELECT allgres_private.ensure_agent_names_unique();
+
 -- autonomy_level: how much a system agent's own consequential actions
 -- (create_agent/create_skill/create_function for `creator`, a remediation for
 -- `fixer`, a cross-agent propose_change for `self_improve`) may run without
@@ -5175,9 +5214,12 @@ BEGIN
   END IF;
 
   IF v_action = 'delegate' THEN
+    -- Names are unique ignoring case and surrounding spaces
+    -- (agents_name_ci_key), so this is the same agent agent_has_permission
+    -- matches below -- never a look-alike such as 'FIXER' for 'fixer'.
     SELECT agent_id INTO v_target
     FROM allgres_private.agents
-    WHERE name = v_parsed->>'agent_name' AND is_active;
+    WHERE lower(name) = lower(btrim(v_parsed->>'agent_name')) AND is_active;
     IF v_target IS NULL THEN
       PERFORM allgres_private.append_log(
         p_task_id, t.step_count + 1, 'error',
@@ -5188,7 +5230,23 @@ BEGIN
       WHERE task_id = p_task_id;
       RETURN jsonb_build_object('action', 'continue');
     END IF;
-    v_allowed := allgres_private.agent_has_permission(t.agent_id, 'agent', v_parsed->>'agent_name');
+    -- D2 at run time, not only at grant time: an ordinary agent never hands
+    -- work to a system agent, whatever grant rows exist (one written before
+    -- fn_grant_permission refused them, or straight into the table).
+    -- System agents may still delegate among themselves.
+    IF EXISTS (SELECT 1 FROM allgres_private.agents WHERE agent_id = v_target AND is_system)
+       AND NOT EXISTS (SELECT 1 FROM allgres_private.agents WHERE agent_id = t.agent_id AND is_system) THEN
+      PERFORM allgres_private.append_log(
+        p_task_id, t.step_count + 1, 'error',
+        jsonb_build_object('reason', 'delegate_to_system_agent', 'agent_name', v_parsed->>'agent_name')
+      );
+      UPDATE allgres_private.tasks
+      SET step_count = step_count + 1, updated_at = now()
+      WHERE task_id = p_task_id;
+      RETURN jsonb_build_object('action', 'continue');
+    END IF;
+    v_allowed := allgres_private.agent_has_permission(t.agent_id, 'agent',
+      (SELECT name FROM allgres_private.agents WHERE agent_id = v_target));
     IF NOT v_allowed THEN
       PERFORM allgres_private.append_log(
         p_task_id, t.step_count + 1, 'error',

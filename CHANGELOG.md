@@ -4,6 +4,7 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- Agent names are unique ignoring case and surrounding spaces (audit #1): `fn_create_agent('FIXER')` or `(' fixer')` is refused while `fixer` exists, a new unique index `agents_name_ci_key` backs it, and installing over data that already holds such a pair stops with the colliding names instead of renaming anything (see KNOWN_ISSUES.md). `agent` grants are stored under the target's own name and revoked the same way. The run-time `delegate` action now refuses a system-agent target for an ordinary agent (`delegate_to_system_agent`), whatever grant rows exist.
 - README explains why installing needs a superuser and lists the cluster roles, schemas, and workers it creates.
 - **Breaking:** the cluster-wide roles `operator`, `worker`, and `sandbox` are now `allgres_operator`, `allgres_worker`, and `allgres_sandbox`, so they no longer collide with roles a cluster may already have. Roles are cluster-wide and survive `DROP EXTENSION`; see KNOWN_ISSUES.md, "Cluster roles renamed", for renaming or dropping the old ones.
 - Building from source needs rustc 1.96 or newer (pgrx 0.19.2's `rust-version`). README and the source guide say so, `Cargo.toml` declares `rust-version = "1.96"`, and `make` stops early with an update hint instead of failing inside `cargo install cargo-pgrx`.

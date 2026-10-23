@@ -120,7 +120,11 @@ privilege escalation), a line to an agent name that does not exist (a
 dangling name would let the agent be created later, past the check), and a
 line from an agent to itself. Board lines *out of* a system agent are
 refused by Canvas as well; in SQL a system agent may still be given lines,
-since system agents are configured there by design.
+since system agents are configured there by design. Agent names are
+unique ignoring case and surrounding spaces, so `FIXER` or ` fixer` cannot be
+created next to `fixer` to slip past this; and when an agent runs, its
+`delegate` action refuses a system-agent target on its own, whatever grant
+rows exist.
 
 Other grants (`view`, `function`, `procedure`, `http_host`) through
 `permissions.grant` or SQL are not checked against the ceiling: that remains

@@ -497,8 +497,10 @@ $fn$;
 -- A system agent as the *sender* is not refused here: system agents are
 -- configured over direct SQL by design (forbid_system_agent_edit keeps
 -- them out of the dashboard, and Canvas refuses them as its own rule).
+-- Returns the target's stored name, which fn_grant_permission writes as the
+-- grant's resource_ref (so ' FIXER ' is never stored for 'fixer').
 CREATE OR REPLACE FUNCTION allgres_private.check_delegation(p_from_agent_id uuid, p_to_ref text)
-RETURNS void
+RETURNS text
 LANGUAGE plpgsql
 STABLE
 SET search_path = allgres_private, pg_temp
@@ -513,11 +515,11 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'agent not found' USING ERRCODE = 'P0001';
   END IF;
-  -- Same name match agent_has_permission and canvas_subordinates_and_self use.
+  -- Names are unique ignoring case and surrounding spaces
+  -- (agents_name_ci_key), so this finds at most one agent: the one
+  -- agent_has_permission and canvas_subordinates_and_self resolve the grant to.
   SELECT * INTO t FROM allgres_private.agents
-  WHERE lower(name) = lower(btrim(p_to_ref))
-  ORDER BY (name = btrim(p_to_ref)) DESC
-  LIMIT 1;
+  WHERE lower(name) = lower(btrim(p_to_ref));
   IF NOT FOUND THEN
     RAISE EXCEPTION 'cannot delegate to %: no such agent', p_to_ref USING ERRCODE = 'P0001';
   END IF;
@@ -541,6 +543,7 @@ BEGIN
       t.name, f.name, v_summary, f.name, t.name
       USING ERRCODE = 'P0001', DETAIL = v_gaps::text;
   END IF;
+  RETURN t.name;
 END;
 $fn$;
 

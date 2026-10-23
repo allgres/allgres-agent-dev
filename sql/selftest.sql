@@ -5652,6 +5652,109 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'grant_permission_agent_allowed_within_ceiling', 'ok', ok, 'detail', r));
   END;
 
+  -- Audit #1: agent names are unique ignoring case and surrounding spaces,
+  -- so a look-alike ('FIXER', ' fixer') can never stand in for a system
+  -- agent, and the run-time delegate action refuses a system target no
+  -- matter what grant rows exist.
+  DECLARE
+    v_ci uuid := (allgres_public.fn_create_agent('selftest_ci_lead', 'ci')->>'agent_id')::uuid;
+    v_ci2 uuid := (allgres_public.fn_create_agent('selftest_ci_worker', 'ci')->>'agent_id')::uuid;
+    v_sys_name text := (SELECT name FROM allgres_private.agents WHERE agent_id = v_sys);
+    v_n int := 0;
+    v_sid uuid;
+    v_tid uuid;
+    v_msg text;
+    v_hint text;
+  BEGIN
+    -- Creating a variant of an existing name is refused, whichever way it
+    -- reaches the table.
+    FOREACH v_msg IN ARRAY ARRAY['SELFTEST_CI_LEAD', ' selftest_ci_lead ', 'Selftest_Ci_Lead'] LOOP
+      BEGIN
+        PERFORM allgres_public.fn_create_agent(v_msg);
+      EXCEPTION WHEN unique_violation THEN
+        IF SQLERRM LIKE '%already exists%' THEN v_n := v_n + 1; END IF;
+      END;
+    END LOOP;
+    BEGIN
+      INSERT INTO allgres_private.agents (name) VALUES (' SELFTEST_CI_lead');
+    EXCEPTION WHEN unique_violation THEN
+      v_n := v_n + 1;
+    END;
+    ok := v_n = 4 AND (SELECT count(*) FROM allgres_private.agents WHERE lower(btrim(name)) = 'selftest_ci_lead') = 1;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'agent_names_unique_ignoring_case_and_spaces', 'ok', ok));
+
+    IF v_sys IS NOT NULL THEN
+      -- The reviewer's case: no 'FIXER' / ' fixer' next to a system agent...
+      v_n := 0;
+      FOREACH v_msg IN ARRAY ARRAY[upper(v_sys_name), ' ' || v_sys_name, v_sys_name || ' '] LOOP
+        BEGIN
+          PERFORM allgres_public.fn_create_agent(v_msg);
+        EXCEPTION WHEN unique_violation THEN
+          v_n := v_n + 1;
+        END;
+      END LOOP;
+      ok := v_n = 3 AND (SELECT count(*) FROM allgres_private.agents WHERE lower(btrim(name)) = lower(v_sys_name)) = 1;
+      -- ...and a grant spelled that way resolves to the system agent and is refused.
+      BEGIN
+        PERFORM allgres_public.fn_grant_permission(v_ci, 'agent', ' ' || upper(v_sys_name) || ' ');
+        ok := false;
+      EXCEPTION WHEN OTHERS THEN
+        ok := ok AND SQLERRM LIKE '%system agents%cannot take delegated work%';
+      END;
+      v := v || jsonb_build_array(jsonb_build_object('name', 'system_agent_lookalike_names_refused', 'ok', ok));
+
+      -- Run time: a grant row into a system agent that bypassed
+      -- fn_grant_permission (written straight into the table) still does
+      -- not let an ordinary agent delegate there.
+      INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
+      VALUES (v_ci, 'agent', v_sys_name);
+      v_sid := (allgres_public.fn_create_session(v_ci, 'selftest ci delegate')->>'session_id')::uuid;
+      SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+      PERFORM allgres_public.fn_next_step(v_tid);
+      PERFORM allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+        'type', 'llm_response', 'content', '{"action":"delegate"}',
+        'parsed', jsonb_build_object('action', 'delegate', 'agent_name', upper(v_sys_name))
+      ));
+      ok := EXISTS (SELECT 1 FROM allgres_private.execution_logs
+                    WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'delegate_to_system_agent')
+        AND NOT EXISTS (SELECT 1 FROM allgres_private.tasks WHERE parent_task_id = v_tid);
+      v := v || jsonb_build_array(jsonb_build_object('name', 'delegate_action_refuses_system_target_at_run_time', 'ok', ok));
+      DELETE FROM allgres_private.permissions WHERE agent_id = v_ci AND resource_type = 'agent';
+    END IF;
+
+    -- A grant spelled differently is stored under the agent's own name, and
+    -- revoking it the same way removes it.
+    r := allgres_public.fn_grant_permission(v_ci, 'agent', '  SELFTEST_CI_WORKER ');
+    ok := (r->>'ok')::boolean
+      AND EXISTS (SELECT 1 FROM allgres_private.permissions
+                  WHERE agent_id = v_ci AND resource_type = 'agent' AND resource_ref = 'selftest_ci_worker');
+    PERFORM allgres_public.fn_revoke_permission(v_ci, 'agent', 'Selftest_CI_Worker');
+    ok := ok AND NOT EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = v_ci AND resource_type = 'agent');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'agent_grant_stores_canonical_name', 'ok', ok));
+
+    -- A database that already holds a case-variant pair (from before the
+    -- index) is refused with the names listed and nothing renamed. The
+    -- index is dropped inside this block only; the block's own error
+    -- rolls the drop and the duplicate back.
+    BEGIN
+      DROP INDEX allgres_private.agents_name_ci_key;
+      INSERT INTO allgres_private.agents (name) VALUES ('SELFTEST_CI_LEAD'), (' selftest_ci_worker');
+      PERFORM allgres_private.ensure_agent_names_unique();
+      v_msg := 'not refused';
+      RAISE EXCEPTION 'selftest rollback';
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT, v_hint = PG_EXCEPTION_HINT;
+      IF SQLSTATE <> '23505' THEN v_msg := 'wrong error: ' || v_msg; END IF;
+    END;
+    ok := v_msg LIKE '%collide%' AND v_msg LIKE '%''SELFTEST_CI_LEAD''%' AND v_msg LIKE '%''selftest_ci_lead''%'
+      AND v_msg LIKE '%'' selftest_ci_worker''%' AND v_hint LIKE '%Nothing was renamed%'
+      AND to_regclass('allgres_private.agents_name_ci_key') IS NOT NULL
+      AND (SELECT count(*) FROM allgres_private.agents WHERE lower(btrim(name)) IN ('selftest_ci_lead', 'selftest_ci_worker')) = 2;
+    -- And on clean data it is a no-op.
+    PERFORM allgres_private.ensure_agent_names_unique();
+    v := v || jsonb_build_array(jsonb_build_object('name', 'existing_case_variant_names_refused_not_renamed', 'ok', ok, 'detail', v_msg));
+  END;
+
   RETURN v;
 END;
 $fn$;
