@@ -12,6 +12,15 @@ SET base_url = EXCLUDED.base_url,
     is_enabled = true,
     allow_private_network = true;
 
+-- A dedicated fixture agent, not the seeded `analyst`: pointing a real agent's
+-- model at the mock would outlive the test (tests/cleanup.sql retires this one).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM allgres_private.agents WHERE name = 'e2e_mock_runner') THEN
+    PERFORM allgres_public.fn_create_agent('e2e_mock_runner', 'Answer briefly.');
+  END IF;
+END $$;
+
 UPDATE allgres_private.policies
 SET llm_config = jsonb_build_object(
       'provider', 'allgres_mock',
@@ -20,12 +29,12 @@ SET llm_config = jsonb_build_object(
       'max_tokens', 128
     ),
     updated_at = now()
-WHERE agent_id = (SELECT agent_id FROM allgres_private.agents WHERE name = 'analyst');
+WHERE agent_id = (SELECT agent_id FROM allgres_private.agents WHERE name = 'e2e_mock_runner');
 
 CREATE TEMP TABLE _allgres_test_session(session_id uuid);
 INSERT INTO _allgres_test_session
 SELECT (allgres_public.fn_create_session(
-  (SELECT agent_id FROM allgres_private.agents WHERE name = 'analyst'),
+  (SELECT agent_id FROM allgres_private.agents WHERE name = 'e2e_mock_runner'),
   'Return the Allgres MVP mock answer.'
 )->>'session_id')::uuid;
 
@@ -113,7 +122,7 @@ DECLARE
   v_agent uuid;
   i int;
 BEGIN
-  SELECT agent_id INTO v_agent FROM allgres_private.agents WHERE name = 'analyst';
+  SELECT agent_id INTO v_agent FROM allgres_private.agents WHERE name = 'e2e_mock_runner';
   FOR i IN 1..12 LOOP
     PERFORM allgres_public.fn_create_session(v_agent, 'load ' || i);
   END LOOP;

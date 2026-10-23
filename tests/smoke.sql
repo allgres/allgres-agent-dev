@@ -48,6 +48,11 @@ END $$;
 SELECT (allgres.dashboard_rpc('{"action":"overview"}'::jsonb)->>'ok')::boolean AS dashboard_overview_ok;
 SELECT jsonb_array_length(allgres.dashboard_rpc('{"action":"agents.list"}'::jsonb)->'agents') >= 1 AS dashboard_agents_ok;
 
+-- These two checks store a fake key on the seeded `openai` provider, so they
+-- run in a transaction that is rolled back: an operator's real key must
+-- survive running the suite.
+BEGIN;
+
 -- The dashboard RPC must never hand back a provider secret.
 DO $$
 DECLARE r jsonb;
@@ -92,6 +97,8 @@ BEGIN
     RAISE EXCEPTION 'unexpected secret storage mode: %', v_mode;
   END IF;
 END $$;
+
+ROLLBACK;
 
 -- The sandbox role is actually assumed for agent SQL, not just documented as
 -- the intent.  fn_execute_sql used to validate *and* run the query as its own

@@ -9,7 +9,20 @@ cargo pgrx test --features pg17   # Rust unit tests (request parsing, auth, pars
 ./scripts/smoke.sh                # container smoke, end-to-end, and security checks
 psql -c "SELECT allgres_public.fn_selftest()"
 ./scripts/bootstrap.sh            # install completion: a real agent task runs to 'completed'
+./scripts/run_sql_tests.sh        # tests/*.sql against PG* env, then tests/cleanup.sql
 ```
+
+The `tests/*.sql` files need the background workers (and
+`ALLGRES_ENABLE_MOCK=1`) and create real fixture agents (`e2e_*`,
+`smoke_role_agent_*`, `execution_safety_worker`), sessions, and test-only
+functions. `tests/cleanup.sql` retires all of them: it deletes their grants,
+assignments, and test-only functions, renames the agents to `selftest_*`,
+deactivates them, and marks their sessions as selftest, so they disappear
+from every listing (logs are append-only, so rows are retired, not
+deleted). It then fails if any of them is still visible. `run_sql_tests.sh`,
+CI, and `scripts/smoke.sh` run it last; run it yourself after running any
+of the files by hand. The suite no longer changes the seeded `analyst`
+agent or the `openai` provider's key.
 
 `fn_selftest` is a live diagnostic, not a fresh-install-only check: every
 fixture it creates is either uniquely named and hard-deleted before it

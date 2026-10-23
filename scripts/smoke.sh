@@ -117,4 +117,8 @@ curl -fsS -X POST "$BASE/mock/chat/completions" \
 # shape or first-run onboarding never marks the provider step done.
 curl -fsS "$BASE/mock/models" | grep -q allgres-mock
 
+# Retire what the SQL tests left behind (fixture agents, sessions, test-only
+# functions), after the load check above that needs e2e_mock's queued tasks.
+docker compose exec -T allgres psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /opt/allgres/tests/cleanup.sql
+
 echo "Allgres dashboard MVP smoke test passed."
