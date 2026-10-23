@@ -1034,12 +1034,31 @@ BEGIN
   -- time; nothing calls this with type 'agent' during install).
   IF p_type = 'agent' THEN
     v_ref := allgres_private.check_delegation(p_agent_id, p_ref);
+  ELSE
+    -- Any other grant to an agent below a delegation line must already be
+    -- held by every agent above it (audit #2; check_grant_ceiling, also in
+    -- sql/canvas.sql).
+    PERFORM allgres_private.check_grant_ceiling(ARRAY[p_agent_id], p_type, p_ref);
   END IF;
-  INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
-  VALUES (p_agent_id, p_type, v_ref)
-  ON CONFLICT (agent_id, resource_type, resource_ref) DO NOTHING;
-  PERFORM allgres_private.audit('permissions.grant', jsonb_build_object('agent_id', p_agent_id, 'type', p_type, 'ref', v_ref));
+  PERFORM allgres_private.insert_permission(p_agent_id, p_type, v_ref);
   RETURN jsonb_build_object('ok', true);
+END;
+$fn$;
+
+-- The write behind fn_grant_permission, with no checks of its own: only
+-- for callers that have already run the checks (fn_grant_permission;
+-- fn_canvas_grant, which checks a whole set at once). Not granted to anyone.
+CREATE OR REPLACE FUNCTION allgres_private.insert_permission(
+  p_agent_id uuid, p_type text, p_ref text
+) RETURNS void
+LANGUAGE plpgsql
+SET search_path = allgres_private, pg_temp
+AS $fn$
+BEGIN
+  INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
+  VALUES (p_agent_id, p_type, p_ref)
+  ON CONFLICT (agent_id, resource_type, resource_ref) DO NOTHING;
+  PERFORM allgres_private.audit('permissions.grant', jsonb_build_object('agent_id', p_agent_id, 'type', p_type, 'ref', p_ref));
 END;
 $fn$;
 

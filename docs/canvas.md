@@ -126,10 +126,16 @@ created next to `fixer` to slip past this; and when an agent runs, its
 `delegate` action refuses a system-agent target on its own, whatever grant
 rows exist.
 
-Other grants (`view`, `function`, `procedure`, `http_host`) through
-`permissions.grant` or SQL are not checked against the ceiling: that remains
-the operator's unrestricted tool, and only the Canvas grant path
-(`fn_canvas_grant`) applies it.
+The ceiling also holds after a line exists. A new `view`, `function`,
+`procedure`, or `http_host` grant to an agent that works under someone is
+refused, on every path (`permissions.grant`, SQL, Canvas), unless every
+agent above it already holds it (`allgres_private.check_grant_ceiling`,
+called by `fn_grant_permission`); the error lists the agents that lack it
+(the full list is in `DETAIL` as JSON). Grant it from the top down, or let
+Canvas grant it to the whole chain at once (`fn_canvas_grant` with
+`p_include_superiors`, which checks the set together, so superiors that
+delegate to each other can be granted in one step). Revoking a grant from an
+agent above a line is not checked.
 
 ## A model per task
 

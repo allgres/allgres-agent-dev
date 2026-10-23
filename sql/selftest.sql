@@ -5755,6 +5755,89 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'existing_case_variant_names_refused_not_renamed', 'ok', ok, 'detail', v_msg));
   END;
 
+  -- Audit #2: once a line exists, a new view/function/procedure/http_host
+  -- grant to the agent below it is held to the ceiling of every agent above
+  -- it, on every path (SQL, permissions.grant), not only in Canvas.
+  DECLARE
+    v_top uuid := (allgres_public.fn_create_agent('selftest_ceil_top', 'top')->>'agent_id')::uuid;
+    v_mid uuid := (allgres_public.fn_create_agent('selftest_ceil_mid', 'mid')->>'agent_id')::uuid;
+    v_bot uuid := (allgres_public.fn_create_agent('selftest_ceil_bot', 'bot')->>'agent_id')::uuid;
+    v_cyc uuid := (allgres_public.fn_create_agent('selftest_ceil_cycle', 'cycle')->>'agent_id')::uuid;
+    v_n int := 0;
+    v_msg text;
+    v_detail text;
+    g record;
+  BEGIN
+    -- top -> mid -> bot, all empty: legal.
+    PERFORM allgres_public.fn_grant_permission(v_top, 'agent', 'selftest_ceil_mid');
+    PERFORM allgres_public.fn_grant_permission(v_mid, 'agent', 'selftest_ceil_bot');
+
+    FOR g IN SELECT * FROM (VALUES
+      ('http_host', 'Ceiling.Example'), ('view', 'allgres_public.v_permission_audit'),
+      ('function', 'http_request'), ('procedure', 'selftest_ceiling_proc')) t(ty, ref)
+    LOOP
+      BEGIN
+        PERFORM allgres_public.fn_grant_permission(v_bot, g.ty, g.ref);
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL;
+        IF v_msg LIKE '%grant exceeds the ceiling%'
+           AND v_detail::jsonb @> jsonb_build_array(jsonb_build_object('agent_id', v_mid, 'type', g.ty))
+           AND v_detail::jsonb @> jsonb_build_array(jsonb_build_object('agent_id', v_top, 'type', g.ty)) THEN
+          v_n := v_n + 1;
+        END IF;
+      END;
+    END LOOP;
+    ok := v_n = 4 AND NOT EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = v_bot)
+      AND jsonb_array_length(allgres_private.canvas_delegation_gaps(v_top, v_mid)) = 0
+      AND jsonb_array_length(allgres_private.canvas_delegation_gaps(v_mid, v_bot)) = 0;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'grant_below_a_line_refused_above_ceiling', 'ok', ok));
+
+    -- The dashboard path gets the same answer.
+    r := allgres.dashboard_rpc(jsonb_build_object(
+      'action', 'permissions.grant', 'agent_id', v_bot, 'type', 'http_host', 'ref', 'ceiling.example',
+      'session_token', (SELECT allgres_public.fn_login('selftest_direct_admin', 'selftest-direct-pw1')->>'session_token'
+                        WHERE allgres_private.pgcrypto_schema() IS NOT NULL)));
+    ok := (r->>'ok')::boolean IS FALSE AND r->>'error' LIKE '%grant exceeds the ceiling%'
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = v_bot);
+    v := v || jsonb_build_array(jsonb_build_object('name', 'permissions_grant_rpc_refuses_grant_above_ceiling', 'ok', ok, 'detail', r));
+
+    -- Granting it top-down one agent at a time is legal, and so is Canvas
+    -- granting the whole chain at once.
+    PERFORM allgres_public.fn_grant_permission(v_top, 'http_host', 'ceiling.example');
+    PERFORM allgres_public.fn_grant_permission(v_mid, 'http_host', 'ceiling.example');
+    r := allgres_public.fn_grant_permission(v_bot, 'http_host', 'CEILING.example');
+    ok := (r->>'ok')::boolean;
+    r := allgres_public.fn_canvas_grant(v_bot, 'view', 'allgres_public.v_permission_audit', false);
+    ok := ok AND (r->>'applied')::boolean IS FALSE AND jsonb_array_length(r->'missing') = 2;
+    r := allgres_public.fn_canvas_grant(v_bot, 'view', 'allgres_public.v_permission_audit', true);
+    ok := ok AND (r->>'applied')::boolean
+      AND allgres_private.agent_has_permission(v_top, 'view', 'allgres_public.v_permission_audit')
+      AND allgres_private.agent_has_permission(v_mid, 'view', 'allgres_public.v_permission_audit')
+      AND allgres_private.agent_has_permission(v_bot, 'view', 'allgres_public.v_permission_audit');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'grant_below_a_line_allowed_top_down_and_via_canvas', 'ok', ok, 'detail', r));
+
+    -- Superiors that delegate to each other (a cycle above the agent) are
+    -- granted together by Canvas, where one-at-a-time would refuse each.
+    -- cycle <-> mid2 (both empty, legal), mid2 -> bot2.
+    v_mid := (allgres_public.fn_create_agent('selftest_ceil_mid2', 'mid')->>'agent_id')::uuid;
+    v_bot := (allgres_public.fn_create_agent('selftest_ceil_bot2', 'bot')->>'agent_id')::uuid;
+    PERFORM allgres_public.fn_grant_permission(v_cyc, 'agent', 'selftest_ceil_mid2');
+    PERFORM allgres_public.fn_grant_permission(v_mid, 'agent', 'selftest_ceil_cycle');
+    PERFORM allgres_public.fn_grant_permission(v_mid, 'agent', 'selftest_ceil_bot2');
+    BEGIN
+      PERFORM allgres_public.fn_grant_permission(v_cyc, 'function', 'http_request');
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      ok := SQLERRM LIKE '%grant exceeds the ceiling%selftest_ceil_mid2%';
+    END;
+    r := allgres_public.fn_canvas_grant(v_bot, 'function', 'http_request', true);
+    ok := ok AND (r->>'applied')::boolean
+      AND allgres_private.agent_has_permission(v_cyc, 'function', 'http_request')
+      AND allgres_private.agent_has_permission(v_mid, 'function', 'http_request')
+      AND allgres_private.agent_has_permission(v_bot, 'function', 'http_request');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_grant_covers_a_cycle_of_superiors', 'ok', ok, 'detail', r));
+  END;
+
   RETURN v;
 END;
 $fn$;

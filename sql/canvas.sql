@@ -547,6 +547,66 @@ BEGIN
 END;
 $fn$;
 
+-- The other half of the ceiling (audit #2): once a line exists, a new
+-- view/function/procedure/http_host grant to the agent below it must already
+-- be held by every agent above it, or the line would carry it upward to
+-- agents that were never granted it. fn_grant_permission calls this for
+-- every non-agent grant (the single enforcement point, as check_delegation
+-- is for lines); fn_canvas_grant calls it once for the whole set it grants
+-- together (the agent plus each superior that lacks it), so a chain or a
+-- cycle of superiors can be granted in one step.
+--
+-- p_agent_ids are treated as already holding the grant. Agents that inherit
+-- from one of them through parent_agent_id (system agents) receive it too,
+-- so their superiors count as well. Raises with a JSON DETAIL of
+-- [{agent_id, name, type, ref}], the shape canvas_delegation_gaps uses.
+CREATE OR REPLACE FUNCTION allgres_private.check_grant_ceiling(p_agent_ids uuid[], p_type text, p_ref text)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_ref text := CASE WHEN p_type = 'http_host' THEN lower(btrim(p_ref)) ELSE p_ref END;
+  v_missing jsonb;
+  v_summary text;
+  v_names text;
+BEGIN
+  IF p_type IS NULL OR p_type NOT IN ('view', 'function', 'procedure', 'http_host') THEN
+    RETURN;
+  END IF;
+  WITH RECURSIVE receiving(agent_id) AS (
+    SELECT unnest(p_agent_ids)
+    UNION
+    SELECT a.agent_id FROM allgres_private.agents a JOIN receiving r ON a.parent_agent_id = r.agent_id
+  ),
+  above AS (
+    SELECT DISTINCT s.agent_id
+    FROM receiving r
+    CROSS JOIN LATERAL allgres_private.canvas_superiors(r.agent_id) s
+    WHERE s.agent_id NOT IN (SELECT agent_id FROM receiving)
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'agent_id', x.agent_id, 'name', x.name, 'type', p_type, 'ref', v_ref) ORDER BY x.name), '[]'::jsonb)
+  INTO v_missing
+  FROM above u
+  JOIN allgres_private.agents x ON x.agent_id = u.agent_id
+  WHERE NOT allgres_private.agent_has_permission(u.agent_id, p_type, v_ref);
+
+  IF jsonb_array_length(v_missing) > 0 THEN
+    SELECT string_agg(name, ', ' ORDER BY name) INTO v_names FROM allgres_private.agents WHERE agent_id = ANY (p_agent_ids);
+    SELECT string_agg(e->>'name', ', ') INTO v_summary
+    FROM (SELECT e FROM jsonb_array_elements(v_missing) e LIMIT 5) q;
+    IF jsonb_array_length(v_missing) > 5 THEN
+      v_summary := v_summary || format(', and %s more', jsonb_array_length(v_missing) - 5);
+    END IF;
+    RAISE EXCEPTION 'grant exceeds the ceiling: % works under agents that lack % % (%). Grant it to them first (Canvas offers this in one step), or remove the delegation line',
+      v_names, p_type, v_ref, v_summary
+      USING ERRCODE = 'P0001', DETAIL = v_missing::text;
+  END IF;
+END;
+$fn$;
+
 -- A line on the board: p_from may delegate to p_to. Stored as the same
 -- `agent` permission the Agents page and permissions.grant write, through
 -- fn_grant_permission, which applies the D1/D2 rules (check_delegation);
@@ -640,10 +700,15 @@ BEGIN
     RAISE EXCEPTION 'an agent above this one is a system agent, whose grants cannot be changed here' USING ERRCODE = 'P0001';
   END IF;
 
+  -- Checked once for the whole set (fn_grant_permission would check each
+  -- row against superiors not granted yet), then written row by row.
+  PERFORM allgres_private.check_grant_ceiling(
+    ARRAY(SELECT (e->>'agent_id')::uuid FROM jsonb_array_elements(v_missing) e) || p_agent_id,
+    p_type, v_ref);
   FOR m IN SELECT (e->>'agent_id')::uuid AS agent_id FROM jsonb_array_elements(v_missing) e LOOP
-    PERFORM allgres_public.fn_grant_permission(m.agent_id, p_type, v_ref);
+    PERFORM allgres_private.insert_permission(m.agent_id, p_type, v_ref);
   END LOOP;
-  PERFORM allgres_public.fn_grant_permission(p_agent_id, p_type, v_ref);
+  PERFORM allgres_private.insert_permission(p_agent_id, p_type, v_ref);
   RETURN jsonb_build_object('ok', true, 'applied', true, 'also_granted', v_missing);
 END;
 $fn$;

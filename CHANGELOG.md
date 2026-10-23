@@ -4,6 +4,7 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- The delegation ceiling holds after a line exists too (audit #2): a `view`, `function`, `procedure`, or `http_host` grant to an agent below a delegation line is refused through `fn_grant_permission` (SQL, `permissions.grant`) unless every agent above it already holds it (`allgres_private.check_grant_ceiling`). Canvas's "grant to everyone above too" checks the whole set at once, so it still works for chains and for superiors that delegate to each other.
 - Agent names are unique ignoring case and surrounding spaces (audit #1): `fn_create_agent('FIXER')` or `(' fixer')` is refused while `fixer` exists, a new unique index `agents_name_ci_key` backs it, and installing over data that already holds such a pair stops with the colliding names instead of renaming anything (see KNOWN_ISSUES.md). `agent` grants are stored under the target's own name and revoked the same way. The run-time `delegate` action now refuses a system-agent target for an ordinary agent (`delegate_to_system_agent`), whatever grant rows exist.
 - README explains why installing needs a superuser and lists the cluster roles, schemas, and workers it creates.
 - **Breaking:** the cluster-wide roles `operator`, `worker`, and `sandbox` are now `allgres_operator`, `allgres_worker`, and `allgres_sandbox`, so they no longer collide with roles a cluster may already have. Roles are cluster-wide and survive `DROP EXTENSION`; see KNOWN_ISSUES.md, "Cluster roles renamed", for renaming or dropping the old ones.
