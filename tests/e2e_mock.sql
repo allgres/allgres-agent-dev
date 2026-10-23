@@ -65,6 +65,45 @@ BEGIN
   END IF;
 END $$;
 
+-- Settings Test connection is GET {base_url}/models. The built-in mock
+-- used to 404 that path (chat completions still worked), so the dashboard
+-- onboarding checklist never marked step 1 done on the documented first run.
+-- Queue the probe in its own statement so the runtime worker can see the
+-- committed row -- a single DO block would leave it queued for the whole
+-- wait (same pattern as fn_create_session above).
+CREATE TEMP TABLE _allgres_probe(call_id uuid);
+INSERT INTO _allgres_probe
+SELECT (allgres_public.fn_provider_probe_start(
+  (SELECT provider_id FROM allgres_private.llm_providers WHERE name = 'allgres_mock')
+)->>'call_id')::uuid;
+
+DO $$
+DECLARE
+  v_call uuid;
+  v_status text;
+  v_probe text;
+  v_models jsonb;
+  i int;
+BEGIN
+  SELECT call_id INTO v_call FROM _allgres_probe;
+  FOR i IN 1..200 LOOP
+    SELECT status INTO v_status FROM allgres_private.provider_probes WHERE call_id = v_call;
+    EXIT WHEN v_status IN ('harvested', 'lost');
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+  SELECT last_probe_status, available_models
+    INTO v_probe, v_models
+  FROM allgres_private.llm_providers WHERE name = 'allgres_mock';
+  IF v_probe IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'mock /models probe failed: status=% call=% error=%',
+      v_probe, v_status,
+      (SELECT last_probe_error FROM allgres_private.llm_providers WHERE name = 'allgres_mock');
+  END IF;
+  IF v_models IS NULL OR NOT (v_models @> '["allgres-mock"]'::jsonb) THEN
+    RAISE EXCEPTION 'mock /models did not list allgres-mock: %', v_models;
+  END IF;
+END $$;
+
 -- Queue enough work to keep outbound calls in flight.  scripts/smoke.sh then
 -- measures dashboard latency over HTTP, which is the path that actually goes
 -- web worker -> unix socket -> runtime SPI thread.  Calling dashboard_rpc from

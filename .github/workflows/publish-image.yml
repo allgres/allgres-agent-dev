@@ -2,8 +2,14 @@ name: Publish image
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      promote_tag:
+        description: Existing version tag to point both latest images at
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -11,6 +17,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ inputs.promote_tag == '' }}
     strategy:
       matrix:
         include:
@@ -73,10 +80,7 @@ jobs:
           IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             REF="${GITHUB_REF#refs/tags/}"
-            TAGS="${IMAGE}:${REF}"
-            if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              TAGS="${TAGS},${IMAGE}:latest"
-            fi
+            TAGS="${IMAGE}:${REF},${IMAGE}:latest"
             echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           else
             REF="${GITHUB_REF#refs/heads/}"
@@ -109,6 +113,7 @@ jobs:
           docker buildx imagetools inspect "${FIRST_TAG%%,*}"
 
   build-cnpg-ext:
+    if: ${{ inputs.promote_tag == '' }}
     strategy:
       matrix:
         include:
@@ -172,10 +177,7 @@ jobs:
           IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')-cnpg-ext"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             REF="${GITHUB_REF#refs/tags/}"
-            TAGS="${IMAGE}:${REF}"
-            if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              TAGS="${TAGS},${IMAGE}:latest"
-            fi
+            TAGS="${IMAGE}:${REF},${IMAGE}:latest"
             echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           else
             REF="${GITHUB_REF#refs/heads/}"
@@ -206,3 +208,28 @@ jobs:
         run: |
           FIRST_TAG="${{ steps.tag.outputs.tags }}"
           docker buildx imagetools inspect "${FIRST_TAG%%,*}"
+
+  promote-latest:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.promote_tag != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Promote the tested release manifests
+        env:
+          RELEASE_TAG: ${{ inputs.promote_tag }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-alpha\.[0-9]+)?$ ]] || exit 1
+          BASE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          for IMAGE in "$BASE" "${BASE}-cnpg-ext"; do
+            docker buildx imagetools inspect "${IMAGE}:${RELEASE_TAG}"
+            docker buildx imagetools create --tag "${IMAGE}:latest" "${IMAGE}:${RELEASE_TAG}"
+            docker buildx imagetools inspect "${IMAGE}:latest"
+          done

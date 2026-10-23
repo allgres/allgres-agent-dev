@@ -22,6 +22,9 @@ services:
       # Optional first-admin bootstrap (see 002-bootstrap-admin.sh and README,
       # "Install flow"). Only takes effect on the very first boot of a new
       # $PGDATA -- unset by default, so nothing changes unless both are set.
+      # Requests per minute per client address (default 120). Raise it only
+      # when many clients really share one address, such as a browser test run.
+      ALLGRES_RATE_LIMIT_PER_MINUTE: ${ALLGRES_RATE_LIMIT_PER_MINUTE:-}
       ALLGRES_BOOTSTRAP_ADMIN_USER: ${ALLGRES_BOOTSTRAP_ADMIN_USER:-}
       ALLGRES_BOOTSTRAP_ADMIN_PASSWORD: ${ALLGRES_BOOTSTRAP_ADMIN_PASSWORD:-}
     ports:

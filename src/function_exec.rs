@@ -9,12 +9,12 @@
 
 use crate::rpc::valid_uuid;
 use crate::runtime_worker::drop_privileges;
-use crate::sandbox::{run_in_subtransaction, valid_pg_role, PG_STATEMENT_TIMEOUT_ID};
+use crate::sandbox::{PG_STATEMENT_TIMEOUT_ID, run_in_subtransaction, valid_pg_role};
 use crate::{SQL_CLAIM_LIMIT, SQL_STATEMENT_TIMEOUT_MS};
+use pgrx::JsonB;
 use pgrx::bgworkers::BackgroundWorker;
 use pgrx::prelude::*;
-use pgrx::JsonB;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 unsafe extern "C" {
@@ -40,11 +40,14 @@ pub(crate) fn claim_function_build_jobs(limit: i32) -> Value {
         if !drop_privileges() {
             return json!({ "count": 0, "builds": [] });
         }
-        Spi::get_one_with_args::<JsonB>("SELECT allgres_public.fn_claim_function_builds($1)", &[limit.into()])
-            .ok()
-            .flatten()
-            .map(|j| j.0)
-            .unwrap_or_else(|| json!({ "count": 0, "builds": [] }))
+        Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_claim_function_builds($1)",
+            &[limit.into()],
+        )
+        .ok()
+        .flatten()
+        .map(|j| j.0)
+        .unwrap_or_else(|| json!({ "count": 0, "builds": [] }))
     })
 }
 
@@ -55,7 +58,10 @@ pub(crate) fn claim_function_build_jobs(limit: i32) -> Value {
 /// function body. The tag only has to be unique against this one body,
 /// not globally or cryptographically random.
 pub(crate) fn dollar_quote(body: &str) -> (String, String) {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let mut tag = format!("body_{nanos:x}");
     while body.contains(&format!("${tag}$")) {
         tag.push('x');
@@ -71,22 +77,76 @@ pub(crate) fn dollar_quote(body: &str) -> (String, String) {
 /// tries to declare `SECURITY DEFINER` for the same reason, defense in
 /// depth against the same confused-deputy attempt.
 fn run_function_build(sql_ident: &str, body: &str) -> Result<(), String> {
-    if !valid_sql_ident(sql_ident, "fn_") {
+    run_guarded_build(sql_ident, body, false)
+}
+
+/// Validate the author's standalone block before nesting it: otherwise a
+/// malformed body could introduce an EXCEPTION handler in our outer block.
+/// Both CREATEs are in one subtransaction; an unguarded object never commits.
+pub(crate) fn run_guarded_build(
+    sql_ident: &str,
+    body: &str,
+    procedure: bool,
+) -> Result<(), String> {
+    if !valid_sql_ident(sql_ident, if procedure { "proc_" } else { "fn_" }) {
         return Err("invalid sql_ident".to_string());
     }
-    let (_tag, quoted_body) = dollar_quote(body);
-    let ddl = format!(
-        "CREATE OR REPLACE FUNCTION allgres_functions.{sql_ident}(p_args jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER AS {quoted_body};"
-    );
+    let declaration = if procedure {
+        format!("PROCEDURE allgres_functions.{sql_ident}(p_args jsonb, INOUT p_result jsonb)")
+    } else {
+        format!("FUNCTION allgres_functions.{sql_ident}(p_args jsonb) RETURNS jsonb")
+    };
+    let ddl = |source: &str| {
+        let (_, quoted) = dollar_quote(source);
+        format!("CREATE OR REPLACE {declaration} LANGUAGE plpgsql SECURITY INVOKER AS {quoted};")
+    };
     BackgroundWorker::transaction(|| {
         run_in_subtransaction(|| {
             if !drop_privileges() || Spi::run("SET LOCAL ROLE allgres_function_admin").is_err() {
                 return Err("allgres_function_admin role unavailable".to_string());
             }
-            Spi::run(&ddl).map(|_| Value::Null).map_err(|e| e.to_string())
+            Spi::run("SET LOCAL check_function_bodies = on").map_err(|e| e.to_string())?;
+            Spi::run(&ddl(body)).map_err(|e| e.to_string())?;
+            let wrap = |terminator: &str| format!(
+                "BEGIN\nPERFORM allgres_private.assert_local_execution('{sql_ident}');\n{body}\n{terminator}\nEND;"
+            );
+            // PostgreSQL permits an omitted final semicolon on a standalone
+            // body, but requires it on a nested block. Let its parser decide,
+            // including bodies ending in comments, instead of scanning SQL.
+            if run_in_subtransaction(|| {
+                Spi::run(&ddl(&wrap(""))).map(|_| Value::Null).map_err(|e| e.to_string())
+            }).is_ok() {
+                Ok(Value::Null)
+            } else {
+                Spi::run(&ddl(&wrap(";"))).map(|_| Value::Null).map_err(|e| e.to_string())
+            }
         })
     })
     .map(|_| ())
+}
+
+/// SET ROLE authorization uses session_user, not current_user. A worker
+/// session therefore must prohibit role changes while author code runs,
+/// including set_config('role', ...) and dynamically constructed statements.
+/// On a PostgreSQL error the enclosing subtransaction restores this context.
+pub(crate) fn with_fixed_role<F>(run: F) -> Result<Value, String>
+where
+    F: FnOnce() -> Result<Value, String>,
+{
+    let mut user_id = pg_sys::InvalidOid;
+    let mut security_context = 0;
+    unsafe {
+        pg_sys::GetUserIdAndSecContext(&mut user_id, &mut security_context);
+        pg_sys::SetUserIdAndSecContext(
+            user_id,
+            security_context | pg_sys::SECURITY_LOCAL_USERID_CHANGE as i32,
+        );
+    }
+    let result = run();
+    unsafe {
+        pg_sys::SetUserIdAndSecContext(user_id, security_context);
+    }
+    result
 }
 
 fn submit_function_build_result(function_id: &str, outcome: Result<(), String>) {
@@ -110,7 +170,11 @@ fn submit_function_build_result(function_id: &str, outcome: Result<(), String>) 
             "SELECT allgres_public.fn_complete_function_build($1::uuid, $2, $3)",
             &[function_id.into(), ok.into(), error.into()],
         ) {
-            pgrx::warning!("Allgres: fn_complete_function_build failed for {}: {}", function_id, e);
+            pgrx::warning!(
+                "Allgres: fn_complete_function_build failed for {}: {}",
+                function_id,
+                e
+            );
         }
     });
 }
@@ -149,11 +213,14 @@ pub(crate) fn claim_function_call_jobs(limit: i32) -> Value {
         if !drop_privileges() {
             return json!({ "count": 0, "calls": [] });
         }
-        Spi::get_one_with_args::<JsonB>("SELECT allgres_public.fn_claim_function_calls($1)", &[limit.into()])
-            .ok()
-            .flatten()
-            .map(|j| j.0)
-            .unwrap_or_else(|| json!({ "count": 0, "calls": [] }))
+        Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_claim_function_calls($1)",
+            &[limit.into()],
+        )
+        .ok()
+        .flatten()
+        .map(|j| j.0)
+        .unwrap_or_else(|| json!({ "count": 0, "calls": [] }))
     })
 }
 
@@ -163,7 +230,12 @@ pub(crate) fn claim_function_call_jobs(limit: i32) -> Value {
 /// `run_sandboxed_sql`. Unlike that function, there is no separately
 /// validated SQL text to shape here: the built Function *is* the
 /// sandboxed artifact, so this just calls it with the agent's own args.
-fn run_function_call(sql_ident: &str, args: &Value, pg_role: Option<&str>) -> Result<Value, String> {
+fn run_function_call(
+    call_id: &str,
+    sql_ident: &str,
+    args: &Value,
+    pg_role: Option<&str>,
+) -> Result<Value, String> {
     if !valid_sql_ident(sql_ident, "fn_") {
         return Err("invalid sql_ident".to_string());
     }
@@ -173,9 +245,17 @@ fn run_function_call(sql_ident: &str, args: &Value, pg_role: Option<&str>) -> Re
     BackgroundWorker::transaction(|| {
         run_in_subtransaction(|| {
             let dropped = drop_privileges()
+                && Spi::run_with_args(
+                    "SELECT allgres_private.begin_local_execution('function_calls', $1::uuid)",
+                    &[call_id.into()],
+                )
+                .is_ok()
                 && Spi::run(&format!("SET LOCAL ROLE {role}")).is_ok()
                 && Spi::run("SET LOCAL search_path = pg_temp").is_ok()
-                && Spi::run(&format!("SET LOCAL statement_timeout = '{SQL_STATEMENT_TIMEOUT_MS}ms'")).is_ok();
+                && Spi::run(&format!(
+                    "SET LOCAL statement_timeout = '{SQL_STATEMENT_TIMEOUT_MS}ms'"
+                ))
+                .is_ok();
             if !dropped {
                 return Err("function role unavailable".to_string());
             }
@@ -185,11 +265,13 @@ fn run_function_call(sql_ident: &str, args: &Value, pg_role: Option<&str>) -> Re
             unsafe {
                 enable_timeout_after(PG_STATEMENT_TIMEOUT_ID, SQL_STATEMENT_TIMEOUT_MS);
             }
-            let r = match Spi::get_one_with_args::<JsonB>(&sql, &[JsonB(args).into()]) {
-                Ok(Some(JsonB(v))) => Ok(v),
-                Ok(None) => Ok(Value::Null),
-                Err(e) => Err(e.to_string()),
-            };
+            let r = with_fixed_role(|| {
+                match Spi::get_one_with_args::<JsonB>(&sql, &[JsonB(args).into()]) {
+                    Ok(Some(JsonB(v))) => Ok(v),
+                    Ok(None) => Ok(Value::Null),
+                    Err(e) => Err(e.to_string()),
+                }
+            });
             unsafe {
                 disable_timeout(PG_STATEMENT_TIMEOUT_ID, false);
             }
@@ -213,9 +295,18 @@ fn submit_function_call_result(call_id: &str, outcome: Result<Value, String>) {
         }
         if let Err(e) = Spi::get_one_with_args::<JsonB>(
             "SELECT allgres_public.fn_complete_function_call($1::uuid, $2, $3, $4)",
-            &[call_id.into(), ok.into(), result.map(JsonB).into(), error.into()],
+            &[
+                call_id.into(),
+                ok.into(),
+                result.map(JsonB).into(),
+                error.into(),
+            ],
         ) {
-            pgrx::warning!("Allgres: fn_complete_function_call failed for call {}: {}", call_id, e);
+            pgrx::warning!(
+                "Allgres: fn_complete_function_call failed for call {}: {}",
+                call_id,
+                e
+            );
         }
     });
 }
@@ -241,7 +332,7 @@ pub(crate) fn pump_function_calls() -> usize {
         }
         let args = call.get("args").cloned().unwrap_or_else(|| json!({}));
         let pg_role = call.get("pg_role").and_then(Value::as_str);
-        let outcome = run_function_call(sql_ident, &args, pg_role);
+        let outcome = run_function_call(call_id, sql_ident, &args, pg_role);
         submit_function_call_result(call_id, outcome);
         n += 1;
     }

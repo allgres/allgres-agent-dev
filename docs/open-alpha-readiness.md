@@ -20,6 +20,8 @@
 - Function source has immutable generations and non-destructive rollback alongside Procedure history. Capability rollback restores the underlying source generation.
 - Recall@5, selection accuracy, first-try success, correction, reuse, execution latency, and remote fixed-call cost are derived from audited search/execution evidence.
 - Stateful MCP initialization, session propagation, initialized notification, stateless compatibility fallback, error separation, OAuth refresh/reconnect state, and secret masking have implementation and existing SQL coverage. A local stateful MCP server transport regression passes; a full worker/SQL-to-MCP integration regression remains pending.
-- CI is configured to build the source extension on PostgreSQL 16/17/18, exercise Docker, build the CNPG extension image, and clean-build/lint a Fedora 43 PostgreSQL 18 RPM. New jobs must pass before release readiness is claimed.
+- CI passed source builds on PostgreSQL 16/17/18, Docker, CNPG extension image build, Fedora 43 PostgreSQL 18 RPM build/lint, and the remaining browser and fault-injection jobs for the public alpha commit.
+- Local `nerdctl` verification passed: PostgreSQL 17 Docker build, extension self-test (361 passed, 0 failed), SQL smoke and mock end-to-end flow, PostgreSQL 18 CNPG extension-image build, and Fedora 43 RPM build/lint/install.
+- Live CNPG verification passed on Kubernetes 1.36.4/containerd 2.3.2 with CNPG 1.30.0 and PostgreSQL 18.6: versioned image mounted, declarative `CREATE EXTENSION`, 361 self-tests, runtime worker, and dashboard health check. The published RPM also started PostgreSQL 18.6 in a disposable Fedora 43 container and passed 361 self-tests with optional `pgcrypto` installed. Multi-instance failover and a host service upgrade were not tested.
 
 Artifact publication, remote deployment, and production database migration remain deliberately tag/operator controlled; readiness checks do not publish anything.

@@ -67,7 +67,7 @@ spec:
     extensions:
       - name: allgres
         image:
-          reference: ghcr.io/allgres/allgres-agent-dev-cnpg-ext:v0.1.0-alpha.1
+          reference: ghcr.io/allgres/allgres-agent-cnpg-ext:latest
     shared_preload_libraries:
       - allgres
 
@@ -91,7 +91,6 @@ spec:
   extensions:
     - name: pgcrypto
     - name: allgres
-      version: "0.1.0-alpha.1"
 ---
 # CNPG's own auto-created Services (allgres-rw/-ro/-r) only ever expose
 # Postgres itself (port 5432) -- the allgres dashboard is a plain HTTP

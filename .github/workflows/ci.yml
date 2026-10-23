@@ -108,6 +108,8 @@ jobs:
           sudo -u postgres psql -p "$PGPORT" -d postgres -tAc \
             "DELETE FROM allgres_private.web_sessions WHERE user_id IN (SELECT user_id FROM allgres_private.users WHERE username = 'ci_selftest_admin'); DELETE FROM allgres_private.users WHERE username = 'ci_selftest_admin';" >/dev/null
           sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/smoke.sql
+          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/execution_safety.sql
+          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/execution_safety_worker.sql
           sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/e2e_mock.sql
           sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/capability_governance.sql
 
@@ -135,18 +137,34 @@ jobs:
         run: docker build -f cnpg/Dockerfile -t allgres-cnpg-ci .
       - name: Verify packaged extension files
         run: |
-          id=$(docker create allgres-cnpg-ci)
+          id=$(docker create allgres-cnpg-ci /bin/true)
           docker cp "$id:/lib/allgres.so" /tmp/allgres.so
           docker cp "$id:/share/extension/allgres.control" /tmp/allgres.control
           docker rm "$id"
           test -s /tmp/allgres.so
           test -s /tmp/allgres.control
 
+  canvas-bundle:
+    # web/canvas.html is committed so building the extension never needs
+    # Node.js; this keeps it from drifting from web/canvas/src.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+        working-directory: web/canvas
+      - run: npm run build
+        working-directory: web/canvas
+      - name: Committed bundle matches source
+        run: git diff --exit-code -- web/canvas.html
+
   browser-role-navigation:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
       - run: npm install --ignore-scripts
@@ -155,6 +173,8 @@ jobs:
         env:
           ALLGRES_BOOTSTRAP_ADMIN_USER: ui_admin
           ALLGRES_BOOTSTRAP_ADMIN_PASSWORD: ui-admin-password
+          # The whole suite runs from one address in well under a minute.
+          ALLGRES_RATE_LIMIT_PER_MINUTE: "600"
         run: |
           docker compose up -d --build
           for _ in $(seq 1 90); do curl -sf http://127.0.0.1:8088/ >/dev/null && exit 0; sleep 2; done

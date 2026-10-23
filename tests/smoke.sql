@@ -9,13 +9,39 @@ SELECT (allgres.native_status()->>'name') = 'Allgres' AS branded;
 SELECT allgres_public.fn_selftest();
 
 DO $$
-DECLARE r jsonb;
+DECLARE
+  r jsonb;
+  before_counts bigint[];
+  after_counts bigint[];
 BEGIN
-  r := allgres_public.fn_selftest();
-  IF (r->>'failed')::int > 0 THEN
+  SELECT ARRAY[
+    (SELECT count(*) FROM allgres_private.agents),
+    (SELECT count(*) FROM allgres_private.projects),
+    (SELECT count(*) FROM allgres_private.change_proposals),
+    (SELECT count(*) FROM allgres_private.execution_logs),
+    (SELECT count(*) FROM allgres_private.sessions)
+  ] INTO before_counts;
+  -- Account-free installs can exercise the dashboard path without a session.
+  -- Authenticated dashboard runs are covered by the browser/API smoke tests.
+  IF EXISTS (SELECT 1 FROM allgres_private.users) THEN
+    r := allgres_public.fn_selftest();
+  ELSE
+    r := allgres.dashboard_rpc('{"action":"selftest"}'::jsonb);
+  END IF;
+  IF NOT (r ? 'failed') OR (r->>'failed')::int > 0 THEN
     RAISE EXCEPTION 'selftest failures: %',
       (SELECT string_agg(e->>'name', ', ') FROM jsonb_array_elements(r->'cases') e
        WHERE NOT (e->>'ok')::boolean);
+  END IF;
+  SELECT ARRAY[
+    (SELECT count(*) FROM allgres_private.agents),
+    (SELECT count(*) FROM allgres_private.projects),
+    (SELECT count(*) FROM allgres_private.change_proposals),
+    (SELECT count(*) FROM allgres_private.execution_logs),
+    (SELECT count(*) FROM allgres_private.sessions)
+  ] INTO after_counts;
+  IF before_counts IS DISTINCT FROM after_counts THEN
+    RAISE EXCEPTION 'selftest left fixtures: before %, after %', before_counts, after_counts;
   END IF;
 END $$;
 

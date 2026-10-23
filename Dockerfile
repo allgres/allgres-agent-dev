@@ -7,9 +7,21 @@ FROM postgres:17-bookworm AS builder
 # it directly and that transitive chain is not something to rely on
 # silently (confirmed live: a source install on a machine without it hit
 # exactly this, see KNOWN_ISSUES.md item 52).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl build-essential clang libclang-dev pkg-config \
-    libssl-dev git postgresql-server-dev-17 && rm -rf /var/lib/apt/lists/*
+# apt.postgresql.org is the only source of postgresql-server-dev-17 here.
+# apt-get update can return 0 after a PGDG timeout (warning only), then
+# the install fails closed on the missing package -- that is the
+# browser-role-navigation flake on 67cc03c. Retry the whole fetch.
+RUN set -eux; \
+    echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries; \
+    n=0; \
+    until apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl build-essential clang libclang-dev pkg-config \
+        libssl-dev git postgresql-server-dev-17; do \
+      n=$((n + 1)); \
+      [ "$n" -lt 5 ] || exit 1; \
+      sleep $((n * 5)); \
+    done; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 ENV PATH=/root/.cargo/bin:$PATH
@@ -26,7 +38,7 @@ FROM postgres:17-bookworm
 # same label GitHub's own docs recommend for that, present in the image
 # itself so it holds regardless of which workflow or manual `docker push`
 # actually publishes a given build.
-LABEL org.opencontainers.image.source="https://github.com/allgres/allgres-agent-dev" \
+LABEL org.opencontainers.image.source="https://github.com/allgres/allgres-agent" \
       org.opencontainers.image.description="Allgres -- Postgres Is All You Need. PostgreSQL-native agent control plane." \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=builder /usr/lib/postgresql/17/lib/allgres.so /usr/lib/postgresql/17/lib/allgres.so

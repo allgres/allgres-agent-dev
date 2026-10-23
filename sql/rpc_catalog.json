@@ -18,6 +18,19 @@
     ]
   },
   {
+    "action": "agents.set_execution_rule",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "agent_id",
+      "decision",
+      "resource",
+      "rule_action",
+      "session_token"
+    ]
+  },
+  {
     "action": "agents.set_autonomy",
     "guards": [
       "require_admin_if_accounts_exist"
@@ -45,6 +58,8 @@
       "require_admin_if_accounts_exist"
     ],
     "params": [
+      "is_active",
+      "llm_config",
       "name",
       "session_token",
       "system_prompt"
@@ -688,6 +703,7 @@
       "api_key",
       "auth_kind",
       "base_url",
+      "cost_per_call_usd",
       "name",
       "session_token"
     ]
@@ -703,6 +719,7 @@
       "auth_kind",
       "base_url",
       "connection_id",
+      "cost_per_call_usd",
       "is_enabled",
       "session_token"
     ]
@@ -810,6 +827,30 @@
     ]
   },
   {
+    "action": "capabilities.transition",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "capability_id",
+      "lifecycle",
+      "note",
+      "session_token",
+      "test_result"
+    ]
+  },
+  {
+    "action": "capabilities.rollback",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "capability_id",
+      "session_token",
+      "version"
+    ]
+  },
+  {
     "action": "functions.create",
     "guards": [
       "require_admin_if_accounts_exist"
@@ -835,6 +876,17 @@
       "description",
       "function_id",
       "param_schema",
+      "session_token"
+    ]
+  },
+  {
+    "action": "functions.rollback",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "function_id",
+      "generation",
       "session_token"
     ]
   },
@@ -1018,24 +1070,175 @@
     ]
   },
   {
-    "action": "functions.rollback",
+    "action": "canvas.state",
     "guards": [
       "require_admin_if_accounts_exist"
     ],
     "params": [
-      "function_id",
-      "generation",
       "session_token"
     ]
   },
   {
-    "action": "capabilities.transition",
-    "guards": ["require_admin_if_accounts_exist"],
-    "params": ["capability_id", "lifecycle", "note", "session_token", "test_result"]
+    "action": "canvas.layout.save",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "items",
+      "session_token"
+    ]
   },
   {
-    "action": "capabilities.rollback",
-    "guards": ["require_admin_if_accounts_exist"],
-    "params": ["capability_id", "session_token", "version"]
+    "action": "canvas.groups.create",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "agent_ids",
+      "kind",
+      "name",
+      "parent_group_id",
+      "position",
+      "session_token"
+    ]
+  },
+  {
+    "action": "canvas.groups.update",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "clear_parent",
+      "group_id",
+      "kind",
+      "name",
+      "parent_group_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "canvas.groups.delete",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "group_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "canvas.groups.merge",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token",
+      "source_group_id",
+      "target_group_id"
+    ]
+  },
+  {
+    "action": "canvas.groups.set_member",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "agent_id",
+      "group_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "canvas.delegation.add",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "from_agent_id",
+      "session_token",
+      "to_agent_id"
+    ]
+  },
+  {
+    "action": "canvas.delegation.remove",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "from_agent_id",
+      "session_token",
+      "to_agent_id"
+    ]
+  },
+  {
+    "action": "canvas.grant",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "agent_id",
+      "include_superiors",
+      "ref",
+      "session_token",
+      "type"
+    ]
+  },
+  {
+    "action": "canvas.templates.save",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "group_id",
+      "name",
+      "session_token"
+    ]
+  },
+  {
+    "action": "canvas.templates.delete",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token",
+      "template_id"
+    ]
+  },
+  {
+    "action": "canvas.templates.instantiate",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "parent_group_id",
+      "session_token",
+      "template_id",
+      "x",
+      "y"
+    ]
+  },
+  {
+    "action": "canvas.run",
+    "guards": [
+      "require_agent_access_if_accounts_exist"
+    ],
+    "params": [
+      "agent_id",
+      "goal",
+      "model",
+      "provider",
+      "session_token"
+    ]
+  },
+  {
+    "action": "agents.set_task_model",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "agent_id",
+      "allowed",
+      "session_token"
+    ]
   }
 ]

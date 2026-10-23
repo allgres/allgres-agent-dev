@@ -6,7 +6,7 @@
 
 use crate::config::{configured_http_addr, rpc_socket_path};
 use crate::http_protocol::{parse_form_body, read_http_request, HttpRequest};
-use crate::{DASHBOARD_HTML, MAX_WEB_THREADS, SSE_INTERVAL, SSE_TICKET_TTL, SSE_TOTAL};
+use crate::{CANVAS_HTML, DASHBOARD_HTML, MAX_WEB_THREADS, SSE_INTERVAL, SSE_TICKET_TTL, SSE_TOTAL};
 use pgrx::bgworkers::{BackgroundWorker, SignalWakeFlags};
 use pgrx::prelude::*;
 use serde_json::{json, Value};
@@ -78,6 +78,16 @@ pub(crate) static RATE_LIMIT: LazyLock<Mutex<RateWindows>> = LazyLock::new(|| {
     Mutex::new(RateWindows { general: HashMap::new(), auth_fail: HashMap::new() })
 });
 pub(crate) const RATE_GENERAL_LIMIT: usize = 120;
+/// `RATE_GENERAL_LIMIT` unless ALLGRES_RATE_LIMIT_PER_MINUTE names another
+/// positive number, read once.  Only for a deployment whose clients really
+/// share one address (a browser test suite, a reverse proxy that does not
+/// forward the client address); the default is what everyone else gets.
+static RATE_GENERAL_CAP: LazyLock<usize> = LazyLock::new(|| {
+    crate::config::env_opt("ALLGRES_RATE_LIMIT_PER_MINUTE")
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(RATE_GENERAL_LIMIT)
+});
 pub(crate) const RATE_GENERAL_WINDOW: Duration = Duration::from_secs(60);
 pub(crate) const RATE_AUTH_FAIL_LIMIT: usize = 20;
 const RATE_AUTH_FAIL_WINDOW: Duration = Duration::from_secs(300);
@@ -113,7 +123,7 @@ fn rate_check(
 /// after a 401, for the tighter one.
 pub(crate) fn rate_limited(ip: IpAddr) -> bool {
     let mut w = RATE_LIMIT.lock().unwrap();
-    !rate_check(&mut w.general, ip, RATE_GENERAL_WINDOW, RATE_GENERAL_LIMIT)
+    !rate_check(&mut w.general, ip, RATE_GENERAL_WINDOW, *RATE_GENERAL_CAP)
 }
 
 pub(crate) fn auth_failures_exceeded(ip: IpAddr) -> bool {
@@ -422,6 +432,30 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
+    if path == "/mock/models" || path == "/mock/v1/models" {
+        if !cfg.mock_enabled {
+            respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+            return;
+        }
+        // Settings' Test connection is GET {base_url}/models (openai_compat)
+        // or /v1/models (anthropic). The other /mock/* doubles already speak
+        // those providers' wire formats; without this, a first-run operator
+        // who pointed a provider at the built-in mock saw
+        // last_probe_status='error' with body {"ok":false,"error":"not_found"}
+        // even though /mock/chat/completions would have answered a turn.
+        // Same {"data":[{"id":...}]} shape fn_complete_provider_probe parses.
+        let body = json!({
+            "object": "list",
+            "data": [
+                { "id": "allgres-mock", "object": "model" },
+                { "id": "allgres-mock-embed", "object": "model" }
+            ]
+        })
+        .to_string();
+        respond_json(&mut s, "200 OK", &body);
+        return;
+    }
+
     if path == "/mock/chat/completions" || path == "/mock/slow/chat/completions" {
         if !cfg.mock_enabled {
             respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
@@ -525,9 +559,12 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
-    if path == "/" {
+    // Both pages are static documents behind the same per-response nonce
+    // CSP; everything they show comes from /api/v1 after load.
+    if path == "/" || path == "/canvas" {
         let n = nonce();
-        let html = DASHBOARD_HTML.replace("__CSP_NONCE__", &n);
+        let page = if path == "/" { DASHBOARD_HTML } else { CANVAS_HTML };
+        let html = page.replace("__CSP_NONCE__", &n);
         let csp = format!(
             "Content-Security-Policy: default-src 'none'; \
              script-src 'nonce-{n}'; style-src 'nonce-{n}'; \

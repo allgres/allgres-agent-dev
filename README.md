@@ -1,203 +1,139 @@
 # Allgres
 
-**Postgres Is All You Need.**
+## Postgres Is All You Need.
 
-Allgres is a PostgreSQL-native agent control plane. It packages the PL/pgSQL
-state machine, a Rust/pgrx native runtime worker, outbound HTTP/HTTPS, and an
-embedded browser control panel into one PostgreSQL extension. Point it at an
-LLM provider, create an agent, and it plans, calls functions, delegates to other
-agents, and reports back — all through ordinary SQL tables you can query
-yourself.
+**Your agents, their tools, their decisions, and the audit trail—in PostgreSQL.**
 
-Version `0.1.0-alpha.1` is the first public alpha.
-This is an early alpha: read [Security model](docs/security.md) before
-putting it anywhere that matters. Found a vulnerability? See
-[SECURITY.md](SECURITY.md) rather than opening a public issue.
+Allgres makes PostgreSQL the control plane for your agents. Tasks, policies,
+permissions, memory, approvals, and execution history live together in the
+database, where you can inspect and manage them with SQL.
+
+Create an agent, connect a model, and follow its work from the first request
+to the final result—including the tool calls, approval decisions, and errors
+along the way.
+
+## Why Allgres?
+
+Running an agent means keeping track of more than its conversation.
+What is it allowed to do? Which action needs approval? What happened before
+a worker stopped? Is an external request safe to retry?
+
+Allgres keeps the state and policies needed to answer these questions in
+PostgreSQL. The database records the work and governs how it proceeds.
+
+- **Inspect the work.** Query task state, execution history, and audit records
+  with SQL.
+- **Control execution.** Apply permissions and approval rules to queued
+  actions, with checks at execution boundaries.
+- **Handle uncertainty explicitly.** Track retries and pause ambiguous
+  external mutations for human review.
+- **Operate through familiar tools.** Use the dashboard or PostgreSQL
+  functions to manage agents and their work.
+
+## How it fits together
+
+```text
+Dashboard / SQL
+      |
+      v
+PostgreSQL control plane
+  ├─ Agents and task state
+  ├─ Policies and permissions
+  ├─ Queues and retry state
+  ├─ Memory and tool definitions
+  ├─ Human approvals
+  └─ Execution history and audit records
+      |
+      v
+Rust runtime workers
+      |
+      v
+Model providers and external tools
+```
+
+PostgreSQL owns durable state and control decisions. Rust workers perform
+external I/O and manage the runtime lifecycle. Model inference runs through
+the provider you configure.
+
+A PL/pgSQL state machine, a Rust/pgrx runtime, and a browser dashboard ship
+as one PostgreSQL extension. No separate Node.js, Python, Redis, RabbitMQ,
+or web-server service is required at runtime.
+
+External API calls remain outside the database transaction: recording a
+request in PostgreSQL does not make its remote effects atomic or guarantee
+exactly-once execution.
+
+Read the [architecture](docs/architecture.md) and
+[security model](docs/security.md) for the execution boundaries.
+
+> **Public alpha · `0.1.0-alpha.3`** — built for evaluation.
+> Read the [known limitations](KNOWN_ISSUES.md) before using real data or
+> exposing the dashboard. Report vulnerabilities through
+> [private disclosure](SECURITY.md).
 
 ## Quick start
 
-Pick whichever matches how you want to run PostgreSQL. All three end at the
-same place: a dashboard at **http://127.0.0.1:8088** (or wherever your own
-PostgreSQL already listens, for the source install) with no login token
-by default and no dashboard password until you create one.
+| Route | Best for | What you get |
+| --- | --- | --- |
+| [Docker](docs/deployment/docker.md) | A local trial in minutes | PostgreSQL 17 and Allgres in one container |
+| [CNPG](docs/deployment/cnpg.md) | A CloudNativePG cluster | PostgreSQL 18 extension image and example manifests |
+| [Source code](docs/deployment/source-install.md) | An existing PostgreSQL 16, 17, or 18 server | Build and install the extension with `make` |
+| [RPM](docs/deployment/rpm.md) | Fedora 43 with PostgreSQL 18 | Download or build and install a native package |
 
-### Docker
-
-One image, one container -- Postgres and the extension are baked into a
-single published image, nothing else to run alongside it:
+### Docker: the fastest first run
 
 ```bash
-docker pull ghcr.io/allgres/allgres-agent-dev:v0.1.0-alpha.1
-docker run -d --name allgres \
-  -e POSTGRES_PASSWORD=allgres \
-  -e ALLGRES_HTTP_ADDR=0.0.0.0:8088 -e ALLGRES_ALLOW_INSECURE_HTTP=1 \
-  -p 127.0.0.1:5432:5432 -p 127.0.0.1:8088:8088 \
-  -v allgres_pgdata:/var/lib/postgresql/data \
-  ghcr.io/allgres/allgres-agent-dev:v0.1.0-alpha.1
+git clone https://github.com/allgres/allgres-agent.git
+cd allgres-agent
+docker compose up -d --build
+./scripts/bootstrap.sh
 ```
 
-Wait for it to come up (`docker logs -f allgres`, or poll
-`curl http://127.0.0.1:8088/healthz`), then open the dashboard. `-e
-ALLGRES_ALLOW_INSECURE_HTTP=1` is what lets the container bind and publish a
-non-loopback address with no token set -- fine for a local try, not for
-anything reachable by anyone else (see [Exposure](docs/security.md#exposure)).
+Open **http://127.0.0.1:8088**. The bootstrap script waits for health, creates a first admin, and runs an agent task against the built-in mock provider. For the newest published image, pull `ghcr.io/allgres/allgres-agent:latest`; `:main` follows development commits, while `:v0.1.0-alpha.3` pins this release. See the [Docker guide](docs/deployment/docker.md) for `docker run`, persistence, and the production overlay.
 
-Want the scripted path instead -- builds from source, waits for health,
-creates a first admin, and proves one real agent task runs end to end
-before calling the install done? That's `git clone` + `./scripts/
-bootstrap.sh` (uses `docker compose` under the hood), and a
-production-hardening overlay (`docker-compose.prod.yml`) for anything
-serving real traffic. See [Docker install, in
-detail](docs/deployment/docker.md).
+After signing in, use the dashboard's **Start a conversation** guide: add a chat provider and run **Test connection** in Settings, choose a provider and model for the **general** agent, then open **General** and send a message. General is a direct conversation; **Team messages** uses `@agent-name` when you want to route a post to one or more agents. Agents without a model can be saved explicitly as inactive drafts. A new chat project requires an agent.
 
-### Source (no Docker)
+![Allgres dashboard on a fresh local install, showing the three setup steps and zero failed tasks](docs/images/dashboard-alpha.png)
 
-Install straight onto an existing PostgreSQL 16, 17, or 18 server. You need
-that PostgreSQL version's own `-dev`/`-server-dev`/`-devel` package
-installed first (Debian/Ubuntu: `postgresql-server-dev-17`; RHEL/Rocky/
-Alma/Fedora via the PGDG repo: `postgresql17-devel` — `pg_config` on
-`PATH` alone isn't proof of this, see [Source
-install](docs/deployment/source-install.md) for why), plus a C toolchain
-and OpenSSL's development files (`build-essential clang libclang-dev
-pkg-config libssl-dev` on Debian/Ubuntu — `cargo-pgrx` itself needs these
-to build, via `bindgen` and `openssl-sys`, not just this extension's own
-source; `make check` fails fast with a clear message per missing piece).
-Rust and `cargo-pgrx` are handled for you if they aren't already there:
+*Fresh local install. The banner explains that API keys need `ALLGRES_SECRET_KEY` for encryption at rest; see [Secrets at rest](docs/security.md).*
+
+### CNPG: add Allgres to your cluster
+
+Build the extension image from the repository root, or use `ghcr.io/allgres/allgres-agent-cnpg-ext:latest`. The [CNPG guide](docs/deployment/cnpg.md) and [`cnpg/cluster-example.yaml`](cnpg/cluster-example.yaml) show the `Cluster` and `Database` resources. This path requires the CNPG operator, PostgreSQL 18, and Kubernetes ImageVolume support. Alpha.2 passed 362 self-tests, worker startup, and the dashboard health check in an isolated Kubernetes 1.36/PostgreSQL 18 cluster; this release adds first-run Test connection, General assignment, and the health_monitor Agents-list fold.
+
+### Source code: install into PostgreSQL you manage
 
 ```bash
-git clone https://github.com/allgres/allgres-agent-dev.git
-cd allgres-agent-dev
-make install     # needs root? see Source install for why a bare `sudo` isn't enough
+git clone https://github.com/allgres/allgres-agent.git
+cd allgres-agent
+make install
 ALLGRES_BOOTSTRAP_ADMIN_USER=admin ALLGRES_BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-password' make quickstart
 ```
 
-`quickstart` creates the extension, starts it without a restart, and creates
-the first dashboard admin. Set `PGUSER` (and, when needed, `PGHOST`,
-`PGPORT`, or `QUICKSTART_DB`) for the PostgreSQL instance to configure.
+Install the matching PostgreSQL server development package, C toolchain, and OpenSSL development files first. `make install` copies extension files; `make quickstart` configures a live database. The [source guide](docs/deployment/source-install.md) covers prerequisites, privileges, and a persistent `shared_preload_libraries` setup.
 
-See [Source install](docs/deployment/source-install.md) for what the
-Makefile is actually doing and the classic `shared_preload_libraries` +
-restart path.
+### RPM: package PostgreSQL 18
 
-### CNPG (Kubernetes)
+The [RPM guide](docs/deployment/rpm.md) finds the newest published Fedora 43/PostgreSQL 18 RPM automatically, and also covers building the package from source.
 
-For a [CloudNativePG](https://cloudnative-pg.io)-managed cluster: allgres
-ships as a small extension-only image mounted into CNPG's own unmodified
-operand image (its Image Volume Extensions mechanism), not a full custom
-Postgres image to keep in sync. Requires PostgreSQL 18+, Kubernetes 1.33+
-on a containerd/CRI-O node, and the CNPG operator already installed.
+## Explore the documentation
 
-```bash
-docker pull ghcr.io/allgres/allgres-agent-dev-cnpg-ext:v0.1.0-alpha.1
-```
+- [SQL sandbox](docs/sql-sandbox.md) — how agent queries are parsed and run under an unprivileged role.
+- [Memory and search](docs/memory-and-search.md) — agent discovery, `remember`/`recall`, and optional pgvector acceleration.
+- [Chat and model setup](docs/chat-and-models.md) — connect providers and work with agents in the dashboard.
+- [Canvas](docs/canvas.md) — arrange agents into teams, draw who may delegate to whom, grant skills, chat, and replay sessions on one board.
+- [Audit log](docs/audit-log.md) — inspect consequential mutations and operator actions.
 
-See [CNPG (CloudNativePG)](docs/deployment/cnpg.md) and
-`cnpg/cluster-example.yaml` for the full `Cluster`/`Database` wiring.
+`pgcrypto` and `pgvector` are optional extensions; see [configuration](docs/configuration.md) and [security](docs/security.md) for the tradeoffs.
 
-An alpha PostgreSQL 18 RPM spec and clean-build validation live under
-[`packaging/rpm`](packaging/rpm); see [`docs/deployment/rpm.md`](docs/deployment/rpm.md).
+## Alpha status
 
-## What's inside
-
-Implemented and verified: natively against PostgreSQL 16, 17, and 18
-(`native-matrix` in CI, every push), and via the shipped Docker image
-(`docker-smoke` in CI: a real `docker compose build`, the full install flow
-end to end, and `scripts/smoke.sh`).
-
-- **Agent control plane** — policy, permissions, delegation, retries,
-  per-agent concurrency/wall-clock caps, and a versioned policy history.
-- **The SQL sandbox** — an agent's own `execute_sql` action, gated by
-  PostgreSQL's own parse tree and run under an unprivileged role. See
-  [The SQL sandbox](docs/sql-sandbox.md).
-- **Outbound calls** — LLM provider calls and the `http_get`/`http_request`
-  functions, all behind an SSRF guard. See [Security model](docs/security.md).
-- **Human-in-the-loop** — `await_human`, operator approve/reject, and timed
-  expiry via the watchdog.
-- **Self-modification, operator-governed** — an agent can propose a change
-  to its own prompt/model, never its own permissions or budget; every
-  proposal is queued for an explicit approve/reject. See [Security
-  model](docs/security.md#self-modification).
-- **Memory and semantic search** — an agent can `remember` and later
-  `recall`, and can find a delegate by description instead of exact name.
-  See [Memory and semantic search](docs/memory-and-search.md).
-- **Procedures** — a named, versioned, reusable "how to do X" an operator
-  grants to an agent. See [Procedures](docs/procedures.md).
-- **System and maintenance agents** — five built-in agents that operate the
-  platform itself, plus a read-only health/permission auditor pattern. See
-  [System agents](docs/system-agents.md).
-- **Task dependencies and schedules** — `delegate`+`await_children` for
-  real fan-out/fan-in, and recurring goal-driven runs with a cost budget.
-  See [Task dependencies and schedules](docs/task-orchestration.md).
-- **Evaluation-gated self-improvement** — every policy change gets a
-  computed `improved`/`regressed` verdict from real task outcomes. See
-  [Evaluation-gated self-improvement](docs/self-improvement.md).
-- **Dashboard** — a single static HTML file (no build step) covering
-  Overview, Agents, Chat, Projects, Run, Approvals, Memories, Audit, SQL,
-  and Settings, all reachable through one generic `/api/v1/rpc` route,
-  plus OAuth login/device-code connect and per-provider connectivity
-  checks. See [Model configuration and chat](docs/chat-and-models.md).
-- **An admin SQL console, built in** — one query at a time, `allgres_owner`
-  privileges, no separate DB client needed. See [Security model, "The SQL
-  console"](docs/security.md#the-sql-console).
-- **Real accounts and an operator audit log** — username/password login,
-  admin/user roles, per-user agent assignment, and an append-only audit
-  trail for every consequential mutation. See [Operator audit
-  log](docs/audit-log.md).
-- **A tested backup/restore drill** — see [Backup and
-  restore](docs/backup-and-restore.md).
-
-Not yet built: Helm charts and general Kubernetes manifests beyond the CNPG
-path above, and a native RPM package.
-
-See [Known limitations](KNOWN_ISSUES.md) before deploying the alpha.
-
-## Runtime requirements
-
-- PostgreSQL 16, 17, or 18 — all three are natively CI-verified on every
-  push (`native-matrix`); the Docker image ships PostgreSQL 17
-- `allgres` extension, `shared_preload_libraries = 'allgres'`
-- `pgcrypto` (optional, for encrypted provider secrets)
-- `pgvector` (optional, accelerates semantic search — everything works
-  without it, just unindexed)
-
-No Node, Python, Redis, RabbitMQ, pg_net, pg_cron, or external web server is
-required at runtime.
-
-## Documentation
-
-Everything below is detail for when you need it — not required to get a
-working instance running.
-
-| Topic | What's there |
-| --- | --- |
-| [Architecture](docs/architecture.md) | The two background workers, `dashboard_rpc`, cluster monitoring, dashboard navigation |
-| [Security model](docs/security.md) | Exposure, CORS, SSRF, secrets at rest, privileges, per-agent roles, self-modification |
-| [The SQL sandbox](docs/sql-sandbox.md) | How an agent's `execute_sql` is analyzed and gated |
-| [Memory and semantic search](docs/memory-and-search.md) | `remember`/`recall`, search history, semantic delegate search |
-| [Capability search](docs/capability-search.md) | Permission-filtered Agent, Function, and Procedure discovery with pgvector acceleration |
-| [Open alpha readiness](docs/open-alpha-readiness.md) | Completed safeguards and the remaining release gates |
-| [Procedures](docs/procedures.md) | Operator-curated reusable instructions and Functions |
-| [Hermes Agent](docs/hermes-agent.md) | OpenAI-compatible Provider and stateless MCP connection patterns |
-| [System agents](docs/system-agents.md) | `health_monitor`, `creator`, `fixer`, `self_improve`, and the rest |
-| [Operator audit log](docs/audit-log.md) | Who did what, `operator_name` vs. a real verified account |
-| [Model configuration and chat](docs/chat-and-models.md) | Providers, test connection, sessions, General/Messenger/Project chat modes |
-| [Task dependencies and schedules](docs/task-orchestration.md) | `delegate`+`await_children`, recurring runs, cost budgets |
-| [Evaluation-gated self-improvement](docs/self-improvement.md) | Measuring whether a policy change actually helped |
-| [Configuration](docs/configuration.md) | Every environment variable the runtime worker reads |
-| [Docker install, in detail](docs/deployment/docker.md) | The scripted `docker compose` flow, production hardening |
-| [Source install](docs/deployment/source-install.md) | Bare-metal install, the no-restart path |
-| [CNPG (CloudNativePG)](docs/deployment/cnpg.md) | Kubernetes via Image Volume Extensions |
-| [Backup and restore](docs/backup-and-restore.md) | Physical and logical strategies, the two-pass logical restore |
-| [Tests](docs/testing.md) | `fn_selftest`, the fault-injection drill, what's deliberately not automated |
+The repository includes CI jobs for native PostgreSQL 16–18, Docker smoke tests, a CNPG extension-image build, browser navigation, and RPM build/lint. Check the repository's [Actions](https://github.com/allgres/allgres-agent/actions) for the current commit's result. Local `nerdctl` checks passed for the Docker runtime and published Fedora RPM. The published CNPG image passed a live Kubernetes smoke test. The [readiness notes](docs/open-alpha-readiness.md) and [known issues](KNOWN_ISSUES.md) track remaining work.
 
 ## Known limitations
 
-Current alpha limitations are tracked in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
-`allgres_public.fn_selftest()` exercises the
-validate/queue/claim/complete state machine and runs as part of
-`tests/smoke.sql`; see [Tests](docs/testing.md) for what it does and does
-not cover.
+See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for current alpha limitations.
 
-## License
+Want to see a real agent task? Try the [order-review example](examples/order-review/README.md). To contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md). For deployment and backups, see the [deployment guides](docs/deployment/docker.md) and [backup guide](docs/backup-and-restore.md).
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. [License](LICENSE).
