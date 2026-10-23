@@ -952,9 +952,13 @@ BEGIN
 
     -- Fills the four grant-target pickers a permissions editor needs in one
     -- call: agent-visible views (queried live from pg_catalog, not hardcoded,
-    -- so a newly created view shows up with no code change), the one real
-    -- function, other agents (delegate targets), and a note that http_host is
-    -- free text -- there is no fixed list of allowed hosts to offer.
+    -- so a newly created view shows up with no code change), functions (the
+    -- built-in http_get/http_request plus every active registered Function --
+    -- PL/pgSQL, fixed-URL http_get, and MCP tools such as web_search -- read
+    -- live from allgres_private.functions; `function_catalog` carries each
+    -- one's kind and description), other agents (delegate targets), and a
+    -- note that http_host is free text -- there is no fixed list of allowed
+    -- hosts to offer.
     WHEN 'permissions.options' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN jsonb_build_object(
@@ -963,7 +967,31 @@ BEGIN
           SELECT jsonb_agg(schemaname || '.' || viewname ORDER BY viewname)
           FROM pg_catalog.pg_views WHERE schemaname = 'allgres_public'
         ), '[]'::jsonb),
-        'functions', '["http_get", "http_request"]'::jsonb,
+        'functions', (
+          SELECT jsonb_agg(name ORDER BY name)
+          FROM (
+            SELECT unnest(ARRAY['http_get', 'http_request']) AS name
+            UNION
+            SELECT name FROM allgres_private.functions WHERE is_active
+          ) f
+        ),
+        'function_catalog', (
+          SELECT jsonb_agg(f ORDER BY f->>'name')
+          FROM (
+            SELECT jsonb_build_object('name', b.name, 'kind', 'builtin', 'description', b.description) AS f
+            FROM (VALUES
+              ('http_get', 'GET any URL on a granted http_host'),
+              ('http_request', 'Call an API connection with its stored credential')) b(name, description)
+            UNION ALL
+            SELECT jsonb_strip_nulls(jsonb_build_object(
+              'name', fn.name, 'kind', fn.handler, 'description', fn.description,
+              'build_status', CASE WHEN fn.handler = 'plpgsql' THEN fn.build_status END,
+              'connection', c.name))
+            FROM allgres_private.functions fn
+            LEFT JOIN allgres_private.api_connections c ON c.connection_id = fn.mcp_connection_id
+            WHERE fn.is_active AND fn.name NOT IN ('http_get', 'http_request')
+          ) q
+        ),
         'agents', COALESCE((
           SELECT jsonb_agg(name ORDER BY name) FROM allgres_private.agents WHERE is_active
         ), '[]'::jsonb),

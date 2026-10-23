@@ -5838,6 +5838,70 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_grant_covers_a_cycle_of_superiors', 'ok', ok, 'detail', r));
   END;
 
+  -- D3: permissions.options lists the real Function catalog -- the two
+  -- built-ins plus every active registered Function (an MCP tool such as
+  -- web_search, a fixed-URL http_get), never a retired one -- and a direct
+  -- grant of a listed MCP Function is callable, not 'unknown_function'.
+  DECLARE
+    v_conn uuid;
+    v_fn uuid;
+    v_ag uuid;
+    v_sid uuid;
+    v_tid uuid;
+    v_call uuid;
+    o jsonb;
+  BEGIN
+    v_conn := (allgres_public.fn_create_connection('selftest_d3_conn', 'https://mcp.selftest-d3.invalid/mcp')->>'connection_id')::uuid;
+    v_fn := (allgres_public.fn_create_function('selftest_d3_web_search', 'search the web', 'mcp_call',
+      jsonb_build_object('tool', 'web_search'), NULL, NULL, NULL, v_conn)->>'function_id')::uuid;
+    PERFORM allgres_public.fn_create_function('selftest_d3_fixed', 'fixed page', 'http_get',
+      jsonb_build_object('url', 'https://fixed.selftest-d3.invalid/page'));
+    PERFORM allgres_public.fn_create_function('selftest_d3_retired', 'retired', 'http_get',
+      jsonb_build_object('url', 'https://retired.selftest-d3.invalid/'));
+    UPDATE allgres_private.functions SET is_active = false WHERE name = 'selftest_d3_retired';
+
+    o := allgres.dashboard_rpc(jsonb_build_object('action', 'permissions.options',
+      'session_token', (SELECT allgres_public.fn_login('selftest_direct_admin', 'selftest-direct-pw1')->>'session_token'
+                        WHERE allgres_private.pgcrypto_schema() IS NOT NULL)));
+    ok := (o->'functions') @> '["http_get", "http_request", "selftest_d3_web_search", "selftest_d3_fixed"]'::jsonb
+      AND NOT (o->'functions') ? 'selftest_d3_retired'
+      AND (o->'function_catalog') @> jsonb_build_array(
+        jsonb_build_object('name', 'selftest_d3_web_search', 'kind', 'mcp_call', 'connection', 'selftest_d3_conn'),
+        jsonb_build_object('name', 'selftest_d3_fixed', 'kind', 'http_get'),
+        jsonb_build_object('name', 'http_request', 'kind', 'builtin'))
+      AND jsonb_array_length(o->'functions') = jsonb_array_length(o->'function_catalog');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'permissions_options_lists_registered_functions', 'ok', ok, 'detail', o->'functions'));
+
+    v_ag := (allgres_public.fn_create_agent('selftest_d3_researcher', 'research')->>'agent_id')::uuid;
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'function', 'selftest_d3_web_search');
+    v_sid := (allgres_public.fn_create_session(v_ag, 'selftest d3 search')->>'session_id')::uuid;
+    SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+    PERFORM allgres_public.fn_next_step(v_tid);
+    r := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+      'type', 'llm_response', 'content', '{"action":"call_function"}',
+      'parsed', jsonb_build_object('action', 'call_function', 'function', 'SELFTEST_D3_WEB_SEARCH',
+                                   'args', jsonb_build_object('query', 'allgres'))));
+    v_call := (r->>'call_id')::uuid;
+    SELECT to_jsonb(c) INTO o FROM allgres_private.outbound_calls c WHERE c.call_id = v_call;
+    ok := r->>'action' = 'call_function' AND o->>'kind' = 'mcp'
+      AND o->>'url' = 'https://mcp.selftest-d3.invalid/mcp'
+      AND o->'request_body'->'params'->>'name' = 'web_search'
+      AND o->'request_body'->'params'->'arguments' = jsonb_build_object('query', 'allgres')
+      AND (o->>'procedure_function_id')::uuid = v_fn AND o->>'procedure_id' IS NULL;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'direct_grant_of_mcp_function_is_callable', 'ok', ok, 'detail', r));
+
+    -- Ungranted, the same name is still refused.
+    DELETE FROM allgres_private.permissions WHERE agent_id = v_ag;
+    UPDATE allgres_private.tasks SET status = 'running' WHERE task_id = v_tid;
+    r := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+      'type', 'llm_response', 'content', '{"action":"call_function"}',
+      'parsed', jsonb_build_object('action', 'call_function', 'function', 'selftest_d3_web_search',
+                                   'args', jsonb_build_object('query', 'x'))));
+    ok := r->>'call_id' IS NULL AND (SELECT count(*) FROM allgres_private.outbound_calls c
+                                     WHERE c.procedure_function_id = v_fn) = 1;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'ungranted_mcp_function_still_refused', 'ok', ok, 'detail', r));
+  END;
+
   RETURN v;
 END;
 $fn$;

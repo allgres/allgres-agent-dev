@@ -124,6 +124,34 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   expect(cspErrors).toEqual([]);
 });
 
+// Every registered Function is a grant choice -- not only the two built-ins:
+// an MCP tool such as web_search shows up in permissions.options and in the
+// Canvas "Add an ability" list.
+test('registered functions are offered as grant choices', async ({ page }) => {
+  const stamp=Date.now();
+  const fn=`ui_web_search_${stamp}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  const opts = await page.evaluate(async ({ fn, stamp }) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const conn = await call({ action: 'connections.create', name: `ui_mcp_${stamp}`, base_url: 'https://mcp.ui-test.invalid/mcp' });
+    if (conn.ok === false) throw new Error(conn.error);
+    const made = await call({ action: 'functions.create', name: fn, description: 'search the web', handler: 'mcp_call',
+      args_template: { tool: 'web_search' }, mcp_connection_id: conn.connection_id });
+    if (made.ok === false) throw new Error(made.error);
+    return call({ action: 'permissions.options' });
+  }, { fn, stamp });
+  expect(opts.functions).toEqual(expect.arrayContaining(['http_get', 'http_request', fn]));
+  expect(opts.function_catalog).toEqual(expect.arrayContaining([
+    expect.objectContaining({ name: fn, kind: 'mcp_call', description: 'search the web' })]));
+  await page.goto(baseURL + '/canvas');
+  const gotIt = page.getByRole('button', { name: 'Got it' });
+  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+  await page.locator('.agent-node', { hasText: 'general' }).first().click();
+  await expect(page.getByLabel('Add an ability').locator(`option[value="function:${fn}"]`)).toHaveCount(1);
+});
+
 test('admin data tables fit a narrow viewport', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await login(page, 'ui_admin', 'ui-admin-password');

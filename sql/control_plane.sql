@@ -4740,6 +4740,18 @@ BEGIN
         UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
         RETURN jsonb_build_object('action','call_function','function',v_function,'call_id',v_call);
       END IF;
+      -- The same for a directly granted fixed-URL http_get or MCP Function
+      -- (permissions.options offers every registered Function, web_search
+      -- included): it runs exactly as it would through a Procedure that
+      -- binds it -- its own args_template / connection, no agent-chosen URL
+      -- -- just with no procedure to name. Never for the built-in names.
+      IF FOUND AND v_procedure_function.handler IN ('http_get', 'mcp_call')
+         AND lower(v_function) NOT IN ('http_get', 'http_request', 'mcp_call') THEN
+        v_procedure_bound := true;
+        v_bound_procedure_id := NULL;
+        v_function := v_procedure_function.handler;
+        v_args := v_procedure_function.args_template;
+      END IF;
     END IF;
     IF NOT v_allowed THEN
       SELECT pt.* INTO v_procedure_function
