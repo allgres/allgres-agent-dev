@@ -38,24 +38,56 @@ switch it to the new name.
 
 ### Agent names that differ only in case or surrounding spaces
 
-Agent names are now unique ignoring case and leading/trailing spaces
-(`agents_name_ci_key` on `lower(btrim(name))`); `fn_create_agent` refuses
-`FIXER` or ` fixer ` while `fixer` exists. Earlier builds allowed such
-pairs, and grants and delegation matched them as one name, which let an
-ordinary agent stand in for a system agent. If a database carried over by
-dumping and restoring into a new install holds such a pair, installing
-stops with `agent names must be unique ignoring case and surrounding
-spaces; these agents collide: [...]`, listing each group with the agent
-ids. Nothing is renamed or merged automatically. Decide which agent keeps
-the name, then rename the others and the `agent` grants that name them:
+This build makes agent names unique ignoring case and leading/trailing
+spaces: a unique index `agents_name_ci_key` on `lower(btrim(name))`, and
+`fn_create_agent` refuses `FIXER` or ` fixer ` while `fixer` exists.
+Earlier builds allowed such pairs, and grants and delegation matched them
+as one name, which let an ordinary agent stand in for a system agent.
+
+**Existing installs do not get the new rule.** The extension version is
+still `0.1.0-alpha.3` and there is no upgrade script, so installing the new
+build over an existing database (new binaries, `ALTER EXTENSION allgres
+UPDATE`) applies nothing: the index and the `fn_create_agent` check are
+missing and case-variant names can still be created. Only a new
+`CREATE EXTENSION` gets them. Bringing them to existing installs needs a
+version bump with an upgrade script (the missing upgrade path is tracked
+separately, review audit #10).
+
+**Dump and restore into a new install fails on such pairs** with a raw
+`duplicate key value violates unique constraint "agents_name_ci_key"`
+while `pg_restore` loads `allgres_private.agents`; the later rows of each
+pair are not restored, and rows that reference them then fail on foreign
+keys. Nothing is renamed or merged automatically. Before dumping, run this
+on the existing database:
 
 ```sql
+SELECT lower(btrim(name)) AS normalized_name,
+       array_agg(format('%L', name) ORDER BY created_at) AS names,
+       array_agg(agent_id ORDER BY created_at) AS agent_ids,
+       bool_or(is_system) AS includes_system_agent
+  FROM allgres_private.agents
+ GROUP BY lower(btrim(name))
+HAVING count(*) > 1;
+```
+
+No rows means nothing to do. For each row, decide which agent keeps the
+name (keep a system agent's name as is), then rename the others and the
+`agent` grants that name them, and run the query again until it returns no
+rows:
+
+```sql
+BEGIN;
 UPDATE allgres_private.agents SET name = 'fixer_lookalike'
  WHERE agent_id = '<id of the one to rename>';
 UPDATE allgres_private.permissions SET resource_ref = 'fixer_lookalike'
- WHERE resource_type = 'agent' AND resource_ref = 'FIXER';
-SELECT allgres_private.ensure_agent_names_unique();  -- creates the index
+ WHERE resource_type = 'agent' AND resource_ref = 'FIXER';  -- its old spelling, exactly
+COMMIT;
 ```
+
+On a database created by this build, `SELECT
+allgres_private.ensure_agent_names_unique();` performs the same check: it
+lists every colliding group with agent ids (error 23505) and, when there
+are none, creates `agents_name_ci_key` if it is missing.
 
 ## Deployment coverage
 
