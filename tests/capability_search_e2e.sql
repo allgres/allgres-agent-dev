@@ -3,9 +3,13 @@
 -- Run after tests/e2e_mock.sql, which configures the deterministic mock
 -- embedding provider and proves the worker HTTP path. Each queueing step is
 -- its own committed statement so the background worker can see it.
-SELECT allgres_public.fn_grant_permission(
-  (SELECT agent_id FROM allgres_private.agents WHERE name='e2e_search_requester'),
-  'function','seoul_weather');
+-- seoul_weather is a fixed-URL http_get Function, which fn_grant_permission
+-- no longer grants directly (it runs only through a procedure that binds
+-- it). Search filtering still reads 'function' rows, so this fixture writes
+-- the row an older install may hold, to keep covering that filter.
+INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
+SELECT agent_id, 'function', 'seoul_weather' FROM allgres_private.agents WHERE name='e2e_search_requester'
+ON CONFLICT DO NOTHING;
 SELECT allgres_public.fn_grant_permission(
   (SELECT agent_id FROM allgres_private.agents WHERE name='e2e_search_requester'),
   'procedure','seoul-weather');
