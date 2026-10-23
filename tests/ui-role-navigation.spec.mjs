@@ -162,8 +162,8 @@ test('registered functions are offered as grant choices', async ({ page }) => {
 
 // A fresh install (only the seeded general/analyst/health_monitor besides
 // system agents, no teams) shows the "Build your first team" card. The board
-// is narrowed to that state by rewriting canvas.state, so the test does not
-// depend on what earlier tests or suites created.
+// is narrowed to that state by rewriting canvas.state, and the test creates
+// the one agent of its own it needs, so it depends on no earlier test.
 test('canvas empty state ignores the seeded agents', async ({ page }) => {
   const SEEDED = ['general', 'analyst', 'health_monitor'];
   let keep = SEEDED;
@@ -182,12 +182,13 @@ test('canvas empty state ignores the seeded agents', async ({ page }) => {
   if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
   await expect(page.locator('.agent-node', { hasText: 'analyst' }).first()).toBeVisible();
   await expect(page.getByRole('region', { name: 'Build your first team' })).toBeVisible();
-  // One agent of the operator's own and the card goes away.
-  const agents = await page.evaluate(async () => (await (await fetch('/api/v1/rpc', { method: 'POST',
+  // One agent of the operator's own and the card goes away. The test makes
+  // that agent itself, so it passes run alone or after the other tests.
+  const own = { name: `ui_empty_${Date.now()}` };
+  const made = await page.evaluate(async name => (await (await fetch('/api/v1/rpc', { method: 'POST',
     headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
-    body: JSON.stringify({ action: 'agents.list', session_token: sessionStorage.getItem('allgres_session_token') }) })).json()).agents);
-  const own = agents.find(a => !a.is_system && !SEEDED.includes(a.name));
-  expect(own, 'an earlier test created an agent of its own').toBeTruthy();
+    body: JSON.stringify({ action: 'agents.create', name, session_token: sessionStorage.getItem('allgres_session_token') }) })).json()), own.name);
+  expect(made.ok, made.error).not.toBe(false);
   keep = [...SEEDED, own.name];
   await page.reload();
   await expect(page.locator(`.agent-node[data-agent="${own.name}"]`)).toBeVisible();
