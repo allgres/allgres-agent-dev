@@ -1840,7 +1840,7 @@ BEGIN
 
   -- The migration's own retroactive fix, not just the new column's default:
   -- the seeded 'ollama' row must still come out false after this file's own
-  -- ALTER TABLE/UPDATE runs, exactly matching what the old name check used
+  -- column migration and UPDATE run, exactly matching what the old name check used
   -- to give it.
   ok := (SELECT response_format_json_object FROM allgres_private.llm_providers WHERE name = 'ollama') IS FALSE;
   v := v || jsonb_build_array(jsonb_build_object('name', 'seeded_ollama_provider_still_omits_response_format', 'ok', ok));
@@ -5982,31 +5982,8 @@ BEGIN
         AND content->>'reason' = 'http_host_not_permitted' AND content->>'call_id' = v_other_call::text);
     v := v || jsonb_build_array(jsonb_build_object('name','direct_builtin_grant_still_reaches_builtin','ok',ok,'detail',v_claimed));
 
-    -- fn_selftest and functions are both owned by allgres_owner. Disable only
-    -- this user trigger, inside the selftest's rollback scope, to model a dump
-    -- from an old install; unrelated legacy-row updates must still succeed.
-    ALTER TABLE allgres_private.functions DISABLE TRIGGER functions_refuse_reserved_name;
-    INSERT INTO allgres_private.functions(name,description,handler,body,build_status)
-    VALUES('http_get','selftest legacy builtin collision','plpgsql','BEGIN RETURN p_args; END;','built')
-    RETURNING function_id INTO v_fn;
-    ALTER TABLE allgres_private.functions ENABLE TRIGGER functions_refuse_reserved_name;
-    UPDATE allgres_private.functions SET description = 'legacy unrelated update', is_active = false WHERE function_id = v_fn;
-    UPDATE allgres_private.functions SET is_active = true, build_status = 'built' WHERE function_id = v_fn;
-    v_sid := (allgres_public.fn_create_session(v_ag,'selftest r6 legacy collision')->>'session_id')::uuid;
-    SELECT task_id INTO STRICT v_tid FROM allgres_private.tasks WHERE session_id = v_sid;
-    PERFORM allgres_public.fn_next_step(v_tid);
-    r := allgres_public.fn_submit_result(v_tid,jsonb_build_object('type','llm_response','content','{"action":"call_function"}',
-      'parsed',jsonb_build_object('action','call_function','function','http_get',
-        'args',jsonb_build_object('url','https://allowed.selftest-r6.invalid/legacy'))));
-    v_call := (r->>'call_id')::uuid;
-    ok := v_call IS NOT NULL AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls
-      WHERE call_id = v_call AND function = 'http_get' AND kind = 'function' AND url = 'https://allowed.selftest-r6.invalid/legacy')
-      AND NOT EXISTS (SELECT 1 FROM allgres_private.function_calls WHERE task_id = v_tid);
-    r := allgres.dashboard_rpc(jsonb_build_object('action','permissions.options','session_token',v_tok));
-    ok := ok AND (SELECT count(*) FROM jsonb_array_elements(r->'function_catalog') e WHERE e->>'name' = 'http_get') = 1
-      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r->'function_catalog') e WHERE e->>'name' = 'http_get' AND e->>'kind' <> 'builtin');
-    v := v || jsonb_build_array(jsonb_build_object('name','legacy_reserved_name_row_is_inert','ok',ok));
-    DELETE FROM allgres_private.functions WHERE function_id = v_fn;
+    -- legacy_reserved_name_row_is_inert lives in tests/legacy_reserved_name_row.sql
+    -- (needs triggers skipped, which fn_selftest must not do).
   END;
 
   -- D3: permissions.options lists the real Function catalog. `functions`
