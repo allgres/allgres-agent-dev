@@ -29,6 +29,10 @@ pub(crate) struct WebConfig {
     pub(crate) token: String,
     pub(crate) socket: PathBuf,
     pub(crate) mock_enabled: bool,
+    /// Host names (lower-case, optionally `name:port`) the dashboard
+    /// answers for, besides IP literals and `localhost`; `None` turns the
+    /// Host check off. See `allowed_hosts`.
+    pub(crate) allowed_hosts: Option<Vec<String>>,
 }
 
 static WEB_THREADS: AtomicUsize = AtomicUsize::new(0);
@@ -231,6 +235,82 @@ pub(crate) fn csrf_ok(r: &HttpRequest) -> bool {
         return true;
     }
     r.header("x-allgres-client").is_some()
+}
+
+/// The DNS-rebinding guard's allowlist. `csrf_ok` alone cannot stop a
+/// rebinding page: its `Origin` and `Host` are both the attacker's own name
+/// (`evil.example:8088`), resolved to this listener's address, so they match.
+/// What gives it away is the `Host` itself, so pages and the API only answer
+/// for names this deployment actually serves (`host_allowed`).
+///
+/// * `ALLGRES_ALLOWED_HOSTS` -- comma-separated extra names (`name` or
+///   `name:port`), or `*` to turn the check off entirely.
+/// * The bind host from `ALLGRES_HTTP_ADDR`, when it is a name rather than a
+///   wildcard address.
+/// * Always allowed: `localhost` and any IP literal (a rebinding attack
+///   needs a DNS name, so an IP-literal Host can only come from a page this
+///   listener served itself).
+///
+/// With no `ALLGRES_ALLOWED_HOSTS` set and a dashboard token configured, the
+/// check stays off (`None`): a rebinding page can reach the listener but has
+/// no way to learn the token, and reverse-proxy deployments that already set
+/// a token keep working with whatever public name they serve. Set
+/// `ALLGRES_ALLOWED_HOSTS` to enforce it there too.
+pub(crate) fn allowed_hosts(bind_addr: &str, token: &str, configured: Option<&str>) -> Option<Vec<String>> {
+    let configured = configured.map(str::trim).filter(|v| !v.is_empty());
+    if configured == Some("*") {
+        return None;
+    }
+    if configured.is_none() && !token.is_empty() {
+        return None;
+    }
+    let mut hosts = vec!["localhost".to_string()];
+    let (bind_host, _) = split_host_port(bind_addr);
+    if !bind_host.is_empty() && bind_host != "0.0.0.0" && bind_host != "::" {
+        hosts.push(bind_host.to_ascii_lowercase());
+    }
+    for h in configured.unwrap_or("").split(',') {
+        let h = h.trim().trim_end_matches('.').to_ascii_lowercase();
+        if !h.is_empty() && !hosts.contains(&h) {
+            hosts.push(h);
+        }
+    }
+    Some(hosts)
+}
+
+/// `host[:port]`, `[v6]:port`, or a bare `v6` literal, split into the host
+/// (brackets removed) and the port, if any.
+fn split_host_port(s: &str) -> (&str, Option<&str>) {
+    let s = s.trim();
+    if let Some(rest) = s.strip_prefix('[') {
+        return match rest.split_once(']') {
+            Some((h, tail)) => (h, tail.strip_prefix(':').filter(|p| !p.is_empty())),
+            None => (rest, None),
+        };
+    }
+    match s.rsplit_once(':') {
+        // More than one colon and no brackets: a bare IPv6 literal.
+        Some((h, _)) if h.contains(':') => (s, None),
+        Some((h, p)) => (h, Some(p)),
+        None => (s, None),
+    }
+}
+
+pub(crate) fn host_allowed(r: &HttpRequest, allowed: &Option<Vec<String>>) -> bool {
+    let Some(allowed) = allowed else { return true };
+    let Some(raw) = r.header("host") else { return false };
+    let (host, port) = split_host_port(raw);
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() {
+        return false;
+    }
+    if host.parse::<IpAddr>().is_ok() {
+        return true;
+    }
+    allowed.iter().any(|entry| {
+        let (eh, ep) = split_host_port(entry);
+        eh == host && (ep.is_none() || ep == port)
+    })
 }
 
 fn nonce() -> String {
@@ -559,6 +639,18 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
+    // Pages and the API only answer for this deployment's own names (DNS
+    // rebinding, see `allowed_hosts`). /healthz and the /mock fixtures above
+    // stay reachable under any name: probes and the runtime worker's own
+    // mock calls use whatever address they were configured with, and
+    // neither returns anything a rebinding page could use.
+    if (path == "/" || path == "/canvas" || path.starts_with("/api/"))
+        && !host_allowed(&r, &cfg.allowed_hosts)
+    {
+        respond_json(&mut s, "421 Misdirected Request", "{\"ok\":false,\"error\":\"host_not_allowed\"}");
+        return;
+    }
+
     // Both pages are static documents behind the same per-response nonce
     // CSP; everything they show comes from /api/v1 after load.
     if path == "/" || path == "/canvas" {
@@ -673,10 +765,17 @@ pub extern "C-unwind" fn allgres_web_main(_arg: pg_sys::Datum) {
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
 
     let addr = configured_http_addr();
+    let token = std::env::var("ALLGRES_DASHBOARD_TOKEN").unwrap_or_default();
+    let allowed_hosts = allowed_hosts(
+        &addr,
+        &token,
+        std::env::var("ALLGRES_ALLOWED_HOSTS").ok().as_deref(),
+    );
     let cfg = WebConfig {
-        token: std::env::var("ALLGRES_DASHBOARD_TOKEN").unwrap_or_default(),
+        token,
         socket: rpc_socket_path(),
         mock_enabled: std::env::var("ALLGRES_ENABLE_MOCK").as_deref() == Ok("1"),
+        allowed_hosts,
     };
 
     if let Err(msg) = check_exposure(&addr, &cfg.token) {

@@ -93,6 +93,14 @@ grep -qv '__CSP_NONCE__' <<<"$canvas_body"
       -H 'Origin: http://evil.test' "$BASE/api/v1/agents")" == "403" ]]
 # Preflight is never approved.
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS "$BASE/api/v1/agents")" == "405" ]]
+# DNS rebinding: a page on a hostname that now resolves to this address sends
+# its own name as Host. With no token set, only localhost and IP literals
+# (plus ALLGRES_ALLOWED_HOSTS) reach the dashboard and API.
+[[ "$(curl -s -o /dev/null -w '%{http_code}' "${HDR[@]}" \
+      -H 'Host: rebind.evil.test:8088' "$BASE/api/v1/agents")" == "421" ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: rebind.evil.test:8088' "$BASE/")" == "421" ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' "${HDR[@]}" \
+      -H 'Host: localhost:8088' "$BASE/api/v1/status")" == "200" ]]
 
 # The RPC socket must not be reachable by other local users.
 docker compose exec -T allgres sh -lc '

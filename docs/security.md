@@ -43,6 +43,23 @@ mismatched `Origin`. `/api/v1/events` is exempt from the header rule because
 `EventSource` cannot set one; it is a read-only endpoint whose response a
 cross-origin page cannot read.
 
+## DNS rebinding
+
+The CSRF checks above compare `Origin` with `Host`, so they cannot stop DNS
+rebinding: a page on `attacker.example` re-points that name at `127.0.0.1`,
+and its requests then carry a matching `Origin` and `Host`. With no token
+set, that page could drive the whole API from the operator's browser.
+
+The dashboard therefore checks `Host` on `/`, `/canvas`, and `/api/*`, and
+answers `421 Misdirected Request` (`host_not_allowed`) for a name it does not
+know. Allowed by default: `localhost`, the bind host when it is a name, and
+any IP literal (rebinding needs a host name; this keeps LAN IP access
+working). Add names with `ALLGRES_ALLOWED_HOSTS` (for example the name a
+reverse proxy forwards). When `ALLGRES_DASHBOARD_TOKEN` is set the check is
+off unless `ALLGRES_ALLOWED_HOSTS` is set, because a rebinding page cannot
+learn the token; `ALLGRES_ALLOWED_HOSTS=*` turns it off entirely. `/healthz`
+and `/mock/*` are not checked.
+
 Dashboard HTML is served with a per-response CSP nonce, `frame-ancestors
 'none'`, and `nosniff`.
 

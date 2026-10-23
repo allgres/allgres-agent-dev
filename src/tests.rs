@@ -7,7 +7,7 @@ use crate::sql_parser::{analyze_dump, node_body, paren_body, quoted_strings, rea
 use crate::truncate_utf8;
 use crate::web::{
     auth_failures_exceeded, authorized, check_exposure, consume_sse_ticket, constant_time_eq,
-    csrf_ok, mint_sse_ticket, percent_decode, rate_limited, record_auth_failure, WebConfig,
+    allowed_hosts, csrf_ok, host_allowed, mint_sse_ticket, percent_decode, rate_limited, record_auth_failure, WebConfig,
     RATE_AUTH_FAIL_LIMIT, RATE_GENERAL_LIMIT, RATE_GENERAL_WINDOW, RATE_LIMIT, SSE_TICKETS,
 };
 use crate::{CANVAS_HTML, DASHBOARD_HTML, SSE_TICKET_TTL};
@@ -136,6 +136,64 @@ fn csrf_rejects_foreign_origin_and_opaque_origin() {
     )));
 }
 
+// The DNS-rebinding case csrf_ok alone lets through: a page served from the
+// attacker's own name, rebound to this listener, sends matching Origin and
+// Host headers.
+#[test]
+fn rebinding_host_is_rejected_by_default() {
+    let r = req(
+        "POST /api/v1/rpc HTTP/1.1\r\nHost: evil.example:8088\r\nOrigin: http://evil.example:8088\r\nX-Allgres-Client: d\r\n\r\n",
+    );
+    assert!(csrf_ok(&r), "Origin == Host, so csrf_ok alone passes it");
+    let allowed = allowed_hosts("127.0.0.1:8088", "", None);
+    assert!(!host_allowed(&r, &allowed));
+    // Same with a wildcard bind (the container default).
+    assert!(!host_allowed(&r, &allowed_hosts("0.0.0.0:8088", "", None)));
+}
+
+#[test]
+fn loopback_and_ip_literal_hosts_are_allowed_by_default() {
+    let allowed = allowed_hosts("127.0.0.1:8088", "", None);
+    for host in [
+        "127.0.0.1:8088", "localhost:8088", "LOCALHOST", "localhost.", "[::1]:8088",
+        "192.168.10.5:8088", "127.0.0.2",
+    ] {
+        let r = req(&format!("GET /api/v1/status HTTP/1.1\r\nHost: {host}\r\n\r\n"));
+        assert!(host_allowed(&r, &allowed), "{host} should be allowed");
+    }
+    // No Host header at all, or an empty one, is refused while enforcing.
+    assert!(!host_allowed(&req("GET /api/v1/status HTTP/1.1\r\n\r\n"), &allowed));
+    assert!(!host_allowed(&req("GET /api/v1/status HTTP/1.1\r\nHost: :8088\r\n\r\n"), &allowed));
+    // A name that merely starts like localhost is not localhost.
+    assert!(!host_allowed(&req("GET / HTTP/1.1\r\nHost: localhost.evil.example\r\n\r\n"), &allowed));
+}
+
+#[test]
+fn configured_and_bind_host_names_extend_the_allowlist() {
+    let allowed = allowed_hosts("allgres.internal:8088", "", Some(" Dash.Example.com , other.example:9000 "));
+    let ok = |h: &str| host_allowed(&req(&format!("GET / HTTP/1.1\r\nHost: {h}\r\n\r\n")), &allowed);
+    assert!(ok("allgres.internal:8088"));
+    assert!(ok("dash.example.com"));
+    assert!(ok("DASH.example.com:443"));
+    assert!(ok("other.example:9000"));
+    assert!(!ok("other.example:9001"), "a name listed with a port only matches that port");
+    assert!(!ok("evil.example"));
+}
+
+#[test]
+fn host_check_mode_follows_token_and_wildcard() {
+    // A configured token keeps the check off unless names are configured.
+    assert_eq!(allowed_hosts("0.0.0.0:8088", "s3cr3t", None), None);
+    assert!(allowed_hosts("0.0.0.0:8088", "s3cr3t", Some("dash.example.com")).is_some());
+    // `*` turns it off even with no token.
+    assert_eq!(allowed_hosts("127.0.0.1:8088", "", Some("*")), None);
+    let r = req("GET / HTTP/1.1\r\nHost: evil.example\r\n\r\n");
+    assert!(host_allowed(&r, &None));
+    // Wildcard bind addresses never become allowlist entries.
+    assert_eq!(allowed_hosts("[::]:8088", "", None), Some(vec!["localhost".to_string()]));
+    assert_eq!(allowed_hosts("0.0.0.0:8088", "", None), Some(vec!["localhost".to_string()]));
+}
+
 #[test]
 fn event_stream_is_exempt_from_the_custom_header() {
     assert!(csrf_ok(&req("GET /api/v1/events HTTP/1.1\r\nHost: a\r\n\r\n")));
@@ -147,6 +205,7 @@ fn token_is_required_when_configured() {
         token: "s3cr3t".into(),
         socket: PathBuf::from("/dev/null"),
         mock_enabled: false,
+        allowed_hosts: None,
     };
     assert!(!authorized(&req("GET /api/v1/tasks HTTP/1.1\r\n\r\n"), &cfg));
     assert!(!authorized(
@@ -165,6 +224,7 @@ fn query_ticket_is_accepted_only_for_the_event_stream_and_only_once() {
         token: "s3cr3t".into(),
         socket: PathBuf::from("/dev/null"),
         mock_enabled: false,
+        allowed_hosts: None,
     };
     // The durable token itself, presented as a query param, must never
     // authorize -- only a minted ticket does, and only for /api/v1/events.
