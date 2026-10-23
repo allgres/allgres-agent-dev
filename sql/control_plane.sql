@@ -4739,6 +4739,10 @@ BEGIN
         PERFORM allgres_private.mark_capability_selected(p_task_id,'function',v_procedure_function.name);
         UPDATE allgres_private.tasks SET step_count=step_count+1,updated_at=now() WHERE task_id=p_task_id;
         RETURN jsonb_build_object('action','call_function','function',v_function,'call_id',v_call);
+      ELSIF FOUND AND v_procedure_function.handler <> 'plpgsql'
+          AND lower(btrim(v_function)) NOT IN ('http_get', 'http_request') THEN
+        -- Legacy or pre-registration direct grants must not shadow a procedure binding.
+        v_allowed := false;
       END IF;
     END IF;
     IF NOT v_allowed THEN

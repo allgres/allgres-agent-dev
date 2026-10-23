@@ -5848,6 +5848,7 @@ BEGIN
   DECLARE
     v_conn uuid;
     v_fn uuid;
+    v_proc uuid;
     v_ag uuid;
     v_sid uuid;
     v_tid uuid;
@@ -5902,8 +5903,8 @@ BEGIN
     ok := v_n = 4 AND NOT EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = v_ag);
     v := v || jsonb_build_array(jsonb_build_object('name', 'direct_grant_of_http_get_or_mcp_function_refused', 'ok', ok, 'detail', o));
 
-    -- Run time is unchanged: such a row, written straight into the table,
-    -- does not make the Function callable (still unknown_function).
+    -- Such a row, written straight into the table, still needs a procedure
+    -- binding to make the Function callable.
     INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
     VALUES (v_ag, 'function', 'selftest_d3_web_search');
     v_sid := (allgres_public.fn_create_session(v_ag, 'selftest d3 search')->>'session_id')::uuid;
@@ -5916,8 +5917,50 @@ BEGIN
     ok := r->>'call_id' IS NULL
       AND NOT EXISTS (SELECT 1 FROM allgres_private.outbound_calls c WHERE c.procedure_function_id = v_fn)
       AND EXISTS (SELECT 1 FROM allgres_private.execution_logs
-                  WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'unknown_function');
+                  WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'function_not_permitted');
     v := v || jsonb_build_array(jsonb_build_object('name', 'direct_mcp_function_row_does_not_run', 'ok', ok, 'detail', r));
+
+    -- A legacy direct row must not hide a valid procedure grant.
+    v_ag := (allgres_public.fn_create_agent('selftest_d3_legacy', 'fixed page')->>'agent_id')::uuid;
+    SELECT function_id INTO v_fn FROM allgres_private.functions WHERE name = 'selftest_d3_fixed';
+    INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
+    VALUES (v_ag, 'function', 'selftest_d3_fixed');
+    v_proc := (allgres_public.fn_create_procedure('selftest_d3_legacy_procedure', 'get the fixed page')->>'procedure_id')::uuid;
+    PERFORM allgres_public.fn_bind_procedure_function(v_proc, v_fn);
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'procedure', 'selftest_d3_legacy_procedure');
+    v_sid := (allgres_public.fn_create_session(v_ag, 'selftest d3 legacy direct row')->>'session_id')::uuid;
+    SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+    PERFORM allgres_public.fn_next_step(v_tid);
+    r := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+      'type', 'llm_response', 'content', '{"action":"call_function"}',
+      'parsed', jsonb_build_object('action', 'call_function', 'function', 'selftest_d3_fixed')));
+    ok := r->>'action' = 'call_function' AND r->>'call_id' IS NOT NULL
+      AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls
+                  WHERE call_id = (r->>'call_id')::uuid AND procedure_function_id = v_fn AND procedure_id = v_proc)
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.execution_logs
+                      WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'unknown_function');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'direct_function_row_does_not_shadow_procedure', 'ok', ok, 'detail', r));
+
+    -- A direct grant made before registration has the same procedure fallback.
+    v_ag := (allgres_public.fn_create_agent('selftest_d3_preregister', 'fixed page')->>'agent_id')::uuid;
+    o := allgres_public.fn_grant_permission(v_ag, 'function', 'selftest_d3_future_fixed');
+    v_fn := (allgres_public.fn_create_function('selftest_d3_future_fixed', 'future fixed page', 'http_get',
+      jsonb_build_object('url', 'https://fixed.selftest-d3.invalid/future'))->>'function_id')::uuid;
+    v_proc := (allgres_public.fn_create_procedure('selftest_d3_preregister_procedure', 'get the future fixed page')->>'procedure_id')::uuid;
+    PERFORM allgres_public.fn_bind_procedure_function(v_proc, v_fn);
+    PERFORM allgres_public.fn_grant_permission(v_ag, 'procedure', 'selftest_d3_preregister_procedure');
+    v_sid := (allgres_public.fn_create_session(v_ag, 'selftest d3 grant before registration')->>'session_id')::uuid;
+    SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+    PERFORM allgres_public.fn_next_step(v_tid);
+    r := allgres_public.fn_submit_result(v_tid, jsonb_build_object(
+      'type', 'llm_response', 'content', '{"action":"call_function"}',
+      'parsed', jsonb_build_object('action', 'call_function', 'function', 'selftest_d3_future_fixed')));
+    ok := (o->>'ok')::boolean AND r->>'action' = 'call_function' AND r->>'call_id' IS NOT NULL
+      AND EXISTS (SELECT 1 FROM allgres_private.outbound_calls
+                  WHERE call_id = (r->>'call_id')::uuid AND procedure_function_id = v_fn AND procedure_id = v_proc)
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.execution_logs
+                      WHERE task_id = v_tid AND role = 'error' AND content->>'reason' = 'unknown_function');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'grant_before_register_does_not_shadow_procedure', 'ok', ok, 'detail', r));
   END;
 
   -- http_host grants are stored lower-cased and trimmed, on every grant
