@@ -110,7 +110,7 @@ make install
 ALLGRES_BOOTSTRAP_ADMIN_USER=admin ALLGRES_BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-password' make quickstart
 ```
 
-Install the matching PostgreSQL server development package, C toolchain, and OpenSSL development files first. `make install` copies extension files; `make quickstart` configures a live database. The [source guide](docs/deployment/source-install.md) covers prerequisites, privileges, and a persistent `shared_preload_libraries` setup.
+Install the matching PostgreSQL server development package, C toolchain, and OpenSSL development files first. Building needs **rustc 1.96 or newer** (pgrx 0.19.2 requires it; `rustup update stable` if yours is older). `make` installs Rust through rustup when it is missing and stops early with this message when it is too old. `make install` copies extension files; `make quickstart` configures a live database. The [source guide](docs/deployment/source-install.md) covers prerequisites, privileges, and a persistent `shared_preload_libraries` setup.
 
 ### RPM: package PostgreSQL 18
 

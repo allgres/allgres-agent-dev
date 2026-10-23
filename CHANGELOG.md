@@ -4,6 +4,7 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- Building from source needs rustc 1.96 or newer (pgrx 0.19.2's `rust-version`). README and the source guide say so, `Cargo.toml` declares `rust-version = "1.96"`, and `make` stops early with an update hint instead of failing inside `cargo install cargo-pgrx`.
 - `tests/cleanup.sql` retires what `tests/*.sql` leave behind (fixture agents renamed to `selftest_*` and deactivated, their sessions hidden, grants and test-only functions removed) and fails if any is still visible; `scripts/run_sql_tests.sh`, CI, and `scripts/smoke.sh` run it last. `e2e_mock.sql` now uses its own `e2e_mock_runner` agent instead of repointing the seeded `analyst` at the mock model, and `smoke.sql` no longer overwrites the `openai` provider's key.
 - Dashboard checks the `Host` header against an allowlist (`localhost`, the bind host, IP literals, `ALLGRES_ALLOWED_HOSTS`) and answers `421` otherwise, closing DNS rebinding against a tokenless install. On by default when no token is set.
 - Canvas delegation lines are now checked on the server: a line into or out of a system agent is refused (D2), and a line is refused when the receiving agent, or anything below it, holds a view, function, procedure, or HTTP host that the sending agent or anything above it lacks (D1, the same delegation ceiling `fn_canvas_grant` already applied). Template placement goes through the same check.

@@ -66,6 +66,8 @@ up in Cargo's own build output; `make check` (run automatically by
 whichever piece is actually missing instead, before ever reaching that
 `cargo install` line.
 
+Rust needs to be **1.96 or newer** (pgrx 0.19.2 declares `rust-version = "1.96"`); with an older toolchain `make` stops before `cargo install cargo-pgrx` and says so. `rustup update stable` fixes it.
+
 Rust and `cargo-pgrx` are handled for you if they aren't already there:
 
 ```bash

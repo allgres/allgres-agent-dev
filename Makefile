@@ -22,6 +22,10 @@ QUICKSTART_DB ?= postgres
 ALLGRES_BOOTSTRAP_ADMIN_USER ?=
 ALLGRES_BOOTSTRAP_ADMIN_PASSWORD ?=
 CARGO_BIN_DIR ?= $(HOME)/.cargo/bin
+# pgrx 0.19.2 (and cargo-pgrx 0.19.2) declare rust-version = "1.96"; an
+# older rustc fails deep inside `cargo install cargo-pgrx`. Keep in step with
+# rust-version in Cargo.toml.
+RUST_MIN_VERSION := 1.96
 
 .DEFAULT_GOAL := build
 export PATH := $(CARGO_BIN_DIR):$(PATH)
@@ -101,6 +105,12 @@ tools: check
 	  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal; \
 	  command -v cargo >/dev/null 2>&1 || { echo "Rust installed but cargo is still unavailable; add $(CARGO_BIN_DIR) to PATH and retry."; exit 1; }; \
 	}
+	@have=$$(rustc --version 2>/dev/null | sed -E 's/^rustc ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/'); \
+	if [ -z "$$have" ] || [ "$$(printf '%s\n%s\n' "$(RUST_MIN_VERSION)" "$$have" | sort -V | head -n1)" != "$(RUST_MIN_VERSION)" ]; then \
+	  echo "rustc $(RUST_MIN_VERSION) or newer is required (pgrx $(CARGO_PGRX_VERSION) needs it); found: $${have:-none}." >&2; \
+	  echo "Update with \`rustup update stable\` (or install Rust from https://rustup.rs), then retry." >&2; \
+	  exit 1; \
+	fi
 	@command -v cargo-pgrx >/dev/null 2>&1 || cargo install --locked cargo-pgrx --version $(CARGO_PGRX_VERSION)
 	@cargo pgrx init --pg$(PG_MAJOR)=$(PG_CONFIG)
 
