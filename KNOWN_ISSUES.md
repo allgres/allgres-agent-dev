@@ -145,6 +145,48 @@ COMMIT;
 
 The check query above returns no rows afterwards.
 
+### Functions named like a builtin
+
+This build refuses Function names `http_get`, `http_request`, `mcp_call`,
+and `plpgsql`, ignoring case and surrounding spaces. The create API,
+dashboard RPC, agent actions (including proposal creation and approval),
+and a table trigger enforce the rule. The update API never changes names;
+the trigger also guards direct renames. Unrelated updates to legacy rows
+remain possible. This build's runtime ignores reserved-name Function rows,
+so they cannot shadow a builtin.
+
+**Existing installs get nothing on upgrade.** The version is still
+`0.1.0-alpha.3` and there is no upgrade script. Replacing binaries and
+running `ALTER EXTENSION allgres UPDATE` applies none of these SQL changes,
+including the runtime guards. Only a new `CREATE EXTENSION` gets them;
+existing installs need a version bump and upgrade script to acquire them.
+
+Before dumping an existing install, detect collisions:
+
+```sql
+SELECT function_id, name, handler, is_active
+FROM allgres_private.functions
+WHERE lower(btrim(name)) IN ('http_get','http_request','mcp_call','plpgsql');
+```
+
+Rename and deactivate these rows, choosing unused names (and shortening
+names if needed to respect the 63-character limit):
+
+```sql
+UPDATE allgres_private.functions
+SET name = name || '_renamed', is_active = false
+WHERE lower(btrim(name)) IN ('http_get','http_request','mcp_call','plpgsql');
+```
+
+Revisit permissions rows with `resource_type = 'function'` that named those
+Functions: those names now mean the builtin. Review their procedure
+bindings too before reactivating a renamed Function.
+
+`functions` is an extension config-dumped table (`pg_extension_config_dump`
+in `sql/seed_data.sql`). Restoring a dump with a reserved-name row into a
+new install fails when the trigger rejects that row's `COPY`, aborting the
+table's load. Clean up before dumping; nothing is automatically renamed.
+
 ## Deployment coverage
 
 - PostgreSQL 16, 17, and 18 are covered by CI.
