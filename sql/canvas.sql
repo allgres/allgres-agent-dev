@@ -547,6 +547,42 @@ BEGIN
 END;
 $fn$;
 
+-- What a non-agent grant may name, and how it is stored. Called by
+-- fn_grant_permission and fn_canvas_grant before anything else.
+--  * http_host refs are stored lower-cased and trimmed, the way url_host
+--    reports a host, so revoke and the ceiling check see one spelling.
+--  * a direct `function` grant may name a built-in (http_get, http_request)
+--    or a PL/pgSQL Function. A fixed-URL http_get or an MCP Function runs
+--    only through a Procedure that binds it -- the execution guard requires
+--    an http_host grant for any outbound call without a procedure -- so a
+--    direct grant of one would never work; it is refused here instead.
+CREATE OR REPLACE FUNCTION allgres_private.check_grant_target(p_type text, p_ref text)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_handler text;
+BEGIN
+  IF p_type = 'http_host' THEN
+    RETURN lower(btrim(p_ref));
+  END IF;
+  IF p_type = 'function' AND lower(btrim(p_ref)) NOT IN ('http_get', 'http_request') THEN
+    SELECT handler INTO v_handler FROM allgres_private.functions
+    WHERE lower(name) = lower(btrim(p_ref)) AND handler <> 'plpgsql'
+    LIMIT 1;
+    IF FOUND THEN
+      RAISE EXCEPTION '% is % Function and cannot be granted directly; bind it via a procedure and grant that procedure',
+        btrim(p_ref), CASE v_handler WHEN 'mcp_call' THEN 'an MCP' ELSE 'a fixed-URL http_get' END
+        USING ERRCODE = 'P0001',
+              HINT = 'functions.bind attaches it to a procedure; then grant the procedure (permission type procedure).';
+    END IF;
+  END IF;
+  RETURN p_ref;
+END;
+$fn$;
+
 -- The other half of the ceiling (audit #2): once a line exists, a new
 -- view/function/procedure/http_host grant to the agent below it must already
 -- be held by every agent above it, or the line would carry it upward to
@@ -683,9 +719,7 @@ BEGIN
   IF v_ref = '' THEN
     RAISE EXCEPTION 'grant ref required' USING ERRCODE = 'P0001';
   END IF;
-  IF p_type = 'http_host' THEN
-    v_ref := lower(v_ref);
-  END IF;
+  v_ref := allgres_private.check_grant_target(p_type, v_ref);
 
   SELECT COALESCE(jsonb_agg(jsonb_build_object('agent_id', s.agent_id, 'name', x.name, 'is_system', x.is_system) ORDER BY x.name), '[]'::jsonb)
   INTO v_missing

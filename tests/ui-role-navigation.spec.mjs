@@ -124,9 +124,10 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   expect(cspErrors).toEqual([]);
 });
 
-// Every registered Function is a grant choice -- not only the two built-ins:
-// an MCP tool such as web_search shows up in permissions.options and in the
-// Canvas "Add an ability" list.
+// Every registered Function shows up as a choice, not only the two built-ins.
+// An MCP tool such as web_search runs only through a procedure that binds
+// it, so it is listed as not directly grantable, with that hint, and Canvas
+// shows it disabled in "Add an ability".
 test('registered functions are offered as grant choices', async ({ page }) => {
   const stamp=Date.now();
   const fn=`ui_web_search_${stamp}`;
@@ -142,14 +143,21 @@ test('registered functions are offered as grant choices', async ({ page }) => {
     if (made.ok === false) throw new Error(made.error);
     return call({ action: 'permissions.options' });
   }, { fn, stamp });
-  expect(opts.functions).toEqual(expect.arrayContaining(['http_get', 'http_request', fn]));
+  expect(opts.functions).toEqual(expect.arrayContaining(['http_get', 'http_request']));
+  expect(opts.functions).not.toContain(fn);
   expect(opts.function_catalog).toEqual(expect.arrayContaining([
-    expect.objectContaining({ name: fn, kind: 'mcp_call', description: 'search the web' })]));
+    expect.objectContaining({ name: fn, kind: 'mcp_call', description: 'search the web',
+      grantable: false, hint: 'bind via a procedure' })]));
   await page.goto(baseURL + '/canvas');
   const gotIt = page.getByRole('button', { name: 'Got it' });
   if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
   await page.locator('.agent-node', { hasText: 'general' }).first().click();
-  await expect(page.getByLabel('Add an ability').locator(`option[value="function:${fn}"]`)).toHaveCount(1);
+  const adder = page.getByLabel('Add an ability');
+  await expect(adder.locator(`option[value="function:${fn}"]`)).toHaveCount(0);
+  const shown = adder.locator(`option[value="bind:${fn}"]`);
+  await expect(shown).toHaveCount(1);
+  await expect(shown).toBeDisabled();
+  await expect(shown).toContainText('Bind via a procedure');
 });
 
 // A fresh install (only the seeded general/analyst/health_monitor besides

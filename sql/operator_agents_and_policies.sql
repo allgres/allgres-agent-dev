@@ -1037,8 +1037,10 @@ BEGIN
   ELSE
     -- Any other grant to an agent below a delegation line must already be
     -- held by every agent above it (audit #2; check_grant_ceiling, also in
-    -- sql/canvas.sql).
-    PERFORM allgres_private.check_grant_ceiling(ARRAY[p_agent_id], p_type, p_ref);
+    -- sql/canvas.sql). check_grant_target (same file) refuses a direct
+    -- grant of an http_get/MCP Function and normalizes http_host refs.
+    v_ref := allgres_private.check_grant_target(p_type, p_ref);
+    PERFORM allgres_private.check_grant_ceiling(ARRAY[p_agent_id], p_type, v_ref);
   END IF;
   PERFORM allgres_private.insert_permission(p_agent_id, p_type, v_ref);
   RETURN jsonb_build_object('ok', true);

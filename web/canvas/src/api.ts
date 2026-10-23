@@ -124,10 +124,21 @@ export interface Provider {
   available_models: string[] | null;
 }
 
+export interface FunctionEntry {
+  name: string;
+  kind: string;
+  description?: string;
+  grantable: boolean;
+  hint?: string;
+}
+
 export interface GrantOptions {
   views: string[];
+  /** What a direct `function` grant may name. */
   functions: string[];
   procedures: string[];
+  /** Every Function, including fixed-URL http_get and MCP ones that run only through a procedure. */
+  function_catalog?: FunctionEntry[];
 }
 
 export interface TaskRow {

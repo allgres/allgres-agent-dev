@@ -181,6 +181,7 @@ const KO: Record<string, string> = {
   'Add an ability': '능력 추가',
   'Choose an ability…': '능력 선택…',
   'Website…': '웹사이트…',
+  'Bind via a procedure': '절차에 묶어서 사용',
   'Remove {name}': '{name} 제거',
   'Inherited from {from}': '{from}에게서 상속',
   'It answers only from its instructions and memory.': '지시와 기억만으로 답합니다.',

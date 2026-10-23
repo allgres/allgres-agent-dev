@@ -168,7 +168,7 @@ function Canvas() {
       rpc<GrantOptions>('permissions.options').catch(() => NO_OPTIONS),
     ]);
     setProviders(p.providers);
-    setOptions({ views: o.views || [], functions: o.functions || [], procedures: o.procedures || [] });
+    setOptions({ views: o.views || [], functions: o.functions || [], procedures: o.procedures || [], function_catalog: o.function_catalog || [] });
   }, []);
 
   const start = useCallback(async () => {

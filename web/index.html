@@ -420,7 +420,7 @@ ${isNew?'':`<div class="field"><div class="row"><label class="u-margin-0">Execut
     };
   }
   if(!isNew&&opts&&!locked){
-    const fillRefOptions=()=>{const t=$('#permType').value;const list=t==='view'?opts.views:t==='agent'?opts.agents:t==='function'?opts.functions:t==='procedure'?opts.procedures:[];$('#permRefOptions').innerHTML=(list||[]).map(v=>`<option value="${esc(v)}">`).join('')};
+    const fillRefOptions=()=>{const t=$('#permType').value;const list=t==='view'?opts.views:t==='agent'?opts.agents:t==='function'?opts.functions:t==='procedure'?opts.procedures:[];$('#permRefOptions').innerHTML=(list||[]).map(v=>`<option value="${esc(v)}">`).join('')+(t==='function'?(opts.function_catalog||[]).filter(f=>!f.grantable).map(f=>`<option value="${esc(f.name)}" label="${esc(f.name)} — ${esc(f.hint||'bind via a procedure')}">`).join(''):'')};
     $('#permType').onchange=fillRefOptions; fillRefOptions();
     $('#grantP').onclick=async()=>{try{await rpc('permissions.grant',{agent_id:a.agent_id,type:$('#permType').value,ref:$('#permRef').value});closeModal();toast('Granted');agents()}catch(e){toast(e.message)}};
     document.querySelectorAll('.revokeP').forEach(b=>b.onclick=async()=>{try{await rpc('permissions.revoke',{agent_id:a.agent_id,type:b.dataset.type,ref:b.dataset.ref});closeModal();toast('Revoked');agents()}catch(e){toast(e.message)}});

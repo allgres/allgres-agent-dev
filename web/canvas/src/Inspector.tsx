@@ -303,7 +303,10 @@ function Abilities({ board, agent }: { board: Board; agent: Agent }) {
     ...board.options.procedures.map((ref) => ({ type: 'procedure' as const, ref })),
     ...board.options.views.map((ref) => ({ type: 'view' as const, ref })),
   ].filter((c) => !have.has(`${c.type}:${c.ref.toLowerCase()}`));
-  const groups = [...new Set(catalog.map((c) => abilityGroup(t, c.type)))];
+  // Fixed-URL http_get and MCP Functions run only through a procedure that
+  // binds them; shown so they can be found, but not pickable here.
+  const bindOnly = (board.options.function_catalog || []).filter((f) => !f.grantable);
+  const groups = [...new Set([...catalog.map((c) => abilityGroup(t, c.type)), ...(bindOnly.length ? [abilityGroup(t, 'function')] : [])])];
   const remove = (p: Permission) => {
     const what = abilityLabel(t, p.type, p.ref);
     board.act(t('Removed {what}', { what }), async () => {
@@ -353,6 +356,12 @@ function Abilities({ board, agent }: { board: Board; agent: Agent }) {
               .map((c) => (
                 <option key={`${c.type}:${c.ref}`} value={`${c.type}:${c.ref}`}>
                   {abilityLabel(t, c.type, c.ref)}
+                </option>
+              ))}
+            {g === abilityGroup(t, 'function') &&
+              bindOnly.map((f) => (
+                <option key={`bind:${f.name}`} value={`bind:${f.name}`} disabled title={t('Bind via a procedure')}>
+                  {abilityLabel(t, 'function', f.name)} — {t('Bind via a procedure')}
                 </option>
               ))}
             {g === t('Web') && <option value="__host">{t('Website…')}</option>}

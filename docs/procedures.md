@@ -118,13 +118,16 @@ agent's own role) holds regardless of who authored the body.
 The seeded `seoul-weather` procedure demonstrates the `http_get` pattern: it
 binds `seoul_weather` to `https://wttr.in/Seoul?format=j1` and grants the
 procedure to the General agent. To make a new Function usable via
-`call_function`, either bind it to a procedure and grant that procedure to
-the intended agent, or grant the Function itself (permission type
-`function`, ref = its name; every active Function is listed by
-`permissions.options` and in Canvas's "Add an ability"). A direct grant runs
-the Function exactly as a procedure binding would — an `http_get`
-Function's saved URL, an `mcp_call` Function's own connection and tool —
-so it never also grants an open-ended host. Binding is advisory for this
+`call_function`, bind it to a procedure, then grant that procedure to the
+intended agent in the usual permission UI. A PL/pgSQL Function may also be
+granted directly (permission type `function`, ref = its name). A fixed-URL
+`http_get` or `mcp_call` Function may not: it runs only through a procedure
+that binds it (an outbound call with no procedure needs an `http_host`
+grant, which the Function's saved URL or connection would otherwise
+bypass), so `fn_grant_permission` refuses a direct grant of one with "bind
+it via a procedure". `permissions.options` still lists them in
+`function_catalog`, marked `grantable: false` with the hint "bind via a
+procedure", and the pickers show them that way. Binding is advisory for this
 purpose only (which Functions to show alongside a procedure's `content`),
 never an enforcement gate: a procedure's own `body` (below) may call any
 Function it likes, bound or not, since the real enforcement is the
