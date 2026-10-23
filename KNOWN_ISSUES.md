@@ -95,11 +95,18 @@ are none, creates `agents_name_ci_key` if it is missing.
 
 This build stores `http_host` grants lower-cased and trimmed on every grant
 path, and `fn_revoke_permission` matches ignoring case and surrounding spaces.
-Rows written before this (for example, `' API.Example.com '`) stay as they
-were: at run time the host check compares the normalized host, so such a row
-never matches and the grant is silently ineffective, and
-`allgres_private.canvas_delegation_gaps` reports it as a gap, so Canvas
-refuses a delegation line over an agent that holds it. Nothing is rewritten automatically.
+Rows written before this stay as they were, and nothing is rewritten
+automatically. How they behave depends on the spelling:
+
+- Surrounding spaces (for example, `' api.example.com '`): invalid at run
+  time. The host check compares the normalized host, so such a row never
+  matches and the grant is silently ineffective.
+  `allgres_private.canvas_delegation_gaps` also reports it as a gap, so Canvas
+  refuses a delegation line over an agent that holds it.
+- Capitals only (for example, `'API.Example.com'`): still match at run time,
+  because the permission check compares case-insensitively, and are not
+  reported as gaps. Cleanup is still recommended so every host has a single
+  normalized row.
 
 Check for rows that need cleanup:
 
