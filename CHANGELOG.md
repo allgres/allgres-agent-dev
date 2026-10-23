@@ -4,6 +4,7 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- Canvas delegation lines are now checked on the server: a line into or out of a system agent is refused (D2), and a line is refused when the receiving agent, or anything below it, holds a view, function, procedure, or HTTP host that the sending agent or anything above it lacks (D1, the same delegation ceiling `fn_canvas_grant` already applied). Template placement goes through the same check.
 - Canvas (`/canvas`, admin menu → Canvas): a board for building the organization. Add agents and nested teams from one **+ Add** menu (or start from an example team), drop one agent's card onto another to put it under that agent (a delegation line, an `agent` grant), give abilities named in plain words under a delegation ceiling, chat with any agent or General, start tasks (optionally on a per-task model), save a group as a reusable configuration, and see who actually handed work to whom in the Flow view. English and Korean; system agents hidden until asked for. New tables `agent_groups`, `agent_group_members`, `canvas_positions`, and `canvas_templates`, columns `agents.allow_task_model` and `tasks.llm_override`, and 15 `canvas.*`/`agents.set_task_model` RPC actions (sql/canvas.sql). The React source lives in `web/canvas`; the built page is committed as `web/canvas.html`, so building the extension still needs no Node.js.
 
 ## 0.1.0-alpha.3

@@ -5453,6 +5453,99 @@ BEGIN
   ok := ok AND (SELECT llm_override->>'model' FROM allgres_private.tasks WHERE task_id = (r->>'task_id')::uuid) = 'some-model';
   v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_task_model_needs_opt_in', 'ok', ok));
 
+  -- D2: a line into (or out of) a system agent is refused by the server
+  -- itself, not just by the board, and leaves no grant behind.
+  IF v_sys IS NOT NULL THEN
+    BEGIN
+      PERFORM allgres_public.fn_canvas_add_delegation(v_lead, v_sys);
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      ok := SQLERRM LIKE '%system agents%';
+    END;
+    ok := ok AND NOT EXISTS (
+      SELECT 1 FROM allgres_private.permissions p JOIN allgres_private.agents x ON x.agent_id = v_sys
+      WHERE p.agent_id = v_lead AND p.resource_type = 'agent' AND lower(p.resource_ref) = lower(x.name)
+    );
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delegation_refuses_system_recipient', 'ok', ok));
+
+    BEGIN
+      PERFORM allgres_public.fn_canvas_add_delegation(v_sys, v_worker);
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      ok := SQLERRM LIKE '%system agents%';
+    END;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delegation_refuses_system_sender', 'ok', ok));
+  END IF;
+
+  -- D1: the delegation ceiling holds for lines, not just for grants.
+  DECLARE
+    v_spec uuid := (allgres_public.fn_create_agent('selftest_canvas_specialist', 'specialist')->>'agent_id')::uuid;
+    v_sub uuid := (allgres_public.fn_create_agent('selftest_canvas_sub', 'sub')->>'agent_id')::uuid;
+    v_boss uuid := (allgres_public.fn_create_agent('selftest_canvas_boss', 'boss')->>'agent_id')::uuid;
+    v_msg text;
+    v_detail text;
+  BEGIN
+    -- The operator's unrestricted path gives the specialist a host the
+    -- lead was never granted.
+    PERFORM allgres_public.fn_grant_permission(v_spec, 'http_host', 'specialist.example');
+    BEGIN
+      PERFORM allgres_public.fn_canvas_add_delegation(v_lead, v_spec);
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL;
+      ok := v_msg LIKE '%exceeds the ceiling%' AND v_msg LIKE '%specialist.example%'
+        AND v_detail::jsonb @> jsonb_build_array(jsonb_build_object(
+              'agent_id', v_lead, 'type', 'http_host', 'ref', 'specialist.example'));
+    END;
+    ok := ok AND NOT allgres_private.agent_has_permission(v_lead, 'agent', 'selftest_canvas_specialist');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delegation_refused_above_ceiling', 'ok', ok));
+
+    -- Granting it upward first makes the same line legal.
+    PERFORM allgres_public.fn_canvas_grant(v_lead, 'http_host', 'specialist.example', true);
+    r := allgres_public.fn_canvas_add_delegation(v_lead, v_spec);
+    ok := (r->>'ok')::boolean AND allgres_private.agent_has_permission(v_lead, 'agent', 'selftest_canvas_specialist');
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delegation_allowed_within_ceiling', 'ok', ok));
+
+    -- Indirect: whatever sits below the recipient counts too. specialist ->
+    -- sub is drawn on the unrestricted path, so sub's view is reachable
+    -- from specialist; a new line boss -> specialist must account for it.
+    PERFORM allgres_public.fn_canvas_remove_delegation(v_lead, v_spec);
+    PERFORM allgres_public.fn_grant_permission(v_sub, 'view', 'selftest_canvas_only_view');
+    PERFORM allgres_public.fn_grant_permission(v_spec, 'agent', 'selftest_canvas_sub');
+    PERFORM allgres_public.fn_grant_permission(v_boss, 'http_host', 'specialist.example');
+    BEGIN
+      PERFORM allgres_public.fn_canvas_add_delegation(v_boss, v_spec);
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_detail = PG_EXCEPTION_DETAIL;
+      ok := v_detail::jsonb @> jsonb_build_array(jsonb_build_object(
+              'agent_id', v_boss, 'type', 'view', 'ref', 'selftest_canvas_only_view'))
+        AND NOT v_detail::jsonb @> jsonb_build_array(jsonb_build_object('type', 'http_host'));
+    END;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delegation_ceiling_counts_indirect_subordinates', 'ok', ok));
+
+    -- And whatever sits above the sender counts too. boss covers all of
+    -- lead's reach, so boss -> lead is legal; boss then loses the view on
+    -- the unrestricted path, and lead -> specialist must be refused for
+    -- boss's sake even though lead itself now covers specialist's reach.
+    PERFORM allgres_public.fn_grant_permission(v_lead, 'view', 'selftest_canvas_only_view');
+    PERFORM allgres_public.fn_grant_permission(v_boss, 'view', 'selftest_canvas_only_view');
+    PERFORM allgres_public.fn_grant_permission(v_boss, 'http_host', 'example.com');
+    r := allgres_public.fn_canvas_add_delegation(v_boss, v_lead);
+    ok := (r->>'ok')::boolean;
+    PERFORM allgres_public.fn_revoke_permission(v_boss, 'view', 'selftest_canvas_only_view');
+    BEGIN
+      PERFORM allgres_public.fn_canvas_add_delegation(v_lead, v_spec);
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_detail = PG_EXCEPTION_DETAIL;
+      ok := ok AND v_detail::jsonb @> jsonb_build_array(jsonb_build_object(
+              'agent_id', v_boss, 'type', 'view', 'ref', 'selftest_canvas_only_view'))
+        AND NOT v_detail::jsonb @> jsonb_build_array(jsonb_build_object('agent_id', v_lead));
+    END;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_delegation_ceiling_counts_sender_superiors', 'ok', ok));
+  END;
+
   RETURN v;
 END;
 $fn$;

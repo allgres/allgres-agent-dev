@@ -425,10 +425,80 @@ BEGIN
 END;
 $fn$;
 
+-- Every agent p_agent_id can hand work to, directly or through a chain of
+-- `agent` grants -- the mirror image of canvas_superiors, plus p_agent_id
+-- itself. UNION for the same cycle reason.
+CREATE OR REPLACE FUNCTION allgres_private.canvas_subordinates_and_self(p_agent_id uuid)
+RETURNS TABLE (agent_id uuid)
+LANGUAGE sql
+STABLE
+AS $fn$
+  WITH RECURSIVE down(agent_id) AS (
+    SELECT p_agent_id
+    UNION
+    SELECT x.agent_id
+    FROM down
+    JOIN allgres_private.permissions p
+      ON p.agent_id = down.agent_id AND p.resource_type = 'agent'
+    JOIN allgres_private.agents x ON lower(x.name) = lower(p.resource_ref)
+  )
+  SELECT agent_id FROM down
+$fn$;
+
+-- The delegation ceiling, seen from the line rather than from one grant
+-- (fn_canvas_grant): drawing p_from -> p_to puts p_from and everything
+-- above it on top of p_to and everything below p_to. Every view, function,
+-- procedure, or HTTP host held (own or inherited) anywhere in that lower
+-- part must therefore already be held by every agent in the upper part,
+-- or the line would let p_from reach, through p_to, what it was never
+-- granted (D1). Returns one row per (upper agent, missing grant); empty
+-- means the line stays within the ceiling.
+CREATE OR REPLACE FUNCTION allgres_private.canvas_delegation_gaps(p_from_agent_id uuid, p_to_agent_id uuid)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $fn$
+  WITH upper_part AS (
+    SELECT p_from_agent_id AS agent_id
+    UNION
+    SELECT s.agent_id FROM allgres_private.canvas_superiors(p_from_agent_id) s
+  ),
+  held AS (
+    SELECT DISTINCT ty AS resource_type,
+           CASE WHEN ty = 'http_host' THEN lower(ref) ELSE ref END AS resource_ref
+    FROM allgres_private.canvas_subordinates_and_self(p_to_agent_id) d
+    CROSS JOIN unnest(ARRAY['view', 'function', 'procedure', 'http_host']) ty
+    CROSS JOIN LATERAL unnest(allgres_private.agent_permission_refs(d.agent_id, ty)) ref
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'agent_id', u.agent_id, 'name', x.name,
+           'type', h.resource_type, 'ref', h.resource_ref
+         ) ORDER BY x.name, h.resource_type, h.resource_ref), '[]'::jsonb)
+  FROM upper_part u
+  JOIN allgres_private.agents x ON x.agent_id = u.agent_id
+  CROSS JOIN held h
+  WHERE NOT allgres_private.agent_has_permission(u.agent_id, h.resource_type, h.resource_ref)
+$fn$;
+
 -- A line on the board: p_from may delegate to p_to. Stored as the same
 -- `agent` permission the Agents page and permissions.grant write, so the
 -- runtime's delegate check (agent_has_permission) sees it with no special
 -- case.
+--
+-- Two server-side rules, so neither depends on the board's own checks:
+--   * neither end may be a system agent (D2). A system agent's grants are
+--     not editable from the board (forbid_system_agent_edit), and an
+--     ordinary agent must not be able to hand work to one either -- a
+--     system agent runs with platform-level permissions (fixer, creator,
+--     self_improve, ...), so a line into it would be a privilege
+--     escalation for whoever draws it.
+--   * the delegation ceiling (D1, canvas_delegation_gaps): refused, with
+--     every missing grant listed in the error detail, when p_to (or
+--     anything below it) holds something p_from or anything above p_from
+--     lacks. Grant it upward first (fn_canvas_grant with
+--     p_include_superiors) and draw the line again. Template
+--     instantiation goes through this function too, so a template cannot
+--     smuggle a line past the ceiling either.
 CREATE OR REPLACE FUNCTION allgres_public.fn_canvas_add_delegation(p_from_agent_id uuid, p_to_agent_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -438,12 +508,36 @@ AS $fn$
 DECLARE
   f allgres_private.agents%ROWTYPE;
   t allgres_private.agents%ROWTYPE;
+  v_gaps jsonb;
+  v_summary text;
 BEGIN
   f := allgres_private.canvas_require_agent(p_from_agent_id);
   t := allgres_private.canvas_require_agent(p_to_agent_id);
   IF f.agent_id = t.agent_id THEN
     RAISE EXCEPTION 'an agent cannot delegate to itself' USING ERRCODE = 'P0001';
   END IF;
+  IF t.is_system THEN
+    RAISE EXCEPTION 'system agents run the platform itself and cannot take delegated work (% -> %)', f.name, t.name
+      USING ERRCODE = 'P0001';
+  END IF;
+  IF f.is_system THEN
+    RAISE EXCEPTION 'system agents cannot be given delegation lines from the board (% -> %)', f.name, t.name
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  v_gaps := allgres_private.canvas_delegation_gaps(f.agent_id, t.agent_id);
+  IF jsonb_array_length(v_gaps) > 0 THEN
+    SELECT string_agg(format('%s lacks %s %s', e->>'name', e->>'type', e->>'ref'), '; ')
+    INTO v_summary
+    FROM (SELECT e FROM jsonb_array_elements(v_gaps) e LIMIT 5) q;
+    IF jsonb_array_length(v_gaps) > 5 THEN
+      v_summary := v_summary || format('; and %s more', jsonb_array_length(v_gaps) - 5);
+    END IF;
+    RAISE EXCEPTION 'delegation exceeds the ceiling: % can do things % cannot (%). Grant them to % first, or remove them from %',
+      t.name, f.name, v_summary, f.name, t.name
+      USING ERRCODE = 'P0001', DETAIL = v_gaps::text;
+  END IF;
+
   PERFORM allgres_public.fn_grant_permission(f.agent_id, 'agent', t.name);
   RETURN jsonb_build_object('ok', true, 'from', f.name, 'to', t.name);
 END;

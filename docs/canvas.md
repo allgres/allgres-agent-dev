@@ -102,6 +102,15 @@ host the lead was never granted. When agents above are missing it, Canvas
 lists them and offers to grant all of them in the same transaction
 (`fn_canvas_grant`). If one of them is a system agent, it refuses.
 
+Drawing a line is held to the same ceiling (`fn_canvas_add_delegation`,
+also used when a saved configuration is placed). A line from A to B puts A,
+and every agent above A, on top of B and everything B can already hand work
+to. If anything in that lower part holds a view, function, procedure, or
+host that A or an agent above A lacks, the line is refused and the error
+lists each missing grant (the full list is in the error's `DETAIL` as JSON).
+Grant it upward first, then draw the line again. Lines into or out of a
+system agent are refused by the server, not only by the board.
+
 This is the Canvas grant path's own rule. `permissions.grant` (Agents page,
 SQL) is the operator's unrestricted tool and does not apply it.
 
