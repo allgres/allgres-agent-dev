@@ -1143,9 +1143,9 @@ $fn$;
 -- it never touches the client secret, so it has nothing to hand back to its
 -- caller that fn_oauth_token_request's old version used to leak (see
 -- KNOWN_ISSUES, "a second-round external review of items 18 and 19":
--- `operator`'s existing blanket grant on allgres_public reached this
+-- `allgres_operator`'s existing blanket grant on allgres_public reached this
 -- function, breaking the same "the dashboard never returns a secret" rule
--- provider_secret() being revoked from `operator` exists to enforce). The
+-- provider_secret() being revoked from `allgres_operator` exists to enforce). The
 -- runtime worker's HTTP pool claims the row (fn_claim_oauth), performs the
 -- exchange, and fn_complete_oauth stores whatever comes back -- the same
 -- claim/complete shape as fn_claim_outbound/fn_complete_outbound, just

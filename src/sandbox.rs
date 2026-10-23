@@ -1,7 +1,7 @@
 //! Sandboxed SQL execution -- the other half of sql/control_plane.sql's
 //! fn_validate_sql (see that section's own comment below): claims a
 //! validated agent statement and runs it as a top-level SPI call issued
-//! directly by this worker, which is where `SET ROLE sandbox` is legal.
+//! directly by this worker, which is where `SET ROLE allgres_sandbox` is legal.
 
 use crate::rpc::valid_uuid;
 use crate::runtime_worker::drop_privileges;
@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 // forbids SET ROLE inside a SECURITY DEFINER function, so it cannot also run
 // it.  These functions are the other half: they claim a validated statement
 // and run it as a top-level SPI call, issued directly by this worker with no
-// enclosing SECURITY DEFINER frame, which is exactly where SET ROLE sandbox
+// enclosing SECURITY DEFINER frame, which is exactly where SET ROLE allgres_sandbox
 // is legal.
 // ---------------------------------------------------------------------------
 
@@ -133,7 +133,7 @@ where
 
 /// Runs one already-validated agent statement as the agent's own sandboxed
 /// role if it has one (see fn_provision_agent_role), or the shared
-/// `sandbox` role for an agent that predates per-agent roles. `sql` must be
+/// `allgres_sandbox` role for an agent that predates per-agent roles. `sql` must be
 /// `fn_validate_sql`'s return value, never raw agent input: this function
 /// trusts it completely and so does the database function it calls.
 /// Not in pgrx's generated bindings (utils/timeout.h is outside its
@@ -152,7 +152,7 @@ unsafe extern "C" {
 }
 
 fn run_sandboxed_sql(agent_id: &str, sql: &str, pg_role: Option<&str>) -> Result<Value, String> {
-    let role = pg_role.filter(|r| valid_pg_role(r)).unwrap_or("sandbox");
+    let role = pg_role.filter(|r| valid_pg_role(r)).unwrap_or("allgres_sandbox");
     BackgroundWorker::transaction(|| {
         run_in_subtransaction(|| {
             let dropped = drop_privileges()

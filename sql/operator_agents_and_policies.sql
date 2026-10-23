@@ -14,9 +14,9 @@
 -- Gives an agent its own PostgreSQL security identity: a NOLOGIN role,
 -- named only from the agent's own uuid (never from operator- or
 -- agent-supplied text, so the dynamic CREATE ROLE below has no injection
--- surface), a member of `sandbox` and of `worker` (the latter so the
--- runtime worker -- which only ever holds `worker` membership, never
--- `sandbox` directly beyond what GRANT sandbox TO worker already covers --
+-- surface), a member of `allgres_sandbox` and of `allgres_worker` (the latter so the
+-- runtime worker -- which only ever holds `allgres_worker` membership, never
+-- `allgres_sandbox` directly beyond what GRANT allgres_sandbox TO allgres_worker already covers --
 -- can SET LOCAL ROLE to it; SET ROLE requires membership in the target).
 -- Idempotent: re-running it for an already-provisioned agent just returns
 -- the existing role name.
@@ -63,8 +63,8 @@ BEGIN
       'CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS INHERIT',
       v_role
     );
-    EXECUTE format('GRANT sandbox TO %I', v_role);
-    EXECUTE format('GRANT %I TO worker', v_role);
+    EXECUTE format('GRANT allgres_sandbox TO %I', v_role);
+    EXECUTE format('GRANT %I TO allgres_worker', v_role);
     EXECUTE format('ALTER ROLE %I SET search_path = pg_temp', v_role);
     IF p_owner_pg_role IS NOT NULL THEN
       EXECUTE format('GRANT %I TO %I', p_owner_pg_role, v_role);

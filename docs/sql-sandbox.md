@@ -28,11 +28,11 @@ the normalized statement text; it queues that text in `allgres_private.sql_calls
 and the runtime worker's SPI thread claims it and runs it as a **top-level**
 statement, issued directly by the worker with no enclosing `SECURITY DEFINER`
 frame — the same claim/complete shape already used for outbound LLM and function
-calls. `SET ROLE sandbox` is legal there.
+calls. `SET ROLE allgres_sandbox` is legal there.
 
 Layered, strongest first:
 
-1. the statement only ever executes as `sandbox`, never as `fn_validate_sql`'s
+1. the statement only ever executes as `allgres_sandbox`, never as `fn_validate_sql`'s
    owner;
 2. `search_path = pg_temp`, so an unqualified relation name cannot resolve to
    anything at all;

@@ -304,19 +304,19 @@ Five fixed roles: `allgres_owner` (owns every schema, table, view, and
 runs a dynamic `CREATE ROLE` — kept separate and scoped to just that
 function, `CREATEROLE` on top of `allgres_owner` would hand every other
 `SECURITY DEFINER` function the same power for no reason any of the rest
-need it), `operator`, `worker`, `sandbox`.
+need it), `allgres_operator`, `allgres_worker`, `allgres_sandbox`.
 
 The runtime worker connects as the bootstrap superuser — a role that does not
 exist yet must never crash-loop a background worker at startup — and then calls
 `allgres.assume_worker_role()` at the top of every transaction, so ordinary work
-runs as `worker`. Set `ALLGRES_DROP_PRIVILEGES=0` to disable that; every call
+runs as `allgres_worker`. Set `ALLGRES_DROP_PRIVILEGES=0` to disable that; every call
 site checks whether the drop actually succeeded and skips its own work if not,
 rather than proceeding as the bootstrap superuser.
 
 The control-plane functions are `SECURITY DEFINER` and owned by `allgres_owner`,
 so a caller's own role does not change what runs inside them — this is defence
 in depth rather than the primary boundary for most of the control plane; the
-primary boundary for model-generated SQL is the `sandbox` role — or, for an
+primary boundary for model-generated SQL is the `allgres_sandbox` role — or, for an
 agent with its own role (below), that role. PostgreSQL grants `EXECUTE` on a
 new function to `PUBLIC` by default, unlike tables; every function in the
 `allgres`/`allgres_private`/`allgres_public` schemas has that revoked
@@ -330,13 +330,13 @@ provider secret) among them.
 
 A persistent agent gets its own real PostgreSQL identity, not just a row.
 `fn_create_agent` provisions a `NOLOGIN` role (`allgres_agent_<uuid, no
-dashes>`) as a member of `sandbox` — inheriting exactly the grants `sandbox`
-already has, nothing duplicated per agent — and of `worker` (so the runtime
+dashes>`) as a member of `allgres_sandbox` — inheriting exactly the grants `allgres_sandbox`
+already has, nothing duplicated per agent — and of `allgres_worker` (so the runtime
 worker, the only thing that ever assumes it, can `SET LOCAL ROLE` to it,
 membership being what that requires). `fn_run_sandboxed_sql` runs an agent's
-`execute_sql` as *that* role instead of the one shared `sandbox` role every
+`execute_sql` as *that* role instead of the one shared `allgres_sandbox` role every
 agent used to be indistinguishable under. An agent created before this
-existed stays on the shared `sandbox` role — `agents.pg_role` is `NULL` for
+existed stays on the shared `allgres_sandbox` role — `agents.pg_role` is `NULL` for
 it — until `fn_provision_agent_role` is called for it explicitly; this is an
 additive migration, not a breaking one.
 
@@ -371,7 +371,7 @@ role from `allgres_owner` (see `sql/control_plane.sql`'s own comment on
 that pattern): a bug in the one worker-invoked build step never becomes a
 bug in every other `SECURITY DEFINER` function `allgres_owner` also owns.
 Calling it later runs `SET LOCAL ROLE <the calling agent's own Postgres
-role>` first, the identical fallback-to-`sandbox` shape `fn_run_sandboxed_
+role>` first, the identical fallback-to-`allgres_sandbox` shape `fn_run_sandboxed_
 sql` already uses for an agent that predates per-agent roles. Both steps
 are top-level SPI statements the runtime worker issues directly
 (`src/function_exec.rs`, mirroring `src/sandbox.rs`), for the same reason
@@ -421,9 +421,9 @@ involved, only "run as the one role that may read this one class of
 secret." Following this project's own rule for a new broad privilege
 (`CLAUDE.md`): it is owned by a new `allgres_llm_admin` role that owns
 nothing else, never `allgres_owner`, since every per-agent role can reach
-it (granted to `sandbox`). The actual outbound POST is a separate native
+it (granted to `allgres_sandbox`). The actual outbound POST is a separate native
 function, `allgres.native_llm_http_send`, `EXECUTE`-granted only to
-`allgres_llm_admin` -- never directly to `sandbox` -- since it is a dumb
+`allgres_llm_admin` -- never directly to `allgres_sandbox` -- since it is a dumb
 "send exactly this url/headers/body" primitive with no credential
 awareness of its own: reachable directly by an ordinary agent role, it
 would be a generic SSRF-guarded "POST anywhere with attacker-chosen
@@ -436,7 +436,7 @@ headers" capability, even without ever touching a real secret.
 exception to "everything reachable from the dashboard is `SECURITY
 DEFINER`-scoped, never a raw SQL surface" — an admin asked for a query
 console so they never need a separate client (DBeaver etc.) just to run
-one query. It runs as `allgres_owner`, not `sandbox` and not the
+one query. It runs as `allgres_owner`, not `allgres_sandbox` and not the
 bootstrap superuser:
 full `DDL`/`DML` power over everything `allgres_owner` owns — which is
 essentially every table, function, and schema this extension creates,

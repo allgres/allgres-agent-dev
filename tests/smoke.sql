@@ -115,13 +115,13 @@ BEGIN
   SELECT agent_id INTO v_agent FROM allgres_private.agents WHERE name = 'analyst' LIMIT 1;
   v_sql := allgres_private.fn_validate_sql(v_agent, 'SELECT region FROM allgres_public.v_sales');
 
-  SET LOCAL ROLE sandbox;
+  SET LOCAL ROLE allgres_sandbox;
   SET LOCAL search_path = pg_temp;
   SET LOCAL transaction_read_only = on;
   SET LOCAL statement_timeout = '5s';
   PERFORM set_config('allgres.agent_id', v_agent::text, true);
 
-  IF current_user <> 'sandbox' THEN
+  IF current_user <> 'allgres_sandbox' THEN
     RAISE EXCEPTION 'sandbox role was not assumed: current_user = %', current_user;
   END IF;
 
@@ -139,7 +139,7 @@ END $$;
 -- Per-agent PostgreSQL roles (fn_provision_agent_role): a persistent agent
 -- created through fn_create_agent gets its own NOLOGIN role, and
 -- fn_run_sandboxed_sql can run it as that role instead of the one shared
--- `sandbox` role every agent used to run as indistinguishably. Same
+-- `allgres_sandbox` role every agent used to run as indistinguishably. Same
 -- SECURITY DEFINER limitation as the block above keeps this out of
 -- fn_selftest -- SET ROLE has to happen top level.
 DO $$
@@ -234,7 +234,7 @@ END $$;
 DO $$
 DECLARE v_result jsonb;
 BEGIN
-  SET LOCAL ROLE sandbox;
+  SET LOCAL ROLE allgres_sandbox;
   SET LOCAL transaction_read_only = on;
   v_result := allgres_public.fn_run_sandboxed_sql('INSERT INTO allgres_private.sessions DEFAULT VALUES');
   IF COALESCE((v_result->>'ok')::boolean, false) THEN

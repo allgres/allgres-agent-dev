@@ -225,7 +225,7 @@ pub(crate) fn claim_function_call_jobs(limit: i32) -> Value {
 }
 
 /// Runs one already-built Function as the calling agent's own role if it
-/// has one, or the shared `sandbox` role for an agent that predates
+/// has one, or the shared `allgres_sandbox` role for an agent that predates
 /// per-agent roles -- identical fallback to sandbox.rs's
 /// `run_sandboxed_sql`. Unlike that function, there is no separately
 /// validated SQL text to shape here: the built Function *is* the
@@ -239,7 +239,7 @@ fn run_function_call(
     if !valid_sql_ident(sql_ident, "fn_") {
         return Err("invalid sql_ident".to_string());
     }
-    let role = pg_role.filter(|r| valid_pg_role(r)).unwrap_or("sandbox");
+    let role = pg_role.filter(|r| valid_pg_role(r)).unwrap_or("allgres_sandbox");
     let sql = format!("SELECT allgres_functions.{sql_ident}($1::jsonb)");
     let args = args.clone();
     BackgroundWorker::transaction(|| {

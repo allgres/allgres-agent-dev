@@ -38,7 +38,7 @@ In scope: anything that lets a party without the dashboard token (or
 without the permissions their account/agent assignment should carry) read
 or change data they shouldn't, execute SQL or make an outbound HTTP
 request outside the sandbox/SSRF guard's intended boundary, or escalate
-from the `sandbox`/`worker` role toward `allgres_owner` or superuser.
+from the `allgres_sandbox`/`allgres_worker` role toward `allgres_owner` or superuser.
 
 Out of scope (already tracked, not news): anything already named as a
 known limitation in README's [Known limitations](README.md#known-limitations)

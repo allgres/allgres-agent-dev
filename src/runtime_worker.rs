@@ -34,7 +34,7 @@ pub(crate) fn extension_is_installed() -> bool {
 
 /// Privilege drop, run at the top of every runtime transaction. The worker
 /// connects as the bootstrap superuser so a not-yet-created role can never
-/// crash-loop it at startup; this puts ordinary work back on `worker`.
+/// crash-loop it at startup; this puts ordinary work back on `allgres_worker`.
 /// Returns whether the drop actually landed. Every call site below checks
 /// this and skips its own SPI calls when it is false, rather than
 /// proceeding with `current_user` still the bootstrap superuser: this used

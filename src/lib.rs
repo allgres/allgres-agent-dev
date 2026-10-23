@@ -314,7 +314,7 @@ mod allgres {
     /// url/headers/body it is given -- fn_llm_complete (SECURITY DEFINER,
     /// owned by the narrow allgres_llm_admin role) is what injects the
     /// real credential before calling this, and EXECUTE here is granted
-    /// only to that role, never to `sandbox` -- see
+    /// only to that role, never to `allgres_sandbox` -- see
     /// sql/grants_and_facade.sql.
     #[pg_extern]
     fn native_llm_http_send(url: &str, headers: JsonB, body: JsonB, allow_private: bool) -> JsonB {

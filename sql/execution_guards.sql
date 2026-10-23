@@ -131,9 +131,9 @@ BEGIN
   SELECT * INTO ctx FROM local_execution_context
     WHERE backend_pid = pg_backend_pid() AND transaction_id = pg_current_xact_id_if_assigned();
   SELECT * INTO a FROM agents WHERE pg_role = v_role
-    OR (v_role = 'sandbox' AND pg_role IS NULL AND agent_id = ctx.agent_id);
+    OR (v_role = 'allgres_sandbox' AND pg_role IS NULL AND agent_id = ctx.agent_id);
   IF a.agent_id IS NULL THEN
-    IF pg_has_role(v_role, 'operator', 'MEMBER') THEN RETURN; END IF;
+    IF pg_has_role(v_role, 'allgres_operator', 'MEMBER') THEN RETURN; END IF;
     RAISE EXCEPTION 'local execution requires an agent identity';
   END IF;
   IF NOT a.is_active THEN RAISE EXCEPTION 'agent inactive'; END IF;

@@ -133,7 +133,7 @@ AS $fn$
   WHERE call_id = ANY(p_call_ids) AND status = 'lost';
 $fn$;
 
-GRANT EXECUTE ON FUNCTION allgres_public.fn_check_lost_outbound(uuid[]) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_check_lost_outbound(uuid[]) TO allgres_worker;
 
 -- The one control that was missing entirely: nothing could stop a runaway
 -- agent.  Cancels every open task in the session (queued/running/

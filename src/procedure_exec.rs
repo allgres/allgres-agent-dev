@@ -126,7 +126,7 @@ pub(crate) fn claim_procedure_call_jobs(limit: i32) -> Value {
 }
 
 /// Runs one already-built Procedure as the calling agent's own role, same
-/// fallback-to-`sandbox` shape as run_function_call. `CALL proc(args,
+/// fallback-to-`allgres_sandbox` shape as run_function_call. `CALL proc(args,
 /// result)` returns a one-row result exactly like `SELECT fn(args)`
 /// does when the procedure has an OUT/INOUT parameter (documented
 /// Postgres behavior since procedures were introduced in PG11) -- so the
@@ -147,7 +147,7 @@ fn run_procedure_call(
     if !valid_sql_ident(sql_ident, "proc_") {
         return Err("invalid sql_ident".to_string());
     }
-    let role = pg_role.filter(|r| valid_pg_role(r)).unwrap_or("sandbox");
+    let role = pg_role.filter(|r| valid_pg_role(r)).unwrap_or("allgres_sandbox");
     let sql = format!("CALL allgres_functions.{sql_ident}($1::jsonb, '{{}}'::jsonb)");
     let args = args.clone();
     BackgroundWorker::transaction(|| {

@@ -124,25 +124,25 @@ BEGIN
   -- `call_llm`-style helper a Procedure body can call for its own
   -- mid-pipeline judgment): it needs allgres_private.provider_secret,
   -- which decrypts a real LLM provider credential -- EXECUTE on that is
-  -- revoked from operator/worker precisely so nothing but the fully async,
+  -- revoked from allgres_operator/allgres_worker precisely so nothing but the fully async,
   -- worker-owned outbound_calls path can ever reach a real secret (see
   -- provider_secret's own comment). Every per-agent role reaches
-  -- fn_llm_complete (via `sandbox`, below), so its own privilege -- unlike
-  -- everything else `sandbox` can reach -- must live in a role that owns
+  -- fn_llm_complete (via `allgres_sandbox`, below), so its own privilege -- unlike
+  -- everything else `allgres_sandbox` can reach -- must live in a role that owns
   -- nothing but this one function, never allgres_owner: a bug in any other
   -- allgres_owner-owned SECURITY DEFINER function must never carry the
   -- power to decrypt and send a real LLM credential too.
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'allgres_llm_admin') THEN
     CREATE ROLE allgres_llm_admin NOLOGIN NOINHERIT;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'operator') THEN
-    CREATE ROLE operator LOGIN;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'allgres_operator') THEN
+    CREATE ROLE allgres_operator LOGIN;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'worker') THEN
-    CREATE ROLE worker LOGIN;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'allgres_worker') THEN
+    CREATE ROLE allgres_worker LOGIN;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sandbox') THEN
-    CREATE ROLE sandbox NOLOGIN;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'allgres_sandbox') THEN
+    CREATE ROLE allgres_sandbox NOLOGIN;
   END IF;
 END
 $$;
@@ -159,36 +159,36 @@ GRANT pg_read_all_stats TO allgres_settings_reader WITH INHERIT TRUE;
 -- The sandbox never resolves an unqualified relation name: the runtime worker
 -- narrows search_path to pg_temp before running model-generated SQL, and this
 -- default keeps that true for any other session that assumes the role.
-ALTER ROLE sandbox  SET search_path = pg_temp;
-ALTER ROLE worker   SET search_path = allgres_public, pg_temp;
-ALTER ROLE operator SET search_path = allgres_private, allgres_public, pg_temp;
+ALTER ROLE allgres_sandbox  SET search_path = pg_temp;
+ALTER ROLE allgres_worker   SET search_path = allgres_public, pg_temp;
+ALTER ROLE allgres_operator SET search_path = allgres_private, allgres_public, pg_temp;
 
--- The runtime worker drops to `worker` per transaction, then drops further to
--- `sandbox` to run agent SQL (fn_run_sandboxed_sql); that second hop needs
+-- The runtime worker drops to `allgres_worker` per transaction, then drops further to
+-- `allgres_sandbox` to run agent SQL (fn_run_sandboxed_sql); that second hop needs
 -- role membership.
-GRANT sandbox TO worker;
+GRANT allgres_sandbox TO allgres_worker;
 
 -- allgres_functions: the schema every dynamically-built, agent- or
 -- operator-authored real PL/pgSQL Function body actually lives in (see
 -- allgres_private.functions.sql_ident below). Owned by
 -- allgres_function_admin, never allgres_owner, so that CREATE privilege on
 -- it stays confined to the one worker-invoked build step that needs it.
--- `worker` needs membership in allgres_function_admin for that same
--- reason `worker` needs membership in `sandbox` above: the runtime
+-- `allgres_worker` needs membership in allgres_function_admin for that same
+-- reason `allgres_worker` needs membership in `allgres_sandbox` above: the runtime
 -- worker's own top-level SPI call is the only place `SET LOCAL ROLE` is
 -- legal (PostgreSQL forbids it inside a SECURITY DEFINER function), so
 -- building a Function has to happen there, not in any PL/pgSQL function
 -- in this file.
 CREATE SCHEMA IF NOT EXISTS allgres_functions AUTHORIZATION allgres_function_admin;
-GRANT allgres_function_admin TO worker;
--- USAGE goes to `sandbox`, not `worker`: every agent role is already a
--- member of `sandbox` (fn_provision_agent_role), which is what the worker
+GRANT allgres_function_admin TO allgres_worker;
+-- USAGE goes to `allgres_sandbox`, not `allgres_worker`: every agent role is already a
+-- member of `allgres_sandbox` (fn_provision_agent_role), which is what the worker
 -- actually SET LOCAL ROLEs to before calling a built Function (the
--- agent's own specific role if it has one, `sandbox` itself as the
+-- agent's own specific role if it has one, `allgres_sandbox` itself as the
 -- fallback for one that predates per-agent roles -- same fallback
--- run_sandboxed_sql already uses). `worker` itself never needs to touch
+-- run_sandboxed_sql already uses). `allgres_worker` itself never needs to touch
 -- this schema directly; it only ever reaches it after switching away.
-GRANT USAGE ON SCHEMA allgres_functions TO sandbox;
+GRANT USAGE ON SCHEMA allgres_functions TO allgres_sandbox;
 
 -- ---------------------------------------------------------------------------
 -- 2. Schemas, tables, indexes, triggers.
@@ -207,13 +207,13 @@ CREATE TABLE IF NOT EXISTS allgres_private.agents (
 
 -- NULL until fn_provision_agent_role runs (fn_create_agent does this for
 -- every new agent; an agent that existed before this column was added stays
--- NULL, and its sandboxed SQL falls back to the shared `sandbox` role, the
+-- NULL, and its sandboxed SQL falls back to the shared `allgres_sandbox` role, the
 -- same as before -- opt-in, not a breaking migration). Once set, this is the
 -- agent's actual PostgreSQL security identity for sandboxed execution: a
--- NOLOGIN role, a member of `sandbox` (so it inherits exactly the grants
--- `sandbox` already has, nothing duplicated per agent), that
+-- NOLOGIN role, a member of `allgres_sandbox` (so it inherits exactly the grants
+-- `allgres_sandbox` already has, nothing duplicated per agent), that
 -- fn_run_sandboxed_sql runs as via `SET LOCAL ROLE` instead of the one
--- shared `sandbox` role every agent used to run as indistinguishably. See
+-- shared `allgres_sandbox` role every agent used to run as indistinguishably. See
 -- fn_provision_agent_role and "6. SQL sandbox" below.
 ALTER TABLE allgres_private.agents
   ADD COLUMN IF NOT EXISTS pg_role text UNIQUE;
@@ -2419,7 +2419,7 @@ ALTER TABLE allgres_private.embedding_calls ADD CONSTRAINT embedding_calls_targe
   CHECK ((agent_id IS NOT NULL) <> (memory_id IS NOT NULL));
 
 -- Agent SQL is validated here (fn_validate_sql) but executed by the runtime
--- worker as a top-level statement under the `sandbox` role -- PostgreSQL
+-- worker as a top-level statement under the `allgres_sandbox` role -- PostgreSQL
 -- forbids `SET ROLE` inside a SECURITY DEFINER function, so it cannot run
 -- inline in the same call that validates it.  This table is the handoff,
 -- shaped exactly like outbound_calls: queued -> in_flight -> harvested/lost.
@@ -2479,7 +2479,7 @@ CREATE TABLE IF NOT EXISTS allgres_private.demo_sales (
 -- point something SECURITY DEFINER runs, never past it.
 --
 -- The GUC path stays as a fallback for an agent that predates per-agent
--- roles and still runs sandboxed SQL as the one shared `sandbox` role --
+-- roles and still runs sandboxed SQL as the one shared `allgres_sandbox` role --
 -- see fn_run_sandboxed_sql's caller in src/lib.rs for how that GUC gets
 -- set. GUCs do not have the SECURITY DEFINER problem above: a value set
 -- with set_config(..., true) survives a role or security-context change
@@ -2836,7 +2836,7 @@ $fn$;
 -- Takes the agent_id as a parameter rather than calling
 -- current_agent_id() itself: this function has to be SECURITY DEFINER (it
 -- reads allgres_private.permissions and sql_sandbox_allowlist, which
--- `sandbox` and per-agent roles have no direct grant on), and SECURITY
+-- `allgres_sandbox` and per-agent roles have no direct grant on), and SECURITY
 -- DEFINER changes current_user -- to this function's *owner* -- for
 -- everything it calls internally too. current_agent_id() has to run
 -- before that boundary, in the caller's own context, to see the real
@@ -2888,7 +2888,7 @@ AS
 -- `fn_start_dynamic_workers`'s own comment on `allgres_settings_reader`
 -- already documents for a different query. `allgres runtime`/`allgres
 -- web` both connect as (or, for the web worker, would connect as if it
--- connected at all) `worker`, never `allgres_owner` -- so a query against
+-- connected at all) `allgres_worker`, never `allgres_owner` -- so a query against
 -- `pg_stat_activity` written directly into `dashboard_rpc` (owned by
 -- `allgres_owner`) or into this view (run as whichever role queries it)
 -- saw zero workers, always, confirmed live: `SET ROLE allgres_owner;
@@ -3561,7 +3561,7 @@ $fn$;
 -- comment injection, quoted identifiers, comma joins and `extract(x FROM y)`
 -- were all ways for it to be wrong in one direction or the other.
 --
--- A note on the `sandbox` role, because the obvious design does not work:
+-- A note on the `allgres_sandbox` role, because the obvious design does not work:
 -- PostgreSQL refuses `SET ROLE` inside a security-definer function ("cannot set
 -- parameter \"role\" within security-definer function", SQLSTATE 42501), and the
 -- restriction covers the whole call stack below one.  This function is
@@ -3577,11 +3577,11 @@ $fn$;
 -- same claim/complete shape the outbound HTTP pump uses for LLM and function
 -- calls), then runs it as a *top-level* SPI statement -- issued directly by
 -- the worker, not nested inside any SECURITY DEFINER function -- where
--- `SET LOCAL ROLE sandbox` is legal.  See allgres_public.fn_run_sandboxed_sql
+-- `SET LOCAL ROLE allgres_sandbox` is legal.  See allgres_public.fn_run_sandboxed_sql
 -- below and src/lib.rs's `run_sandboxed_sql`.
 --
 -- Layering, strongest first:
---   a. the statement only ever executes as `sandbox`, never as this
+--   a. the statement only ever executes as `allgres_sandbox`, never as this
 --      function's owner;
 --   b. search_path = pg_temp, so an unqualified relation name cannot resolve
 --      to anything at all;
@@ -3751,7 +3751,7 @@ BEGIN
   -- A function must be on the sql_function_allowlist AND pass every other
   -- gate: pg_catalog only -- an agent can never call a user-defined
   -- function, which rules out every SECURITY DEFINER function Allgres
-  -- itself ships (they run as this validator's owner, not as `sandbox`, and
+  -- itself ships (they run as this validator's owner, not as `allgres_sandbox`, and
   -- were never meant to be agent-callable) and every extension function
   -- such as pgcrypto's or dblink's; non-volatile, which is what actually
   -- separates a read from a side effect (pg_read_file, pg_ls_dir,
@@ -3781,7 +3781,7 @@ BEGIN
 
     -- An unqualified call in this check's own denominator must only ever
     -- be counted against pg_catalog, never every namespace in the
-    -- database: `sandbox` (the role every agent SQL statement actually
+    -- database: `allgres_sandbox` (the role every agent SQL statement actually
     -- runs as) has search_path = pg_temp, so pg_catalog -- always searched
     -- implicitly regardless of search_path -- is the *only* place a bare
     -- name can resolve at execution time. Before this, an unqualified
@@ -3812,7 +3812,7 @@ BEGIN
   END LOOP;
 
   -- Cost estimation only: no rows are fetched here, so this can safely run as
-  -- this function's owner rather than needing the `sandbox` role.
+  -- this function's owner rather than needing the `allgres_sandbox` role.
   BEGIN
     EXECUTE 'EXPLAIN (FORMAT JSON) ' || v_sql INTO v_plan;
   EXCEPTION WHEN others THEN
@@ -3832,10 +3832,10 @@ BEGIN
 END;
 $fn$;
 
--- Executes one already-validated statement as the `sandbox` role and shapes
+-- Executes one already-validated statement as the `allgres_sandbox` role and shapes
 -- its result.  Deliberately not SECURITY DEFINER: it must run as whatever
--- role the caller currently is, which is only ever `sandbox` because nothing
--- but the runtime worker's top-level `SET LOCAL ROLE sandbox` (see
+-- role the caller currently is, which is only ever `allgres_sandbox` because nothing
+-- but the runtime worker's top-level `SET LOCAL ROLE allgres_sandbox` (see
 -- src/lib.rs's `run_sandboxed_sql`) is granted EXECUTE on it -- see the grants
 -- section.  p_sql is trusted here precisely because it can only have reached
 -- this function by way of fn_validate_sql's return value.
@@ -4642,7 +4642,7 @@ BEGIN
   -- Validation happens here, synchronously, as this function's owner (it only
   -- reads allgres_private.permissions and pg_proc; see fn_validate_sql).
   -- Execution does not: it is queued for the runtime worker, which runs it as
-  -- a top-level statement under the `sandbox` role and reports back through
+  -- a top-level statement under the `allgres_sandbox` role and reports back through
   -- fn_complete_sql, the same claim/complete shape used for outbound HTTP
   -- calls.  See "6. SQL sandbox" above for why this cannot happen inline.
   IF v_action = 'execute_sql' THEN
@@ -5933,7 +5933,7 @@ $fn$;
 -- ---------------------------------------------------------------------------
 -- 8. Pump.  Builds requests; HTTP and sandboxed SQL both happen after these
 --    functions commit -- the former on the runtime worker's HTTP pool
---    threads, the latter back on its SPI thread as the `sandbox` role.
+--    threads, the latter back on its SPI thread as the `allgres_sandbox` role.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION allgres_private.build_llm_http(
@@ -6103,7 +6103,7 @@ $fn$;
 -- that both decrypts a real LLM provider secret (via provider_secret,
 -- otherwise reachable only from the fully worker-owned async path) and
 -- sends it over the network, and it is reachable by every per-agent role
--- (granted to `sandbox`, sql/grants_and_facade.sql) -- unlike everything
+-- (granted to `allgres_sandbox`, sql/grants_and_facade.sql) -- unlike everything
 -- else that role can already reach.
 --
 -- Deliberately narrower than the main turn loop in two ways, both
@@ -6410,7 +6410,7 @@ END;
 $fn$;
 
 -- Same claim shape as fn_claim_outbound, for allgres_private.sql_calls instead.
--- The runtime worker executes each claimed call itself, as the `sandbox`
+-- The runtime worker executes each claimed call itself, as the `allgres_sandbox`
 -- role, via a top-level SPI statement (see fn_run_sandboxed_sql above and
 -- src/lib.rs's `run_sandboxed_sql`) -- there is no HTTP round trip here.
 CREATE OR REPLACE FUNCTION allgres_public.fn_claim_sql(p_limit int DEFAULT 4)
@@ -6444,7 +6444,7 @@ BEGIN
     SET status = 'in_flight', updated_at = now()
     WHERE call_id = r.call_id;
     -- pg_role is NULL for an agent that predates per-agent roles; the
-    -- worker falls back to the shared `sandbox` role for those (see
+    -- worker falls back to the shared `allgres_sandbox` role for those (see
     -- run_sandboxed_sql in src/lib.rs).
     v_out := v_out || jsonb_build_array(jsonb_build_object(
       'call_id', r.call_id,
@@ -6565,7 +6565,7 @@ BEGIN
     SET status = 'in_flight', updated_at = now()
     WHERE call_id = r.call_id;
     -- pg_role is NULL for an agent that predates per-agent roles; the
-    -- worker falls back to the shared `sandbox` role, same as
+    -- worker falls back to the shared `allgres_sandbox` role, same as
     -- fn_claim_sql's own identical fallback.
     v_out := v_out || jsonb_build_array(jsonb_build_object(
       'call_id', r.call_id,

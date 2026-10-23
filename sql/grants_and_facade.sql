@@ -165,21 +165,21 @@ END
 $$;
 
 -- fn_provision_agent_role's owner (allgres_role_admin) runs
--- GRANT sandbox TO <newrole> and GRANT <newrole> TO worker for every agent
+-- GRANT allgres_sandbox TO <newrole> and GRANT <newrole> TO allgres_worker for every agent
 -- it provisions. CREATEROLE alone covers creating and dropping the new
--- role; granting membership in sandbox/worker specifically -- roles
+-- role; granting membership in allgres_sandbox/allgres_worker specifically -- roles
 -- allgres_role_admin did not create -- needs ADMIN OPTION on each,
 -- confirmed live (plain membership, tried first, still failed with
--- "permission denied to grant role \"sandbox\": only roles with the ADMIN
+-- "permission denied to grant role \"allgres_sandbox\": only roles with the ADMIN
 -- option ... may grant this role" -- CREATEROLE's PG16+ relaxation covers
 -- managing a role's own attributes and dropping it, not granting
 -- membership in an unrelated pre-existing role). ADMIN OPTION also lets
--- allgres_role_admin revoke sandbox/worker membership from anyone, not
+-- allgres_role_admin revoke allgres_sandbox/allgres_worker membership from anyone, not
 -- only the roles it provisions -- a wider grant than ideal, but there is
 -- no narrower standard primitive for "may grant this one role to others"
 -- short of it.
-GRANT sandbox TO allgres_role_admin WITH ADMIN OPTION;
-GRANT worker TO allgres_role_admin WITH ADMIN OPTION;
+GRANT allgres_sandbox TO allgres_role_admin WITH ADMIN OPTION;
+GRANT allgres_worker TO allgres_role_admin WITH ADMIN OPTION;
 
 -- fn_signal_cancel_worker's owner (allgres_signal_admin) needs
 -- pg_signal_backend membership to make pg_cancel_backend do anything --
@@ -236,18 +236,18 @@ GRANT SELECT, UPDATE ON allgres_private.users TO allgres_role_admin;
 -- fn_llm_complete itself does not imply schema USAGE -- same reason
 -- allgres_role_admin has its own explicit grant two lines up, confirmed by
 -- that exact precedent); every per-agent role needs it, separately, to
--- *reach* fn_llm_complete in the first place (granted to `sandbox`, which
+-- *reach* fn_llm_complete in the first place (granted to `allgres_sandbox`, which
 -- every per-agent role is already a member of -- see
 -- fn_provision_agent_role). Schema USAGE alone grants nothing beyond
 -- that, every table and function in the schema still gates access on its
--- own separate grant, same as it already does for `operator` below.
+-- own separate grant, same as it already does for `allgres_operator` below.
 GRANT USAGE ON SCHEMA allgres_private TO allgres_llm_admin;
 GRANT EXECUTE ON FUNCTION allgres_private.build_llm_http(jsonb) TO allgres_llm_admin;
 GRANT EXECUTE ON FUNCTION allgres_private.sanitize_llm_config(jsonb) TO allgres_llm_admin;
 GRANT EXECUTE ON FUNCTION allgres_private.provider_secret(uuid) TO allgres_llm_admin;
 GRANT EXECUTE ON FUNCTION allgres_private.llm_text_from_http(text) TO allgres_llm_admin;
 GRANT EXECUTE ON FUNCTION allgres_private.extract_first_json(text) TO allgres_llm_admin;
-GRANT USAGE ON SCHEMA allgres_private TO sandbox;
+GRANT USAGE ON SCHEMA allgres_private TO allgres_sandbox;
 
 -- fn_worker_status (KNOWN_ISSUES.md item 5, owned by allgres_settings_
 -- reader): dashboard_rpc (allgres_owner) calls it directly for the
@@ -255,7 +255,7 @@ GRANT USAGE ON SCHEMA allgres_private TO sandbox;
 -- whichever agent role holds the 'view' grant on it -- calls it too, for
 -- workers_online. Both are cross-owner calls needing their own explicit
 -- grant, same reasoning as every other cross-owner call in this file.
-GRANT EXECUTE ON FUNCTION allgres_private.fn_worker_status() TO allgres_owner, sandbox;
+GRANT EXECUTE ON FUNCTION allgres_private.fn_worker_status() TO allgres_owner, allgres_sandbox;
 
 REVOKE ALL ON SCHEMA allgres_private FROM PUBLIC;
 REVOKE ALL ON SCHEMA allgres_public FROM PUBLIC;
@@ -270,7 +270,7 @@ REVOKE ALL ON SCHEMA allgres_public FROM PUBLIC;
 -- way -- and found allgres_private.secret_key() on the same list: the
 -- literal pgcrypto key that encrypts every provider API key in the
 -- system, callable with zero Allgres role membership at all, by any role
--- that can merely connect to the database. `operator` having broad
+-- that can merely connect to the database. `allgres_operator` having broad
 -- EXECUTE by design (the dashboard's whole point) was never the real
 -- problem; PUBLIC having it by nobody ever revoking the default was.
 --
@@ -296,31 +296,31 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA allgres_private REVOKE EXECUTE ON FUNCTIONS F
 ALTER DEFAULT PRIVILEGES IN SCHEMA allgres_public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES IN SCHEMA allgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
-GRANT USAGE ON SCHEMA allgres_public TO worker, operator, sandbox;
-GRANT USAGE ON SCHEMA allgres_private TO operator;
+GRANT USAGE ON SCHEMA allgres_public TO allgres_worker, allgres_operator, allgres_sandbox;
+GRANT USAGE ON SCHEMA allgres_private TO allgres_operator;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA allgres_private TO operator;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA allgres_private TO operator;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA allgres_private TO allgres_operator;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA allgres_private TO allgres_operator;
 ALTER DEFAULT PRIVILEGES IN SCHEMA allgres_private
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO operator;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO allgres_operator;
 
 -- Logs are append-only even for operator (the trigger enforces it too).
-REVOKE UPDATE, DELETE ON allgres_private.execution_logs FROM operator;
+REVOKE UPDATE, DELETE ON allgres_private.execution_logs FROM allgres_operator;
 -- REVOKE from operator is real defense in depth here the same way it is
 -- for execution_logs; a REVOKE against allgres_owner itself would not be
 -- (a table owner's DML rights on their own table cannot be revoked by
 -- ACL in PostgreSQL at all -- only the audit_log_no_update trigger above
 -- actually stops that path, and it applies regardless of who issues the
 -- UPDATE/DELETE, ownership included).
-REVOKE UPDATE, DELETE ON allgres_private.audit_log FROM operator;
+REVOKE UPDATE, DELETE ON allgres_private.audit_log FROM allgres_operator;
 
 REVOKE ALL ON allgres_private.llm_secrets FROM PUBLIC;
-REVOKE ALL ON allgres_private.llm_secrets FROM operator;
-REVOKE ALL ON allgres_private.llm_secrets FROM worker;
+REVOKE ALL ON allgres_private.llm_secrets FROM allgres_operator;
+REVOKE ALL ON allgres_private.llm_secrets FROM allgres_worker;
 
 -- The sandbox reaches allowlisted views only; allgres_public holds nothing else.
-GRANT SELECT ON ALL TABLES IN SCHEMA allgres_public TO sandbox;
-ALTER DEFAULT PRIVILEGES IN SCHEMA allgres_public GRANT SELECT ON TABLES TO sandbox;
+GRANT SELECT ON ALL TABLES IN SCHEMA allgres_public TO allgres_sandbox;
+ALTER DEFAULT PRIVILEGES IN SCHEMA allgres_public GRANT SELECT ON TABLES TO allgres_sandbox;
 
 REVOKE ALL ON FUNCTION allgres_public.fn_next_step(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_submit_result(uuid, jsonb) FROM PUBLIC;
@@ -336,45 +336,45 @@ REVOKE ALL ON FUNCTION allgres_public.fn_watchdog(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_run_schedules() FROM PUBLIC;
 
 -- fn_run_sandboxed_sql is SECURITY INVOKER and does not itself validate what
--- it is given: it must only ever be reachable as the `sandbox` role, which
+-- it is given: it must only ever be reachable as the `allgres_sandbox` role, which
 -- the runtime worker assumes with a top-level SET ROLE right before calling
 -- it (see src/lib.rs's `run_sandboxed_sql`).  A default grant to PUBLIC would
 -- defeat that, since sandbox already has USAGE on this schema.
 REVOKE ALL ON FUNCTION allgres_public.fn_run_sandboxed_sql(text) FROM PUBLIC;
 
-GRANT EXECUTE ON FUNCTION allgres_public.fn_next_step(uuid) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_submit_result(uuid, jsonb) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_pump(text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_dispatch_tasks() TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_outbound(int, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_outbound(uuid, int, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_sql(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_sql(uuid, boolean, jsonb, int, boolean, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_function_builds(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_function_build(uuid, boolean, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_function_calls(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_function_call(uuid, boolean, jsonb, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_procedure_builds(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_procedure_build(uuid, boolean, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_procedure_calls(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_procedure_call(uuid, boolean, jsonb, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_oauth(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_oauth(uuid, int, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_agent_embedding(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_agent_embedding(uuid, int, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_provider_probe(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_provider_probe(uuid, int, text) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_watchdog(int) TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_run_schedules() TO worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_run_sandboxed_sql(text) TO sandbox;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_next_step(uuid) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_submit_result(uuid, jsonb) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_pump(text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_dispatch_tasks() TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_outbound(int, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_outbound(uuid, int, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_sql(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_sql(uuid, boolean, jsonb, int, boolean, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_function_builds(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_function_build(uuid, boolean, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_function_calls(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_function_call(uuid, boolean, jsonb, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_procedure_builds(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_procedure_build(uuid, boolean, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_procedure_calls(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_procedure_call(uuid, boolean, jsonb, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_oauth(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_oauth(uuid, int, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_agent_embedding(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_agent_embedding(uuid, int, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_provider_probe(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_provider_probe(uuid, int, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_watchdog(int) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_run_schedules() TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_run_sandboxed_sql(text) TO allgres_sandbox;
 
 -- fn_llm_complete (Phase 3e): the one function a Procedure body itself may
 -- call directly, as an ordinary nested statement in its own already-role-
 -- switched session -- not something the runtime worker calls on the
--- agent's behalf, unlike everything else granted to `sandbox` above. See
+-- agent's behalf, unlike everything else granted to `allgres_sandbox` above. See
 -- its own definition (sql/control_plane.sql) and allgres_llm_admin's own
 -- role comment for why it needs a narrow owner rather than allgres_owner.
-GRANT EXECUTE ON FUNCTION allgres_private.fn_llm_complete(jsonb, jsonb) TO sandbox;
+GRANT EXECUTE ON FUNCTION allgres_private.fn_llm_complete(jsonb, jsonb) TO allgres_sandbox;
 -- fn_selftest itself runs as allgres_owner and exercises fn_llm_complete's
 -- own fail-closed validation directly (a real network round trip is
 -- proved live instead, same distinction run_procedure's own build/call
@@ -388,19 +388,19 @@ GRANT EXECUTE ON FUNCTION allgres_private.fn_llm_complete(jsonb, jsonb) TO allgr
 -- and v_sales/v_my_tasks call it directly from their own WHERE clause --
 -- which means it runs as whoever is actually querying the view, not as
 -- some owner, and needs its own EXECUTE grant precisely because it is not
--- SECURITY DEFINER. Every per-agent role inherits this via `sandbox`
+-- SECURITY DEFINER. Every per-agent role inherits this via `allgres_sandbox`
 -- membership, the same way it inherits everything else sandbox has, so
 -- one grant here covers all of them. Confirmed live: tests/smoke.sql's
--- role-isolation check (a real `SET LOCAL ROLE sandbox` querying
+-- role-isolation check (a real `SET LOCAL ROLE allgres_sandbox` querying
 -- v_my_tasks, not fn_selftest calling through a SECURITY DEFINER wrapper)
 -- failed with "permission denied for function current_agent_id" the
 -- moment PUBLIC stopped covering this by default -- this was one of
 -- several such gaps found only by testing under the actual role, not
 -- superuser or another SECURITY DEFINER function.
-GRANT EXECUTE ON FUNCTION allgres_private.current_agent_id() TO sandbox;
-GRANT EXECUTE ON FUNCTION allgres_private.assert_local_execution(text) TO sandbox;
-GRANT EXECUTE ON FUNCTION allgres_private.begin_local_execution(text, uuid) TO worker;
-REVOKE ALL ON allgres_private.local_execution_context FROM operator;
+GRANT EXECUTE ON FUNCTION allgres_private.current_agent_id() TO allgres_sandbox;
+GRANT EXECUTE ON FUNCTION allgres_private.assert_local_execution(text) TO allgres_sandbox;
+GRANT EXECUTE ON FUNCTION allgres_private.begin_local_execution(text, uuid) TO allgres_worker;
+REVOKE ALL ON allgres_private.local_execution_context FROM allgres_operator;
 
 -- SECURITY DEFINER changes what agent_may_read's own body runs as once
 -- it's allowed to start -- it does not waive the EXECUTE check needed to
@@ -408,22 +408,22 @@ REVOKE ALL ON allgres_private.local_execution_context FROM operator;
 -- from their own WHERE clause the same as current_agent_id() just above.
 -- Confirmed live, the same way: the next function PUBLIC's default had
 -- been quietly covering for the sandbox role.
-GRANT EXECUTE ON FUNCTION allgres_private.agent_may_read(text, uuid) TO sandbox;
+GRANT EXECUTE ON FUNCTION allgres_private.agent_may_read(text, uuid) TO allgres_sandbox;
 
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA allgres_public TO operator;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA allgres_public TO allgres_operator;
 
 -- The dashboard never returns a secret, only whether one is set (see
 -- README, "Secrets at rest") -- provider_secret() is revoked from operator
 -- two lines below for exactly that reason. fn_oauth_token_request used to
 -- break that rule outright: it decrypted the OAuth client_secret and handed
 -- the built HTTP request straight back to its caller, which the blanket
--- grant above would have handed to `operator` the moment anything wired it
+-- grant above would have handed to `allgres_operator` the moment anything wired it
 -- into dashboard_rpc (see KNOWN_ISSUES.md, "a second-round external review
 -- of items 18 and 19", for the equivalent leak this review round actually
 -- found and fixed). It is fixed now the same way item 13 already fixed the
 -- identical class of leak for an LLM provider's api_key: the secret is
 -- resolved and merged in only at claim time (fn_claim_oauth), inside the
--- runtime worker's own response, never returned by anything `operator` can
+-- runtime worker's own response, never returned by anything `allgres_operator` can
 -- call. fn_oauth_start/fn_oauth_token_request stay under the blanket grant
 -- above -- both now return only a redirect URL / a queued call_id, nothing
 -- secret -- the same way fn_claim_outbound/fn_complete_outbound stay under
@@ -433,13 +433,13 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA allgres_public TO operator;
 -- logic moved inside fn_complete_oauth, worker-only, with no public entry
 -- point left to revoke from operator in the first place.
 
-REVOKE EXECUTE ON FUNCTION allgres_private.fn_validate_sql(uuid, text) FROM worker;
-REVOKE EXECUTE ON FUNCTION allgres_private.provider_secret(uuid) FROM operator;
-REVOKE EXECUTE ON FUNCTION allgres_private.provider_secret(uuid) FROM worker;
-REVOKE EXECUTE ON FUNCTION allgres_private.oauth_client_secret(uuid) FROM operator;
-REVOKE EXECUTE ON FUNCTION allgres_private.oauth_client_secret(uuid) FROM worker;
-REVOKE EXECUTE ON FUNCTION allgres_private.connection_secret(uuid) FROM operator;
-REVOKE EXECUTE ON FUNCTION allgres_private.connection_secret(uuid) FROM worker;
+REVOKE EXECUTE ON FUNCTION allgres_private.fn_validate_sql(uuid, text) FROM allgres_worker;
+REVOKE EXECUTE ON FUNCTION allgres_private.provider_secret(uuid) FROM allgres_operator;
+REVOKE EXECUTE ON FUNCTION allgres_private.provider_secret(uuid) FROM allgres_worker;
+REVOKE EXECUTE ON FUNCTION allgres_private.oauth_client_secret(uuid) FROM allgres_operator;
+REVOKE EXECUTE ON FUNCTION allgres_private.oauth_client_secret(uuid) FROM allgres_worker;
+REVOKE EXECUTE ON FUNCTION allgres_private.connection_secret(uuid) FROM allgres_operator;
+REVOKE EXECUTE ON FUNCTION allgres_private.connection_secret(uuid) FROM allgres_worker;
 REVOKE EXECUTE ON FUNCTION allgres_private.decrypt_secret(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION allgres_private.encrypt_secret(text) FROM PUBLIC;
 
@@ -454,13 +454,13 @@ REVOKE EXECUTE ON FUNCTION allgres_private.encrypt_secret(text) FROM PUBLIC;
 -- internally, which needs no grant at all between two objects owned by the
 -- same role.
 REVOKE ALL ON FUNCTION allgres_private.fn_provision_agent_role(uuid, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION allgres_private.fn_provision_agent_role(uuid, text) TO operator;
+GRANT EXECUTE ON FUNCTION allgres_private.fn_provision_agent_role(uuid, text) TO allgres_operator;
 
 -- Same reasoning as fn_provision_agent_role just above, for the user-role
 -- equivalent: manually re-provisioning a user's role is a legitimate
 -- operator maintenance action, but explicit beats ambient.
 REVOKE ALL ON FUNCTION allgres_private.fn_provision_user_role(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION allgres_private.fn_provision_user_role(uuid) TO operator;
+GRANT EXECUTE ON FUNCTION allgres_private.fn_provision_user_role(uuid) TO allgres_operator;
 
 -- ---------------------------------------------------------------------------
 -- 13. allgres facade + dashboard RPC.
@@ -489,13 +489,13 @@ AS $$ SELECT allgres_public.fn_dispatch_tasks() $$;
 -- Best-effort privilege drop for the runtime background worker.  It connects as
 -- the bootstrap superuser (so a missing role can never crash-loop the worker at
 -- startup) and calls this at the top of every transaction, so ordinary work runs
--- as `worker` instead.  Returns false when the role is not there yet.
+-- as `allgres_worker` instead.  Returns false when the role is not there yet.
 CREATE OR REPLACE FUNCTION allgres.assume_worker_role()
 RETURNS boolean
 LANGUAGE plpgsql
 AS $fn$
 BEGIN
-  EXECUTE 'SET LOCAL ROLE worker';
+  EXECUTE 'SET LOCAL ROLE allgres_worker';
   RETURN true;
 EXCEPTION WHEN others THEN
   RETURN false;
@@ -516,8 +516,8 @@ SELECT project_id, name, description, is_active, created_at, updated_at
 FROM allgres_private.projects;
 
 REVOKE ALL ON SCHEMA allgres FROM PUBLIC;
-GRANT USAGE ON SCHEMA allgres TO operator, worker, allgres_settings_reader, allgres_llm_admin;
-GRANT SELECT ON allgres.agents, allgres.tasks, allgres.projects TO operator;
+GRANT USAGE ON SCHEMA allgres TO allgres_operator, allgres_worker, allgres_settings_reader, allgres_llm_admin;
+GRANT SELECT ON allgres.agents, allgres.tasks, allgres.projects TO allgres_operator;
 
 -- Same PUBLIC-EXECUTE-by-default gap the blanket revoke earlier in this
 -- file closes for allgres_private/allgres_public -- these four are
@@ -528,10 +528,10 @@ GRANT SELECT ON allgres.agents, allgres.tasks, allgres.projects TO operator;
 -- for exactly that reason.
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA allgres FROM PUBLIC;
 
-GRANT EXECUTE ON FUNCTION allgres.create_agent(text) TO operator;
-GRANT EXECUTE ON FUNCTION allgres.create_session(uuid, text) TO operator;
-GRANT EXECUTE ON FUNCTION allgres.pump() TO worker, operator;
-GRANT EXECUTE ON FUNCTION allgres.assume_worker_role() TO worker, operator;
+GRANT EXECUTE ON FUNCTION allgres.create_agent(text) TO allgres_operator;
+GRANT EXECUTE ON FUNCTION allgres.create_session(uuid, text) TO allgres_operator;
+GRANT EXECUTE ON FUNCTION allgres.pump() TO allgres_worker, allgres_operator;
+GRANT EXECUTE ON FUNCTION allgres.assume_worker_role() TO allgres_worker, allgres_operator;
 
 -- One PL/pgSQL RPC surface keeps HTTP routing and native code thin.
 CREATE OR REPLACE FUNCTION allgres.dashboard_rpc(p_request jsonb)
@@ -2134,11 +2134,11 @@ END;
 $fn$;
 
 REVOKE ALL ON FUNCTION allgres.dashboard_rpc(jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION allgres.dashboard_rpc(jsonb) TO operator, worker;
+GRANT EXECUTE ON FUNCTION allgres.dashboard_rpc(jsonb) TO allgres_operator, allgres_worker;
 
 -- analyze_sql only parses, but there is no reason for the sandbox to reach it.
 REVOKE ALL ON FUNCTION allgres.analyze_sql(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION allgres.analyze_sql(text) TO operator, worker;
+GRANT EXECUTE ON FUNCTION allgres.analyze_sql(text) TO allgres_operator, allgres_worker;
 
 -- native_start_dynamic_workers is PUBLIC-revoked along with the rest of this
 -- schema (section 12) and owned by allgres_owner like any other native
@@ -2153,7 +2153,7 @@ GRANT EXECUTE ON FUNCTION allgres.native_start_dynamic_workers() TO allgres_sett
 -- fn_start_dynamic_workers is owned by allgres_settings_reader (not
 -- allgres_owner, unlike everything else in allgres_public -- see the
 -- ownership-exclusion lists above), so the blanket "GRANT EXECUTE ON ALL
--- FUNCTIONS IN SCHEMA allgres_public TO operator" a few lines up already
+-- FUNCTIONS IN SCHEMA allgres_public TO allgres_operator" a few lines up already
 -- covers operator regardless of who owns it, but fn_selftest itself (which
 -- calls it directly) runs as allgres_owner and needs its own explicit
 -- grant, same as any other allgres_owner-owned function calling out to one
@@ -2166,7 +2166,7 @@ GRANT EXECUTE ON FUNCTION allgres_public.fn_start_dynamic_workers() TO allgres_o
 -- only sends exactly the url/headers/body it is given, so its own
 -- ownership has no bearing on what it can read. Unlike
 -- native_start_dynamic_workers, EXECUTE here is granted only to
--- allgres_llm_admin, never to `operator`/`sandbox`/anyone else -- calling
+-- allgres_llm_admin, never to `allgres_operator`/`allgres_sandbox`/anyone else -- calling
 -- it directly with attacker-chosen headers/body would make it a generic
 -- SSRF-guarded "POST anywhere" primitive, so the only path to it is
 -- through fn_llm_complete (allgres_private, owned by allgres_llm_admin),

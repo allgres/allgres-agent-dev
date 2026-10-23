@@ -232,10 +232,10 @@ as_pg pg_restore -h "$SCRATCH/sock" -p "$FRESH_PORT" -d postgres --no-owner --ro
 
 # SET LOCAL ROLE straight from this postgres superuser session would
 # succeed regardless of whether the dump/restore actually preserved the
-# GRANT <agent_role> TO worker membership fn_provision_agent_role makes --
+# GRANT <agent_role> TO allgres_worker membership fn_provision_agent_role makes --
 # a superuser can assume any role, membership grant or not, so that alone
 # only proves the role exists, not that the real path works. Hopping
-# through `worker` first, the same as the real runtime worker does
+# through `allgres_worker` first, the same as the real runtime worker does
 # (drop_privileges() -> worker, then run_sandboxed_sql's own
 # SET LOCAL ROLE <agent_role>), means the *second* SET ROLE only succeeds
 # if worker's membership in the agent role actually survived -- once
@@ -248,8 +248,8 @@ DECLARE
 BEGIN
   SELECT agent_id, pg_role INTO v_agent, v_role FROM allgres_private.agents WHERE name = 'backup_drill_logical_$SUFFIX';
   v_sql := allgres_private.fn_validate_sql(v_agent, 'SELECT task_id FROM allgres_public.v_my_tasks');
-  SET LOCAL ROLE worker;
-  IF current_user <> 'worker' THEN RAISE EXCEPTION 'worker role not assumed: %', current_user; END IF;
+  SET LOCAL ROLE allgres_worker;
+  IF current_user <> 'allgres_worker' THEN RAISE EXCEPTION 'worker role not assumed: %', current_user; END IF;
   EXECUTE format('SET LOCAL ROLE %I', v_role);
   IF current_user <> v_role THEN RAISE EXCEPTION 'agent role not assumed from worker (membership lost in restore?): %', current_user; END IF;
   v_result := allgres_public.fn_run_sandboxed_sql(v_sql);

@@ -426,7 +426,7 @@ BEGIN
 
   -- 13. execute_sql queues a call instead of running inline; the runtime
   --     worker claims it, runs it as the sandbox role (fn_run_sandboxed_sql,
-  --     exercised directly against a live `sandbox` session in
+  --     exercised directly against a live `allgres_sandbox` session in
   --     tests/smoke.sql -- this function is SECURITY DEFINER and so cannot
   --     itself do the SET ROLE), and posts the result back through
   --     fn_claim_sql/fn_complete_sql, the same claim/complete shape the
