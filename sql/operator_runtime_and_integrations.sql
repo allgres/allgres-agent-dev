@@ -234,8 +234,9 @@ BEGIN
 END;
 $fn$;
 
--- The firing sweep, called from fn_pump every tick alongside fn_watchdog/
--- fn_dispatch_tasks -- entirely a poll against next_run_at, no external
+-- The firing sweep, called every tick by the runtime worker's
+-- dispatch_and_claim (src/runtime_worker.rs) between fn_watchdog and
+-- fn_dispatch_tasks, and by fn_pump for SQL-driven callers -- entirely a poll against next_run_at, no external
 -- scheduler and nothing held in worker memory, so a restart between ticks
 -- loses nothing: the next tick just finds the same due row again. Always
 -- reschedules from *now*, never by walking next_run_at forward in

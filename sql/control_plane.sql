@@ -990,7 +990,8 @@ CREATE INDEX IF NOT EXISTS sessions_project_idx
 -- run, most recently when, against which session" -- queryable in
 -- PostgreSQL like everything else here, not held anywhere in worker memory.
 -- Firing is a plain now() >= next_run_at poll (fn_run_schedules, called
--- from fn_pump alongside fn_watchdog/fn_dispatch_tasks), not pg_cron or any
+-- by the runtime worker's tick, and by fn_pump, between fn_watchdog and
+-- fn_dispatch_tasks), not pg_cron or any
 -- external scheduler -- one less extension dependency, and the same
 -- restart-survives-for-free property every other queue in this file
 -- already has: state is a row, not a timer running somewhere.

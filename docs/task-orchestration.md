@@ -41,15 +41,38 @@ Roadmap item 6: a schedule (Settings → Schedules) runs an agent against a
 goal on a recurring interval — each firing calls `fn_create_session` exactly
 as if an operator had typed the goal in by hand, so a fired run is an
 ordinary session, visible and inspectable the same way any other one is
-(Audit → Sessions). Firing is a plain `next_run_at <= now()` poll
-(`fn_run_schedules`, called from `fn_pump` alongside `fn_watchdog`/
-`fn_dispatch_tasks`) — no `pg_cron` or other external scheduler, and no
-state held in worker memory, so a worker or database restart between ticks
-loses nothing: the next tick just finds the same due row. A schedule that
-missed several intervals (the extension was down, or simply never got a
-tick) fires once to catch up, never in a burst — `next_run_at` is always
-recomputed as `now() + interval_seconds`, never by walking forward in fixed
-steps from where it was.
+(Audit → Sessions). Firing is a plain `next_run_at <= now()` poll —
+no `pg_cron` or other external scheduler, and no state held in worker
+memory, so a worker or database restart between ticks loses nothing: the
+next tick just finds the same due row.
+
+Call path: the runtime background worker's pump tick
+(`dispatch_and_claim` in `src/runtime_worker.rs`) runs, in one transaction
+after dropping to `allgres_worker`, `fn_watchdog` → `fn_run_schedules` →
+`fn_dispatch_tasks` → `fn_claim_outbound`. A schedule fired in a tick is
+therefore dispatched and its first call claimed in that same tick. An error
+from `fn_run_schedules` is logged as a warning and does not stop the tick;
+a single schedule whose session cannot be created (inactive agent, …) is
+skipped with a warning and its `next_run_at` still moves forward.
+`fn_pump` makes the same calls for a caller that drives the runtime from
+SQL, but the worker does not use it. Only the worker attached to the database
+named by `ALLGRES_DATABASE` (default `postgres`) fires schedules.
+
+Exactly once: `fn_run_schedules` locks each due row `FOR UPDATE SKIP
+LOCKED` and moves `next_run_at` forward in the same transaction, so two
+ticks or workers running at once never fire the same due schedule twice —
+the second one skips the locked row, and once the first commits the row is
+no longer due.
+
+Catch-up policy (database or worker down, missed ticks): a schedule that
+missed one or many intervals fires **once** on the first tick after it
+becomes due again, then `next_run_at = now() + interval_seconds` — never a
+burst of the missed runs, and never by walking forward in fixed steps from
+the old `next_run_at`. `run_count` therefore counts runs that actually
+happened, not intervals that elapsed. Stop conditions (`max_runs`,
+`ends_at`, `max_cost_usd`) are checked before a catch-up run as well.
+`tests/schedule_worker_e2e.sql` covers the worker firing on its own, the
+catch-up run, and two concurrent ticks.
 
 A schedule's own `name`/`goal` plus its `run_count`/`last_run_at`/
 `last_session_id`/`spent_cost_usd` *are* the durable long-term-goal-tracking

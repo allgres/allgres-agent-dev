@@ -29,6 +29,7 @@ INSERT INTO _fixture_agent_names VALUES
   ('e2e_gamma_agent'),        -- e2e_mock.sql
   ('e2e_search_requester'),   -- e2e_mock.sql, capability_search_e2e.sql
   ('e2e_fx_runner'),          -- fixed_url_procedure_e2e.sql
+  ('e2e_sched_runner'),       -- schedule_worker_e2e.sql
   ('e2e_legacy_reserved_runner'), -- legacy_reserved_name_row.sql
   ('e2e_pb_runner'),          -- procedure_binding_e2e.sql
   ('e2e_recall_agent'),       -- e2e_mock.sql
@@ -53,6 +54,8 @@ DELETE FROM allgres_private.agent_group_members WHERE agent_id IN (SELECT agent_
 DELETE FROM allgres_private.canvas_positions
 WHERE item_kind = 'agent' AND item_id IN (SELECT agent_id FROM _fixture_agents);
 DELETE FROM allgres_private.agent_memories WHERE agent_id IN (SELECT agent_id FROM _fixture_agents);
+-- A fixture schedule left behind would keep firing for a retired agent.
+DELETE FROM allgres_private.schedules WHERE agent_id IN (SELECT agent_id FROM _fixture_agents);
 
 -- Rename and deactivate. The suffix keeps names unique across repeated runs,
 -- so the next run can create a fresh e2e_alpha_agent.
