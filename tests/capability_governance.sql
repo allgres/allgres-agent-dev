@@ -30,10 +30,26 @@ WHERE source_id=:'function_id'::uuid \gset
 UPDATE allgres_private.capability_index SET lifecycle='review_pending'
 WHERE capability_id=:'capability_id'::uuid;
 
-\set ON_ERROR_STOP off
-SELECT allgres_private.transition_capability(:'capability_id'::uuid,'published',
-  '{"passed":true}'::jsonb,'forged');
-\set ON_ERROR_STOP on
+-- A forged test result must not publish: the call has to fail with the
+-- evaluation-required error (SQLSTATE P0001 is the generic RAISE code, so
+-- the message is matched too). Any other error propagates, and success
+-- fails the test.
+SELECT set_config('allgres_test.governance_capability', :'capability_id', false);
+DO $forged$
+BEGIN
+  BEGIN
+    PERFORM allgres_private.transition_capability(
+      current_setting('allgres_test.governance_capability')::uuid, 'published',
+      '{"passed":true}'::jsonb, 'forged');
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'a current passing isolated evaluation is required to publish' THEN
+      RETURN;
+    END IF;
+    RAISE;
+  END;
+  RAISE EXCEPTION 'capability governance: a forged test result published the capability';
+END
+$forged$;
 
 SELECT (allgres_private.evaluate_capability(:'capability_id'::uuid)->>'evaluation_id')::uuid AS evaluation_id \gset
 SELECT allgres_private.transition_capability(:'capability_id'::uuid,'published',
