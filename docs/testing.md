@@ -63,6 +63,13 @@ private-network guard would refuse the call (`error_kind =
 code. A real resolver, CI runners included, fails the lookup, so the check
 passes silently there and CI needs no setup.
 
+`allgres.resolve_host_addresses` waits at most 5 seconds for the resolver
+and checks for interrupts every 50 ms while it waits, so `statement_timeout`
+and `pg_cancel_backend` stop it at once. A resolver that does not answer in
+time is reported as an error (SQLSTATE 58000, "did not finish within 5 s"),
+not as a failed lookup, so the pre-flight does not pass on it. Only its
+owner (`allgres_owner`) and superusers can execute it; there is no grant.
+
 In such a sandbox, start the PostgreSQL server under `scripts/with_nodns.sh`.
 Clients need nothing:
 

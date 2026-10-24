@@ -551,3 +551,58 @@ fn perform_http_classifies_dns_connect_and_blocked() {
     );
     assert_eq!((status, kind), (0, Some(K::BlockedAddress)), "{body}");
 }
+
+#[test]
+fn run_bounded_returns_the_result_of_fast_work() {
+    let mut ticks = 0;
+    let r = crate::run_bounded(|| 7, Duration::from_secs(5), Duration::from_millis(10), || ticks += 1);
+    assert_eq!(r, crate::Bounded::Done(7));
+    assert!(ticks >= 1, "on_tick runs before the first wait");
+}
+
+#[test]
+fn run_bounded_gives_up_on_slow_work_at_the_deadline_and_keeps_ticking() {
+    let started = Instant::now();
+    let mut ticks = 0;
+    let r = crate::run_bounded(
+        || std::thread::sleep(Duration::from_secs(3)),
+        Duration::from_millis(300),
+        Duration::from_millis(20),
+        || ticks += 1,
+    );
+    let took = started.elapsed();
+    assert_eq!(r, crate::Bounded::TimedOut);
+    assert!(took >= Duration::from_millis(300), "returned before the deadline: {took:?}");
+    assert!(took < Duration::from_millis(1500), "waited for the work instead of the deadline: {took:?}");
+    assert!(ticks >= 10, "on_tick must run every poll while waiting (got {ticks})");
+}
+
+#[test]
+fn run_bounded_lets_on_tick_abort_the_wait() {
+    // In a backend on_tick is check_for_interrupts!(), which unwinds on a
+    // pending cancel; the wait must stop then, not when the work finishes.
+    let started = Instant::now();
+    let mut ticks = 0;
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::run_bounded(
+            || std::thread::sleep(Duration::from_secs(3)),
+            Duration::from_secs(10),
+            Duration::from_millis(20),
+            || {
+                ticks += 1;
+                if ticks == 5 {
+                    panic!("simulated cancel");
+                }
+            },
+        )
+    }));
+    assert!(r.is_err(), "the interrupt must propagate");
+    assert!(started.elapsed() < Duration::from_millis(1000), "took {:?}", started.elapsed());
+}
+
+#[test]
+fn run_bounded_reports_panicking_work() {
+    let r: crate::Bounded<()> =
+        crate::run_bounded(|| panic!("boom"), Duration::from_secs(5), Duration::from_millis(10), || {});
+    assert!(matches!(r, crate::Bounded::Failed(_)), "{r:?}");
+}

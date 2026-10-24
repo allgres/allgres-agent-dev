@@ -44,6 +44,56 @@ pub(crate) static IN_RUNTIME_WORKER: std::sync::atomic::AtomicBool =
 
 pgrx::pg_module_magic!();
 
+/// Upper bound on one allgres.resolve_host_addresses lookup, and how often
+/// the waiting backend checks for interrupts meanwhile.
+pub(crate) const RESOLVE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const RESOLVE_PROBE_POLL: Duration = Duration::from_millis(50);
+
+/// Outcome of [`run_bounded`].
+#[derive(Debug, PartialEq)]
+pub(crate) enum Bounded<T> {
+    Done(T),
+    /// The deadline passed first; the work thread is left to finish alone.
+    TimedOut,
+    /// The thread could not be started, or `work` panicked.
+    Failed(String),
+}
+
+/// Run `work` on a new thread and wait for it at most `timeout`, calling
+/// `on_tick` before every wait of at most `poll` -- in a backend that is
+/// `check_for_interrupts!()`, which raises (unwinds out of here) on a
+/// pending cancel or statement_timeout. `work` must not touch PostgreSQL.
+pub(crate) fn run_bounded<T, W, F>(work: W, timeout: Duration, poll: Duration, mut on_tick: F) -> Bounded<T>
+where
+    T: Send + 'static,
+    W: FnOnce() -> T + Send + 'static,
+    F: FnMut(),
+{
+    use std::sync::mpsc::{channel, RecvTimeoutError};
+    let (tx, rx) = channel();
+    let spawned = std::thread::Builder::new()
+        .name("allgres-bounded".into())
+        .spawn(move || {
+            let _ = tx.send(work());
+        });
+    if let Err(e) = spawned {
+        return Bounded::Failed(format!("cannot start thread: {e}"));
+    }
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        on_tick();
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Bounded::TimedOut;
+        }
+        match rx.recv_timeout((deadline - now).min(poll)) {
+            Ok(v) => return Bounded::Done(v),
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => return Bounded::Failed("work panicked".into()),
+        }
+    }
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub(crate) const DEFAULT_DB: &str = "postgres";
 /// Loopback by default.  Binding to a public address without a dashboard token
@@ -174,21 +224,58 @@ mod allgres {
     /// std's ToSocketAddrs, i.e. getaddrinfo, and so does this -- in a
     /// backend of the same postmaster, so the same /etc/nsswitch.conf and
     /// resolver the runtime worker sees. No connection is made and no guard
-    /// applies. EXECUTE is revoked from PUBLIC with the rest of the schema
-    /// and granted to nobody: tests/require_failing_dns.sql uses it (as
-    /// superuser) to refuse an environment whose resolver answers names that
-    /// cannot exist (.invalid) instead of failing the lookup.
+    /// applies. tests/require_failing_dns.sql uses it (as superuser) to
+    /// refuse an environment whose resolver answers names that cannot exist
+    /// (.invalid) instead of failing the lookup.
+    ///
+    /// Privileges: EXECUTE is revoked from PUBLIC with the rest of the
+    /// schema and there is no GRANT for it, so only its owner (allgres_owner)
+    /// and superusers can call it; allgres_operator, allgres_worker, the
+    /// agent roles and allgres_sandbox cannot.
+    ///
+    /// getaddrinfo cannot be interrupted, so the lookup runs on its own
+    /// thread and the backend waits at most RESOLVE_PROBE_TIMEOUT for it,
+    /// checking for interrupts every RESOLVE_PROBE_POLL: statement_timeout,
+    /// pg_cancel_backend and pg_terminate_backend take effect within that
+    /// poll instead of after the resolver's own timeout. A lookup that has
+    /// not finished by the deadline raises 58000 -- an unresponsive resolver
+    /// is not a failed lookup, so the DNS pre-flight must not pass on it.
+    /// An abandoned lookup thread ends when getaddrinfo returns; it holds
+    /// nothing of the backend's.
     #[pg_extern(parallel_safe)]
     fn resolve_host_addresses(host: &str) -> Vec<String> {
         use std::net::ToSocketAddrs;
-        match (host, 443u16).to_socket_addrs() {
-            Ok(addrs) => {
-                let mut v: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
-                v.sort();
-                v.dedup();
-                v
+        let owned = host.to_string();
+        let lookup = move || -> Option<Vec<String>> {
+            let addrs = (owned.as_str(), 443u16).to_socket_addrs().ok()?;
+            let mut v: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
+            v.sort();
+            v.dedup();
+            Some(v)
+        };
+        match crate::run_bounded(lookup, crate::RESOLVE_PROBE_TIMEOUT, crate::RESOLVE_PROBE_POLL, || {
+            check_for_interrupts!();
+        }) {
+            crate::Bounded::Done(Some(v)) => v,
+            crate::Bounded::Done(None) => Vec::new(),
+            crate::Bounded::TimedOut => {
+                ereport!(
+                ERROR,
+                PgSqlErrorCode::ERRCODE_SYSTEM_ERROR,
+                format!(
+                    "allgres.resolve_host_addresses: lookup of \"{host}\" did not finish within {} s",
+                    crate::RESOLVE_PROBE_TIMEOUT.as_secs()
+                ),
+                "The resolver did not answer. That is not a failed lookup; check /etc/resolv.conf and the nameserver."
+                );
             }
-            Err(_) => Vec::new(),
+            crate::Bounded::Failed(why) => {
+                ereport!(
+                ERROR,
+                PgSqlErrorCode::ERRCODE_SYSTEM_ERROR,
+                format!("allgres.resolve_host_addresses: lookup of \"{host}\" failed to run: {why}")
+                );
+            }
         }
     }
 
