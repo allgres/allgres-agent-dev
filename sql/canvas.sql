@@ -1026,3 +1026,11 @@ BEGIN
   );
 END;
 $fn$;
+
+-- Board state is user state: groups, membership, layout and saved templates
+-- all dump (nothing creates rows in them at CREATE EXTENSION time). See
+-- seed_data.sql 10c for the full dump-coverage list.
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.agent_groups', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.agent_group_members', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.canvas_positions', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.canvas_templates', '');

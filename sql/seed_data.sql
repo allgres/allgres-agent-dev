@@ -669,3 +669,69 @@ SELECT pg_catalog.pg_extension_config_dump('allgres_private.model_experiments', 
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.llm_model_prices', '');
 
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.execution_rules', '');
+
+-- ---------------------------------------------------------------------------
+-- 10c. Dump coverage for the rest of the user state (C2 coverage). Every
+-- allgres_private table is either registered here/above or on the short
+-- "not user state" list that fn_selftest's dump_coverage check holds, so a
+-- new table that forgets to register fails selftest instead of silently
+-- vanishing from a logical dump.
+--
+-- Registered unconditionally (nothing creates rows here at CREATE EXTENSION
+-- time, so a dump never collides with a fresh install):
+--   users                      accounts and password hashes: without them no
+--                              one can log in after a restore
+--   user_agent_assignments, user_agent_chat_sessions,
+--   user_agent_preferences, user_project_chat_sessions
+--                              which user may use which agent, and which
+--                              chat session the user continues
+--   channel_messages           the user's own chat messages
+--   fix_proposals              pending/decided fixer proposals (human
+--                              decisions, like human_approvals above)
+--   function_calls, procedure_calls
+--                              per-task call history and queued calls, the
+--                              same reasoning as outbound_calls/sql_calls
+--   function_history           function version history (rollback), the
+--                              same as procedure_history/policy_history
+--   (agent_groups, agent_group_members, canvas_positions, canvas_templates
+--    are registered at the end of sql/canvas.sql, which creates them)
+--
+-- capability_index is rebuilt for seed sources by CREATE EXTENSION itself
+-- (sync_capability_index via the agents/functions/procedures triggers), with
+-- fresh random capability_ids, so only rows whose source is not a seed row
+-- are dumped, and the three tables keyed on capability_id follow the same
+-- filter. History about seed capabilities is lost on a logical restore
+-- (the seed-row edit problem, see docs/backup-and-restore.md).
+--
+-- Deliberately NOT registered (checked by selftest dump_coverage):
+--   web_sessions               live login tokens; restoring them would revive
+--                              bearer tokens from a backup file. Users log in
+--                              again (their accounts restore).
+--   oauth_states, sql_function_allowlist
+--                              see 10b above
+--   provider_probes            "test connection" queue rows and their result;
+--                              re-run on demand
+--   embedding_calls            the embedding request queue; results live in
+--                              capability_index/agent_memories, which are
+--                              dumped
+--   local_execution_context    per-backend, per-transaction worker context;
+--                              meaningless after any restart
+-- ---------------------------------------------------------------------------
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.users', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.user_agent_assignments', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.user_agent_chat_sessions', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.user_agent_preferences', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.user_project_chat_sessions', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.channel_messages', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.fix_proposals', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.function_calls', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.procedure_calls', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.function_history', '');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.capability_index',
+  'WHERE source_id IS NULL OR source_id NOT IN (SELECT agent_id FROM allgres_private.agents WHERE is_seed UNION ALL SELECT function_id FROM allgres_private.functions WHERE is_seed UNION ALL SELECT procedure_id FROM allgres_private.procedures WHERE is_seed)');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.capability_versions',
+  'WHERE capability_id IN (SELECT capability_id FROM allgres_private.capability_index WHERE source_id IS NULL OR source_id NOT IN (SELECT agent_id FROM allgres_private.agents WHERE is_seed UNION ALL SELECT function_id FROM allgres_private.functions WHERE is_seed UNION ALL SELECT procedure_id FROM allgres_private.procedures WHERE is_seed))');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.capability_evaluations',
+  'WHERE capability_id IN (SELECT capability_id FROM allgres_private.capability_index WHERE source_id IS NULL OR source_id NOT IN (SELECT agent_id FROM allgres_private.agents WHERE is_seed UNION ALL SELECT function_id FROM allgres_private.functions WHERE is_seed UNION ALL SELECT procedure_id FROM allgres_private.procedures WHERE is_seed))');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.capability_search_events',
+  'WHERE selected_capability_id IS NULL OR selected_capability_id IN (SELECT capability_id FROM allgres_private.capability_index WHERE source_id IS NULL OR source_id NOT IN (SELECT agent_id FROM allgres_private.agents WHERE is_seed UNION ALL SELECT function_id FROM allgres_private.functions WHERE is_seed UNION ALL SELECT procedure_id FROM allgres_private.procedures WHERE is_seed))');

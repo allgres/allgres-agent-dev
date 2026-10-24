@@ -198,6 +198,16 @@ rows have fixed IDs. The documented two-pass
 restore was manually verified with no errors, duplicate keys, or dangling
 references. A single-pass restore still has the documented policy collision.
 
+Every other `allgres_private` table holding user state (accounts, agent
+assignments and chat-session links, preferences, messenger messages, fix
+proposals, call records, function history, user capabilities, canvas
+groups/positions/templates) is also registered; `fn_selftest()` check
+`dump_coverage_all_user_state_tables` fails when a table is neither
+registered nor on the short not-dumped list in
+[Backup and restore](docs/backup-and-restore.md). Login tokens
+(`web_sessions`) are deliberately not dumped, so users log in again after a
+restore. Edits to seed rows are still lost on a logical restore.
+
 **Existing installs get nothing on upgrade.** The version is still
 `0.1.0-alpha.3` and there is no upgrade script. They retain the old dump
 filters, random seed IDs, and no marker. Check for the marker with:

@@ -6272,6 +6272,26 @@ BEGIN
       'ok', ok, 'detail', jsonb_build_object('bad_filters', v_bad, 'unmarked_seed_rows', v_unmarked)));
   END;
 
+  -- Dump coverage (seed_data.sql 10c): every allgres_private table is
+  -- registered with pg_extension_config_dump except the fixed list of
+  -- tables that hold no user state. A new table that forgets to register
+  -- fails here instead of silently missing from a logical dump.
+  DECLARE
+    v_missing jsonb;
+  BEGIN
+    SELECT COALESCE(jsonb_agg(c.relname ORDER BY c.relname), '[]'::jsonb) INTO v_missing
+    FROM pg_class c
+    WHERE c.relnamespace = 'allgres_private'::regnamespace
+      AND c.relkind IN ('r', 'p')
+      AND c.relname NOT IN ('web_sessions', 'oauth_states', 'sql_function_allowlist',
+                            'provider_probes', 'embedding_calls', 'local_execution_context')
+      AND NOT EXISTS (SELECT 1 FROM pg_extension e
+                      WHERE e.extname = 'allgres' AND c.oid = ANY(e.extconfig));
+    ok := v_missing = '[]'::jsonb;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'dump_coverage_all_user_state_tables',
+      'ok', ok, 'detail', jsonb_build_object('unregistered', v_missing)));
+  END;
+
   RETURN v;
 END;
 $fn$;
