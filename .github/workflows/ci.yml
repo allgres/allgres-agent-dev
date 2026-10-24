@@ -107,12 +107,17 @@ jobs:
           check_selftest
           sudo -u postgres psql -p "$PGPORT" -d postgres -tAc \
             "DELETE FROM allgres_private.web_sessions WHERE user_id IN (SELECT user_id FROM allgres_private.users WHERE username = 'ci_selftest_admin'); DELETE FROM allgres_private.users WHERE username = 'ci_selftest_admin';" >/dev/null
-          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/smoke.sql
-          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/execution_safety.sql
-          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/execution_safety_worker.sql
-          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/e2e_mock.sql
-          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/capability_governance.sql
-          sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -f tests/cleanup.sql
+          # The full tests/*.sql list (scripts/run_sql_tests.sh, cleanup always
+          # last), not a hand-picked subset: schedule_worker_e2e's forced
+          # contention needs dblink, which ships in the PGDG postgresql-NN
+          # package (contrib); the test creates the extension itself.
+          sudo -u postgres env PGPORT="$PGPORT" PGDATABASE=postgres ./scripts/run_sql_tests.sh
+
+      - name: Logical dump/restore test (two-pass restore on throwaway clusters)
+        run: |
+          # Own initdb'd clusters on a private Unix socket and web port 18088;
+          # the cluster above keeps running on its own port and 8088.
+          PG_BIN="/usr/lib/postgresql/${{ matrix.pg }}/bin" ./scripts/run_dump_restore_test.sh
 
       - name: PostgreSQL log on failure
         if: failure()

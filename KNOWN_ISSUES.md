@@ -195,8 +195,10 @@ aborted `COPY` for functions, providers, procedures, and the sandbox
 allowlist; user grants and references to seed agents, the `seoul-weather`
 procedure, and the `seoul_weather` function now restore, because those seed
 rows have fixed IDs. The documented two-pass
-restore was manually verified with no errors, duplicate keys, or dangling
-references. A single-pass restore still has the documented policy collision.
+restore is tested by `scripts/run_dump_restore_test.sh` (no errors, equal row
+counts, no orphan foreign keys, selftest, worker execution, login and chat
+continuation on the restored database). A single-pass restore still has the
+documented policy collision and is not supported.
 
 Every other `allgres_private` table holding user state (accounts, agent
 assignments and chat-session links, preferences, messenger messages, fix

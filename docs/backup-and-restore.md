@@ -87,16 +87,38 @@ second, independent copy that doesn't depend on WAL continuity. Whatever
 you pick, restore it somewhere non-production on a schedule too — a
 backup nobody has restored is a hope, not a plan.
 
-**Restore checklist (logical, the two-pass restore above):**
+**Restore checklist (logical, the two-pass restore above).**
+`scripts/run_dump_restore_test.sh` runs exactly these steps on two
+throwaway clusters (the CI native matrix runs it for PostgreSQL 16, 17 and 18); see
+[Tests](testing.md). Single-pass restore is not supported.
 
 ```bash
-pg_dumpall --globals-only -f globals.sql          # 1. roles first
-psql -f globals.sql                               #    onto the fresh cluster
-pg_restore --schema-only -d <db> backup.dump       # 2. extension + seed data
-pg_restore --data-only --disable-triggers -d <db> backup.dump  # 3. everything else
+# On the source
+pg_dumpall --globals-only -f globals.sql          # roles (agent/user roles are cluster-global)
+pg_dump -Fc -d <db> -f backup.dump
+
+# On the target cluster
+#  - postgresql.conf: shared_preload_libraries = 'allgres' and the SAME
+#    allgres.secret_key as the source (provider and connection secrets are
+#    dumped as ciphertext; another key cannot decrypt them)
+#  - start it with ALLGRES_DATABASE pointing at a database other than <db>
+#    (for example the empty `postgres`), so the runtime worker cannot run
+#    schedules or claim queued calls between the two passes
+psql -f globals.sql                               # 1. roles first ("role <you> already exists" is expected)
+createdb <db>
+psql -d <db> -c 'CREATE EXTENSION pgcrypto'       # 2. before the schema pass when the source had it
+pg_restore --schema-only -d <db> backup.dump       # 3. extension + seed data
+pg_restore --data-only --disable-triggers -d <db> backup.dump  # 4. everything else
+# 5. restart with ALLGRES_DATABASE=<db>
 ```
+
+`--disable-triggers` also skips foreign-key checks, so the data pass cannot
+report a missing parent row; the test checks every `allgres_private`
+foreign key for orphans after the restore.
 
 Then run `SELECT allgres_public.fn_selftest();` once against the restored
 database — it's a live diagnostic safe to run against real data (see
 [Tests](testing.md)), and a clean pass is a real signal the restore actually
 landed in a working state, not just that the commands returned success.
+Users log in again (`web_sessions` is not dumped); their chats continue in
+the same session.

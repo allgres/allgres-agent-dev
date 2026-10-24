@@ -10,6 +10,7 @@ cargo pgrx test --features pg17   # Rust unit tests (request parsing, auth, pars
 psql -c "SELECT allgres_public.fn_selftest()"
 ./scripts/bootstrap.sh            # install completion: a real agent task runs to 'completed'
 ./scripts/run_sql_tests.sh        # tests/*.sql against PG* env, then tests/cleanup.sql
+./scripts/run_dump_restore_test.sh  # pg_dump + two-pass restore on throwaway clusters
 ```
 
 The `tests/*.sql` files need the background workers (and
@@ -23,6 +24,21 @@ deleted). It then fails if any of them is still visible. `run_sql_tests.sh`,
 CI, and `scripts/smoke.sh` run it last; run it yourself after running any
 of the files by hand. The suite no longer changes the seeded `analyst`
 agent or the `openai` provider's key.
+
+`run_dump_restore_test.sh` needs no running cluster: it initdb's a source
+and a restore cluster under one temporary directory (removed on exit),
+listening only on a Unix socket there, with the web/mock worker on
+`ALLGRES_DR_HTTP_ADDR` (default `127.0.0.1:18088`, which must be free). The
+source gets user rows in every user-state table (`tests/dump_restore_fixture.sql`),
+a web login and a chat turn answered by the mock, and a user procedure call
+harvested by the worker. After `pg_dump -Fc` and the two-pass restore it
+checks: no restore errors, equal row counts per table, no orphan foreign keys
+and the fixture rows (`tests/dump_restore_verify.sql`), `fn_selftest()`
+with no failures. It then points the worker at the restored database: a
+user procedure call is harvested again (`tests/dump_restore_exec.sql`), and
+the same user logs in over the web RPC and continues the same chat session,
+with the reply harvested from the mock. Set `PG_BIN` to the PostgreSQL bin
+directory when `pg_config` on `PATH` is not the target install.
 
 `fn_selftest` is a live diagnostic, not a fresh-install-only check: every
 fixture it creates is either uniquely named and hard-deleted before it
