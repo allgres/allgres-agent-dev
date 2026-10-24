@@ -12,6 +12,7 @@ psql -c "SELECT allgres_public.fn_selftest()"
 ./scripts/run_sql_tests.sh        # tests/*.sql against PG* env, then tests/cleanup.sql
 ./scripts/run_dump_restore_test.sh  # pg_dump + two-pass restore on throwaway clusters
 scripts/with_nodns.sh CMD...      # run CMD where .invalid lookups fail (see below)
+scripts/with_slowdns.sh CMD...    # run CMD where DNS lookups hang (manual check, see below)
 ```
 
 The `tests/*.sql` files need the background workers (and
@@ -69,6 +70,41 @@ and `pg_cancel_backend` stop it at once. A resolver that does not answer in
 time is reported as an error (SQLSTATE 58000, "did not finish within 5 s"),
 not as a failed lookup, so the pre-flight does not pass on it. Only its
 owner (`allgres_owner`) and superusers can execute it; there is no grant.
+
+### Bounds of resolve_host_addresses (manual check)
+
+CI does not run this check; it needs a resolver that never answers. Run it
+by hand after changing `allgres.resolve_host_addresses` or `run_bounded` in
+`src/lib.rs`. Start a test server under `scripts/with_slowdns.sh`, which
+works like `with_nodns.sh` but points `/etc/resolv.conf` at a nameserver
+that drops queries (`192.0.2.1`, 30 s timeout), so every lookup except
+`/etc/hosts` hangs. Then run `scripts/check_resolve_interrupt.sh` as a
+superuser:
+
+```bash
+scripts/with_slowdns.sh pg_ctl -D "$PGDATA" -l "$PGDATA/server.log" start
+./scripts/check_resolve_interrupt.sh
+pg_ctl -D "$PGDATA" stop     # restart normally (or under with_nodns.sh) afterwards
+```
+
+Expected output (times vary by a few milliseconds):
+
+| Check | Result | Time | Script bound |
+|---|---|---|---|
+| `localhost` | `{127.0.0.1,::1}` | ~10 ms | < 1 s |
+| `SET statement_timeout = '1s'` | `57014` canceling statement due to statement timeout | ~1.0 s | 0.8–2.5 s |
+| `pg_cancel_backend` after 1 s | `57014` canceling statement due to user request | ~1.05 s | 0.8–2.5 s |
+| no `statement_timeout` | `58000` … did not finish within 5 s | ~5.0 s | 4.5–8 s |
+
+The script exits 1 at the first check that does not hold. If the lookup
+fails at once, the server is not running under `with_slowdns.sh` (the
+script says so). If the probe has no bound, as before this check existed,
+the `statement_timeout` case takes the full 30 s resolver timeout and
+fails. `with_slowdns.sh` first checks that a lookup really hangs; on a
+network that refuses packets to `192.0.2.1` instead of dropping them, set
+`ALLGRES_SLOWDNS_NAMESERVER` to an address that drops them. It uses the
+same user-namespace / `sudo -n` fallback and `ALLGRES_NODNS_MODE` as
+`with_nodns.sh`. See `scripts/with_slowdns.sh --help`.
 
 In such a sandbox, start the PostgreSQL server under `scripts/with_nodns.sh`.
 Clients need nothing:
