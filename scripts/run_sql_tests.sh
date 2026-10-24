@@ -17,11 +17,19 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 addr=${ALLGRES_TEST_HTTP_ADDR:-127.0.0.1:8088}
 files=(smoke execution_safety execution_safety_worker e2e_mock capability_governance capability_search_e2e procedure_binding_e2e fixed_url_procedure_e2e legacy_reserved_name_row schedule_worker_e2e)
 
-dir="$root/tests"
+# Read the test files through a path relative to the current directory, not
+# the absolute "$root/tests". CI runs this script as postgres
+# (sudo -u postgres ...) from a checkout under /home/runner, which postgres
+# cannot traverse (mode 750): opening /home/runner/.../tests/x.sql fails with
+# "Permission denied", while a relative path is resolved from the cwd and
+# does not need search permission on its ancestors. realpath -s -m is purely
+# lexical, so computing the relative path does not touch those ancestors either.
+tests=$(realpath -s -m --relative-to="$PWD" "$root/tests")
+dir="$tests"
 if [[ "$addr" != "127.0.0.1:8088" ]]; then
   dir=$(mktemp -d)
   trap 'rm -rf "$dir"' EXIT
-  for f in "$root"/tests/*.sql; do
+  for f in "$tests"/*.sql; do
     sed "s#127\.0\.0\.1:8088#$addr#g" "$f" >"$dir/$(basename "$f")"
   done
 fi
