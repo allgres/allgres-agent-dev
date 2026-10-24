@@ -187,6 +187,33 @@ in `sql/seed_data.sql`). Restoring a dump with a reserved-name row into a
 new install fails when the trigger rejects that row's `COPY`, aborting the
 table's load. Clean up before dumping; nothing is automatically renamed.
 
+### Seed rows in `pg_dump` (`is_seed`)
+
+New installs mark the extension's nine seeded tables with `is_seed` and dump
+only unmarked rows. This avoids the duplicate-key failures that previously
+aborted `COPY` for functions, providers, procedures, and the sandbox
+allowlist; user grants and references to seed agents, the `seoul-weather`
+procedure, and the `seoul_weather` function now restore, because those seed
+rows have fixed IDs. The documented two-pass
+restore was manually verified with no errors, duplicate keys, or dangling
+references. A single-pass restore still has the documented policy collision.
+
+**Existing installs get nothing on upgrade.** The version is still
+`0.1.0-alpha.3` and there is no upgrade script. They retain the old dump
+filters, random seed IDs, and no marker. Check for the marker with:
+
+```sql
+SELECT count(*) FROM information_schema.columns WHERE table_schema = 'allgres_private' AND column_name = 'is_seed';
+```
+
+`9` means it is present. Until an upgrade script exists, use a new
+install for this behavior or retain physical backups when seed-row edits must
+be preserved. The upgrade must add the nine columns, create and run
+`allgres_private.mark_seed_rows()` (`mark_seed_rows(true)` is a dry run that
+reports unmarked seed rows), replace all nine dump filters with `WHERE NOT is_seed`,
+and remap the seeded agent, procedure, and function IDs (or document that
+old dump references will not match a fresh install).
+
 ## Deployment coverage
 
 - PostgreSQL 16, 17, and 18 are covered by CI.

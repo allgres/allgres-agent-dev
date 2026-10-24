@@ -6247,6 +6247,31 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'http_host_grants_stored_lowercase_trimmed', 'ok', ok, 'detail', r));
   END;
 
+  -- Seed rows are flagged and kept out of pg_dump (seed_data.sql 10-0/10b):
+  -- the nine seeded tables dump exactly `WHERE NOT is_seed`, and every seed
+  -- identity still present is already flagged (mark_seed_rows dry run finds
+  -- nothing left to mark), so a restore does not COPY a second seed copy.
+  DECLARE
+    v_bad jsonb;
+    v_unmarked jsonb := allgres_private.mark_seed_rows(true);
+  BEGIN
+    SELECT COALESCE(jsonb_agg(x.t), '[]'::jsonb) INTO v_bad
+    FROM unnest(ARRAY['agents', 'policies', 'permissions', 'demo_sales', 'llm_providers',
+                      'sql_sandbox_allowlist', 'functions', 'procedures',
+                      'procedure_function_bindings']) AS x(t)
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM pg_extension e,
+           LATERAL unnest(e.extconfig, e.extcondition) AS c(cfg, cond)
+      WHERE e.extname = 'allgres'
+        AND c.cfg = ('allgres_private.' || x.t)::regclass
+        AND c.cond = 'WHERE NOT is_seed');
+    ok := v_bad = '[]'::jsonb
+      AND NOT EXISTS (SELECT 1 FROM jsonb_each_text(v_unmarked) WHERE value::bigint <> 0);
+    v := v || jsonb_build_array(jsonb_build_object('name', 'seed_rows_marked_and_excluded_from_dump',
+      'ok', ok, 'detail', jsonb_build_object('bad_filters', v_bad, 'unmarked_seed_rows', v_unmarked)));
+  END;
+
   RETURN v;
 END;
 $fn$;

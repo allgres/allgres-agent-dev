@@ -18,6 +18,110 @@
 --     operator's edited prompt, provider list, or policy.
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- 10-0. Seed marker. Every row this section creates is flagged is_seed =
+-- true, and section 10b dumps only `WHERE NOT is_seed` from these tables:
+-- CREATE EXTENSION re-creates the seed on restore, so dumping a seed row too
+-- would COPY a second copy on top of it and fail on its unique key (it did,
+-- for functions, procedures, llm_providers and sql_sandbox_allowlist, while
+-- the old per-table name lists drifted from what was actually seeded).
+--
+-- An edited seed row stays seed: like an edited built-in provider before
+-- this, its edits are not part of a logical (pg_dump) backup and a restore
+-- brings back the shipped version; a deleted seed row comes back too.
+-- Nothing clears the flag. Physical backups keep everything.
+--
+-- Seed rows also use fixed ids (agents, the seoul-weather procedure and
+-- seoul_weather function, like llm_providers' provider_id below), so user
+-- rows that point at them (sessions on 'general', a user grant to
+-- 'analyst', a user procedure bound to seoul_weather) still match after a
+-- restore onto a fresh install.
+--
+-- mark_seed_rows() is the one definition of which rows are seed, by natural
+-- key, so an upgrade script can add the columns and mark an existing
+-- install's seed rows with the same call. Idempotent; returns how many rows
+-- it marked per table (p_dry_run: how many it would mark, changing nothing).
+-- ---------------------------------------------------------------------------
+ALTER TABLE allgres_private.agents ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+ALTER TABLE allgres_private.policies ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+ALTER TABLE allgres_private.permissions ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+ALTER TABLE allgres_private.demo_sales ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+ALTER TABLE allgres_private.llm_providers ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+ALTER TABLE allgres_private.sql_sandbox_allowlist ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+ALTER TABLE allgres_private.functions ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+ALTER TABLE allgres_private.procedures ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+ALTER TABLE allgres_private.procedure_function_bindings ADD COLUMN IF NOT EXISTS is_seed boolean NOT NULL DEFAULT false;
+
+CREATE OR REPLACE FUNCTION allgres_private.mark_seed_rows(p_dry_run boolean DEFAULT false)
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_counts jsonb := '{}'::jsonb;
+  v_sql text;
+  v_n bigint;
+  t record;
+  -- The built-in agents, by name; the five system ones must also be is_system.
+  v_seed_agents constant text := $q$(SELECT sa.agent_id FROM allgres_private.agents sa
+    WHERE sa.name IN ('analyst', 'general', 'health_monitor')
+       OR (sa.is_system AND sa.name IN ('system_root', 'session_compactor', 'creator', 'fixer', 'self_improve')))$q$;
+BEGIN
+  FOR t IN SELECT * FROM (VALUES
+    ('agents', $w$agent_id IN %1$s$w$),
+    ('policies', $w$agent_id IN %1$s$w$),
+    ('permissions', $w$(agent_id, resource_type, resource_ref) IN (
+        SELECT a.agent_id, x.resource_type, x.resource_ref
+        FROM allgres_private.agents a
+        JOIN (VALUES
+          ('analyst', 'view', 'allgres_public.v_sales'),
+          ('analyst', 'view', 'allgres_public.v_my_tasks'),
+          ('analyst', 'function', 'http_get'),
+          ('general', 'procedure', 'seoul-weather'),
+          ('health_monitor', 'view', 'allgres_public.v_system_health'),
+          ('health_monitor', 'view', 'allgres_public.v_permission_audit'),
+          ('health_monitor', 'view', 'allgres_public.v_agent_health'),
+          ('fixer', 'view', 'allgres_public.v_system_health'),
+          ('fixer', 'view', 'allgres_public.v_permission_audit'),
+          ('self_improve', 'view', 'allgres_public.v_agent_health'),
+          ('self_improve', 'view', 'allgres_public.v_function_model_experiments')
+        ) AS x(agent_name, resource_type, resource_ref) ON x.agent_name = a.name
+        WHERE a.agent_id IN %1$s)$w$),
+    ('demo_sales', $w$agent_id IN (SELECT a.agent_id FROM allgres_private.agents a
+                                   WHERE a.name = 'analyst' AND a.agent_id IN %1$s)
+        AND (region, sku, amount, sold_on) IN (VALUES
+          ('seoul',   'ARB-1', 1200.00::numeric, DATE '2026-08-01'),
+          ('seoul',   'ARB-2',  840.50::numeric, DATE '2026-08-03'),
+          ('busan',   'ARB-1',  410.00::numeric, DATE '2026-08-04'),
+          ('incheon', 'ARB-3', 1920.00::numeric, DATE '2026-08-07'),
+          ('busan',   'ARB-2',  275.25::numeric, DATE '2026-08-12'))$w$),
+    ('llm_providers', $w$name IN ('xai', 'openai', 'anthropic', 'ollama', 'openai_compat', 'xai_oauth')$w$),
+    ('sql_sandbox_allowlist', $w$resource_ref IN ('allgres_public.v_sales', 'allgres_public.v_my_tasks',
+        'allgres_public.v_system_health', 'allgres_public.v_permission_audit',
+        'allgres_public.v_agent_health', 'allgres_public.v_function_model_experiments')$w$),
+    ('functions', $w$name = 'seoul_weather'$w$),
+    ('procedures', $w$name = 'seoul-weather'$w$),
+    ('procedure_function_bindings', $w$(procedure_id, function_id) IN (
+        SELECT p.procedure_id, f.function_id
+        FROM allgres_private.procedures p, allgres_private.functions f
+        WHERE p.name = 'seoul-weather' AND f.name = 'seoul_weather')$w$)
+  ) AS v(tbl, cond)
+  LOOP
+    t.cond := replace(t.cond, '%1$s', v_seed_agents);
+    IF p_dry_run THEN
+      v_sql := format('SELECT count(*) FROM allgres_private.%I WHERE NOT is_seed AND (%s)', t.tbl, t.cond);
+      EXECUTE v_sql INTO v_n;
+    ELSE
+      v_sql := format('UPDATE allgres_private.%I SET is_seed = true WHERE NOT is_seed AND (%s)', t.tbl, t.cond);
+      EXECUTE v_sql;
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+    END IF;
+    v_counts := v_counts || jsonb_build_object(t.tbl, v_n);
+  END LOOP;
+  RETURN v_counts;
+END;
+$fn$;
+
 -- Fixed provider_id values, not the column's gen_random_uuid() default: a
 -- random id here would differ between any two installs of this same seed
 -- (a fresh install vs. a restore target, most concretely), breaking every
@@ -77,7 +181,8 @@ BEGIN
   SELECT agent_id INTO v_agent FROM allgres_private.agents WHERE name = 'analyst';
 
   IF v_agent IS NULL THEN
-    INSERT INTO allgres_private.agents (name) VALUES ('analyst') RETURNING agent_id INTO v_agent;
+    INSERT INTO allgres_private.agents (agent_id, name)
+    VALUES ('54d7c90c-c0c8-42f4-9d05-9ddaaf19ecd9', 'analyst') RETURNING agent_id INTO v_agent;
 
     -- Only on first creation, so an upgrade never overwrites a tuned policy.
     UPDATE allgres_private.policies
@@ -150,7 +255,8 @@ BEGIN
   SELECT agent_id INTO v_agent FROM allgres_private.agents WHERE name = 'general';
 
   IF v_agent IS NULL THEN
-    INSERT INTO allgres_private.agents (name) VALUES ('general') RETURNING agent_id INTO v_agent;
+    INSERT INTO allgres_private.agents (agent_id, name)
+    VALUES ('ed66eece-f982-4bbb-9c37-0950df6e6bc5', 'general') RETURNING agent_id INTO v_agent;
 
     UPDATE allgres_private.policies
     SET system_prompt = $prompt$You are a helpful, general-purpose conversational assistant. Reply with one JSON object only. No markdown, no prose.
@@ -172,12 +278,12 @@ $seed$;
 -- A first Procedure / Function pair. The Procedure is reusable prompt
 -- policy; seoul_weather is a fixed, reviewed HTTP capability bound to it.
 -- Granting this one procedure is sufficient for an agent to use the function.
-INSERT INTO allgres_private.procedures (name, content)
-VALUES ('seoul-weather', $procedure$When asked about Seoul weather, call the `seoul_weather` function with an empty args object. Read the returned JSON, report the current conditions and temperature in Korean, and say when the source does not contain a requested forecast detail.$procedure$)
+INSERT INTO allgres_private.procedures (procedure_id, name, content)
+VALUES ('a3b48cc2-8a2c-4e55-b71b-26c5d461e5d1', 'seoul-weather', $procedure$When asked about Seoul weather, call the `seoul_weather` function with an empty args object. Read the returned JSON, report the current conditions and temperature in Korean, and say when the source does not contain a requested forecast detail.$procedure$)
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO allgres_private.functions (name, description, handler, args_template)
-VALUES ('seoul_weather', 'Fetch current weather and forecast data for Seoul.', 'http_get',
+INSERT INTO allgres_private.functions (function_id, name, description, handler, args_template)
+VALUES ('d20c0b28-d197-4e82-959c-3c5254033c8d', 'seoul_weather', 'Fetch current weather and forecast data for Seoul.', 'http_get',
   '{"url":"https://wttr.in/Seoul?format=j1"}'::jsonb)
 ON CONFLICT (name) DO NOTHING;
 
@@ -212,7 +318,8 @@ BEGIN
   SELECT agent_id INTO v_agent FROM allgres_private.agents WHERE name = 'health_monitor';
 
   IF v_agent IS NULL THEN
-    INSERT INTO allgres_private.agents (name) VALUES ('health_monitor') RETURNING agent_id INTO v_agent;
+    INSERT INTO allgres_private.agents (agent_id, name)
+    VALUES ('52a2d2d7-74d8-4439-81a6-d2159691dd50', 'health_monitor') RETURNING agent_id INTO v_agent;
 
     UPDATE allgres_private.policies
     SET system_prompt = $prompt$You are Allgres's own health and security monitor. Reply with one JSON object only. No markdown, no prose.
@@ -275,8 +382,8 @@ DECLARE
 BEGIN
   SELECT agent_id INTO v_root FROM allgres_private.agents WHERE name = 'system_root';
   IF v_root IS NULL THEN
-    INSERT INTO allgres_private.agents (name, is_system)
-    VALUES ('system_root', true) RETURNING agent_id INTO v_root;
+    INSERT INTO allgres_private.agents (agent_id, name, is_system)
+    VALUES ('7ab38d46-72ca-4b94-a6d5-a4431cbe7aef', 'system_root', true) RETURNING agent_id INTO v_root;
 
     UPDATE allgres_private.policies
     SET system_prompt = $prompt$You are part of Allgres's own system agent family -- built-in agents that
@@ -306,8 +413,8 @@ $prompt$,
   IF NOT EXISTS (SELECT 1 FROM allgres_private.agents WHERE name = 'session_compactor') THEN
     DECLARE v_agent uuid;
     BEGIN
-      INSERT INTO allgres_private.agents (name, is_system, parent_agent_id, autonomy_level)
-      VALUES ('session_compactor', true, v_root, 'auto') RETURNING agent_id INTO v_agent;
+      INSERT INTO allgres_private.agents (agent_id, name, is_system, parent_agent_id, autonomy_level)
+      VALUES ('8ce28a6b-cb14-4783-9e55-83a3bc51af29', 'session_compactor', true, v_root, 'auto') RETURNING agent_id INTO v_agent;
       UPDATE allgres_private.policies
       SET system_prompt = $prompt$Your job is session compaction. Your task input carries: target_session_id
 (what this belongs to), turns (the oldest turns of a long conversation that
@@ -335,8 +442,8 @@ $prompt$,
   IF NOT EXISTS (SELECT 1 FROM allgres_private.agents WHERE name = 'creator') THEN
     DECLARE v_agent uuid;
     BEGIN
-      INSERT INTO allgres_private.agents (name, is_system, parent_agent_id, autonomy_level)
-      VALUES ('creator', true, v_root, 'admin_approval') RETURNING agent_id INTO v_agent;
+      INSERT INTO allgres_private.agents (agent_id, name, is_system, parent_agent_id, autonomy_level)
+      VALUES ('d372fb6c-9896-488f-b326-c4941dbeaea4', 'creator', true, v_root, 'admin_approval') RETURNING agent_id INTO v_agent;
       UPDATE allgres_private.policies
       SET system_prompt = $prompt$Your job is helping build new agents for this platform: turn a plain-language
 request ("I want something that watches X and tells me Y") into a concrete
@@ -364,8 +471,8 @@ $prompt$,
   IF NOT EXISTS (SELECT 1 FROM allgres_private.agents WHERE name = 'fixer') THEN
     DECLARE v_agent uuid;
     BEGIN
-      INSERT INTO allgres_private.agents (name, is_system, parent_agent_id, autonomy_level)
-      VALUES ('fixer', true, v_root, 'admin_approval') RETURNING agent_id INTO v_agent;
+      INSERT INTO allgres_private.agents (agent_id, name, is_system, parent_agent_id, autonomy_level)
+      VALUES ('029b7366-3145-440d-99c3-567730551766', 'fixer', true, v_root, 'admin_approval') RETURNING agent_id INTO v_agent;
       UPDATE allgres_private.policies
       SET system_prompt = $prompt$Your job is remediation. You can read allgres_public.v_system_health and
 allgres_public.v_permission_audit, the same two views health_monitor
@@ -404,8 +511,8 @@ $prompt$,
   IF NOT EXISTS (SELECT 1 FROM allgres_private.agents WHERE name = 'self_improve') THEN
     DECLARE v_agent uuid;
     BEGIN
-      INSERT INTO allgres_private.agents (name, is_system, parent_agent_id, autonomy_level)
-      VALUES ('self_improve', true, v_root, 'admin_approval') RETURNING agent_id INTO v_agent;
+      INSERT INTO allgres_private.agents (agent_id, name, is_system, parent_agent_id, autonomy_level)
+      VALUES ('459920d7-a978-4163-97fe-3f1ba2cc63ff', 'self_improve', true, v_root, 'admin_approval') RETURNING agent_id INTO v_agent;
       UPDATE allgres_private.policies
       SET system_prompt = $prompt$Your job is cost efficiency, not behavior. You are given one agent's recent
 execution_logs cost stats (steps per task, tokens per step, wall-clock time)
@@ -471,6 +578,9 @@ $prompt$,
 END
 $seed$;
 
+-- Flag everything sections 10-10a-2 created (see 10-0).
+SELECT allgres_private.mark_seed_rows();
+
 -- ---------------------------------------------------------------------------
 -- 10b. Extension configuration tables -- which of this extension's own
 --      tables `pg_dump` includes data for, and on what terms.
@@ -489,18 +599,17 @@ $seed$;
 -- gap -- it copies the actual data files -- this is specific to logical
 -- (`pg_dump`) backup.
 --
--- Tables with no seed rows at all dump unconditionally. The tables section
--- 10 above seeds (llm_providers, sql_sandbox_allowlist, and
--- agents/policies/permissions for the built-in 'analyst', 'general', and
--- 'health_monitor' agents plus the six is_system=true system agents from
--- 10a-2, plus demo_sales for 'analyst' alone)
--- exclude exactly those seeded rows: the extension script recreates them
--- fresh on every install, and dumping them too would try to INSERT a
--- second copy on top and fail on the same UNIQUE constraint that makes
--- them idempotent to begin with. The one real cost of that exclusion: an
--- operator's own edit to a *built-in* provider row (base_url, is_enabled,
--- allow_private_network, a stored secret) does not survive a
--- `pg_dump`-based restore -- only a wholly new provider row would; a
+-- Tables with no seed rows at all dump unconditionally. The nine tables
+-- section 10 seeds (agents, policies, permissions, demo_sales,
+-- llm_providers, sql_sandbox_allowlist, functions, procedures,
+-- procedure_function_bindings) dump `WHERE NOT is_seed` (see 10-0): the
+-- extension script recreates the seed rows fresh on every install, and
+-- dumping them too would COPY a second copy on top and fail on the same
+-- UNIQUE constraint that makes them idempotent to begin with. The one real
+-- cost of that exclusion: an operator's own edit to a seed row (a built-in
+-- provider's base_url, is_enabled or allow_private_network, a seed agent's
+-- policy/llm_config, the seoul_weather function) does not survive a
+-- `pg_dump`-based restore -- only rows the operator created do; a
 -- physical backup has no such limit. `sql_function_allowlist` and
 -- `oauth_states` are deliberately not registered here: every row in the
 -- former is exactly what the extension script itself inserts (see
@@ -517,18 +626,15 @@ $seed$;
 -- code and, on failure, the provider's error text).
 -- ---------------------------------------------------------------------------
 
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.agents',
-  $cfgdump$WHERE NOT (name IN ('analyst', 'health_monitor', 'general') OR is_system)$cfgdump$);
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.policies',
-  $cfgdump$WHERE agent_id NOT IN (SELECT agent_id FROM allgres_private.agents WHERE name IN ('analyst', 'health_monitor', 'general') OR is_system)$cfgdump$);
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.permissions',
-  $cfgdump$WHERE agent_id NOT IN (SELECT agent_id FROM allgres_private.agents WHERE name IN ('analyst', 'health_monitor', 'general') OR is_system)$cfgdump$);
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.demo_sales',
-  $cfgdump$WHERE agent_id <> (SELECT agent_id FROM allgres_private.agents WHERE name = 'analyst')$cfgdump$);
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.llm_providers',
-  $cfgdump$WHERE name NOT IN ('xai', 'openai', 'anthropic', 'ollama', 'openai_compat')$cfgdump$);
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.sql_sandbox_allowlist',
-  $cfgdump$WHERE resource_ref NOT IN ('allgres_public.v_sales', 'allgres_public.v_my_tasks', 'allgres_public.v_system_health', 'allgres_public.v_permission_audit')$cfgdump$);
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.agents', 'WHERE NOT is_seed');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.policies', 'WHERE NOT is_seed');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.permissions', 'WHERE NOT is_seed');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.demo_sales', 'WHERE NOT is_seed');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.llm_providers', 'WHERE NOT is_seed');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.sql_sandbox_allowlist', 'WHERE NOT is_seed');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.functions', 'WHERE NOT is_seed');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.procedures', 'WHERE NOT is_seed');
+SELECT pg_catalog.pg_extension_config_dump('allgres_private.procedure_function_bindings', 'WHERE NOT is_seed');
 
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.policy_history', '');
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.projects', '');
@@ -546,10 +652,7 @@ SELECT pg_catalog.pg_extension_config_dump('allgres_private.agent_memories', '')
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.audit_log', '');
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.api_connections', '');
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.api_connection_secrets', '');
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.procedures', '');
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.procedure_history', '');
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.functions', '');
-SELECT pg_catalog.pg_extension_config_dump('allgres_private.procedure_function_bindings', '');
 SELECT pg_catalog.pg_extension_config_dump('allgres_private.schedules', '');
 -- Real runtime state (which canary experiments ran, and what they decided),
 -- not regenerated by CREATE EXTENSION -- the same "a pg_dump of this

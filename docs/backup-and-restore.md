@@ -42,11 +42,15 @@ extension does that a generic `pg_dump` would otherwise miss silently:
   will fail on that collision; `--disable-triggers` alone does not fix it
   either, since `pg_restore --help` documents that the flag only takes
   effect during a `--data-only` restore.
-- One accepted, permanent limitation of the exclusion-filter approach: an
-  operator's own edit to a *built-in* provider row (base_url, is_enabled,
-  allow_private_network, a stored secret) does not survive a
-  `pg_dump`-based restore — only a wholly new provider row would. Physical
-  backup has no such gap.
+- The nine seeded tables use an `is_seed` marker: logical dumps include only
+  rows where it is false, while `CREATE EXTENSION` recreates marked rows
+  (`allgres_private.mark_seed_rows()` in `sql/seed_data.sql` defines which
+  rows are seed). Seed agents, the `seoul-weather` procedure and the
+  `seoul_weather` function have fixed IDs, so user
+  references and grants to them restore correctly.
+- An edited seed row remains seed, so its edits are not in a logical dump and
+  restore brings back the shipped version; a deleted seed row also returns.
+  Do not clear the marker. Physical backups keep everything.
 
 **Schedule and retention.** Neither strategy is scheduled or pruned by
 anything in this repo — that part is standard PostgreSQL operations, not
