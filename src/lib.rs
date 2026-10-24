@@ -168,6 +168,30 @@ mod allgres {
         crate::IN_RUNTIME_WORKER.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Test-environment probe: the addresses the outbound executor's
+    /// resolver returns for `host`, or an empty array when the lookup fails.
+    /// ureq's DefaultResolver (wrapped by GuardedResolver) resolves with
+    /// std's ToSocketAddrs, i.e. getaddrinfo, and so does this -- in a
+    /// backend of the same postmaster, so the same /etc/nsswitch.conf and
+    /// resolver the runtime worker sees. No connection is made and no guard
+    /// applies. EXECUTE is revoked from PUBLIC with the rest of the schema
+    /// and granted to nobody: tests/require_failing_dns.sql uses it (as
+    /// superuser) to refuse an environment whose resolver answers names that
+    /// cannot exist (.invalid) instead of failing the lookup.
+    #[pg_extern(parallel_safe)]
+    fn resolve_host_addresses(host: &str) -> Vec<String> {
+        use std::net::ToSocketAddrs;
+        match (host, 443u16).to_socket_addrs() {
+            Ok(addrs) => {
+                let mut v: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
+                v.sort();
+                v.dedup();
+                v
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
     /// Structural analysis of a candidate agent statement, using PostgreSQL's
     /// own grammar.  See `raw_parse_dump` for why this is not a hand-written
     /// parser and not a regex.

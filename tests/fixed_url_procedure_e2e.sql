@@ -1,4 +1,6 @@
 \set ON_ERROR_STOP on
+-- Needs a resolver that fails .invalid lookups; stops loudly otherwise.
+\ir require_failing_dns.sql
 
 -- Run in postgres with the Rust runtime worker enabled. Every queueing
 -- statement commits before polling; no SQL completion is simulated here.

@@ -1,4 +1,6 @@
 \set ON_ERROR_STOP on
+-- Needs a resolver that fails .invalid lookups; stops loudly otherwise.
+\ir require_failing_dns.sql
 
 -- An install created before Function names were reserved can already have a
 -- row named like a builtin. This build's trigger refuses writing one, so the

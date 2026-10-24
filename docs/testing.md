@@ -11,6 +11,7 @@ psql -c "SELECT allgres_public.fn_selftest()"
 ./scripts/bootstrap.sh            # install completion: a real agent task runs to 'completed'
 ./scripts/run_sql_tests.sh        # tests/*.sql against PG* env, then tests/cleanup.sql
 ./scripts/run_dump_restore_test.sh  # pg_dump + two-pass restore on throwaway clusters
+scripts/with_nodns.sh CMD...      # run CMD where .invalid lookups fail (see below)
 ```
 
 The `tests/*.sql` files need the background workers (and
@@ -39,6 +40,53 @@ user procedure call is harvested again (`tests/dump_restore_exec.sql`), and
 the same user logs in over the web RPC and continues the same chat session,
 with the reply harvested from the mock. Set `PG_BIN` to the PostgreSQL bin
 directory when `pg_config` on `PATH` is not the target install.
+
+### Tests that need a failing DNS lookup
+
+`tests/fixed_url_procedure_e2e.sql`, `tests/legacy_reserved_name_row.sql`,
+and `tests/dump_restore_exec.sql` prove that the runtime worker really
+executed a call by sending it to an RFC 2606 `.invalid` host. The worker
+then records `outbound_calls.error_kind = 'dns'`. That value comes from the
+Rust executor's own classification of the failure, not from the error text,
+which depends on the OS resolver, and only the runtime worker can record it.
+Each of these files first includes `tests/require_failing_dns.sql`. That
+file resolves a random `.invalid` name through the executor's resolution
+path (`allgres.resolve_host_addresses`: getaddrinfo in a backend of the
+worker's postmaster). If the name resolves, it stops with:
+
+    environment unsuitable: resolver answers .invalid names (got 198.18.0.1 for ...);
+    run the cluster under scripts/with_nodns.sh (see docs/testing.md)
+
+Some sandboxes run a resolver that answers every name. There the worker's
+private-network guard would refuse the call (`error_kind =
+'blocked_address'`), and the test would fail for a reason unrelated to the
+code. A real resolver, CI runners included, fails the lookup, so the check
+passes silently there and CI needs no setup.
+
+In such a sandbox, start the PostgreSQL server under `scripts/with_nodns.sh`.
+Clients need nothing:
+
+```bash
+scripts/with_nodns.sh pg_ctl -D "$PGDATA" -l "$PGDATA/server.log" start
+./scripts/run_sql_tests.sh
+scripts/with_nodns.sh ./scripts/run_dump_restore_test.sh   # it starts its own clusters
+```
+
+`with_nodns.sh` runs its command in a private mount namespace. In that
+namespace `/etc/nsswitch.conf` is a bind-mounted copy whose `hosts:` line is
+`files`: `/etc/hosts` (localhost) still resolves, and every other name fails
+with glibc's CI wording. The host's `/etc/nsswitch.conf` is never written.
+Only processes started under the command see the change, including a
+postmaster that outlives the script. Stop that postmaster with `pg_ctl stop`
+as usual from any shell.
+
+The script needs no privileges where unprivileged user namespaces are
+allowed. It uses a user namespace only to make the bind mount, then a nested
+one maps you back to your own uid/gid, because PostgreSQL refuses to run as
+root. Without user namespaces it falls back to `sudo -n unshare -m` plus
+`setpriv`. Set `ALLGRES_NODNS_MODE=sudo` or `ALLGRES_NODNS_MODE=userns` to
+pick a mode. It also needs util-linux 2.38 or newer and glibc. See
+`scripts/with_nodns.sh --help`.
 
 `fn_selftest` is a live diagnostic, not a fresh-install-only check: every
 fixture it creates is either uniquely named and hard-deleted before it

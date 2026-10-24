@@ -1,4 +1,6 @@
 \set ON_ERROR_STOP on
+-- Needs a resolver that fails .invalid lookups; stops loudly otherwise.
+\ir require_failing_dns.sql
 -- Executor reach for scripts/run_dump_restore_test.sh: run in the database
 -- the runtime worker is attached to (before the dump, and again on the
 -- restored database). The agent asks for dr_fx_get through its procedure;
