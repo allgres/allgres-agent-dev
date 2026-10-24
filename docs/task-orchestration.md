@@ -58,11 +58,13 @@ skipped with a warning and its `next_run_at` still moves forward.
 SQL, but the worker does not use it. Only the worker attached to the database
 named by `ALLGRES_DATABASE` (default `postgres`) fires schedules.
 
-Exactly once: `fn_run_schedules` locks each due row `FOR UPDATE SKIP
-LOCKED` and moves `next_run_at` forward in the same transaction, so two
-ticks or workers running at once never fire the same due schedule twice —
-the second one skips the locked row, and once the first commits the row is
-no longer due.
+No duplicate session for the same schedule firing: `fn_run_schedules`
+locks each due row `FOR UPDATE SKIP LOCKED` and moves `next_run_at` forward
+in the same transaction, so when two ticks or workers run at once only one
+of them creates a session for that firing — the other skips the locked row
+without waiting, and once the first commits the row is no longer due. That
+is the whole guarantee: it says nothing about what the created session's
+own external calls do (see the README on external API calls).
 
 Catch-up policy (database or worker down, missed ticks): a schedule that
 missed one or many intervals fires **once** on the first tick after it

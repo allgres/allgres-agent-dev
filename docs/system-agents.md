@@ -27,11 +27,11 @@ any other run. The dashboard lists it with the folded System agents, not
 in the main Agents table, so a first-run operator does not mistake it for
 a conversation agent that already has a model.
 
-There is no scheduler: nothing runs `health_monitor` automatically. An
-operator triggers it from the Run page, or an external `cron` job hits
+No schedule ships for `health_monitor`: nothing runs it automatically
+until an operator creates one (see [Schedules](task-orchestration.md)),
+triggers it from the Run page, or has an external `cron` job hit
 `POST /api/v1/run` the same way any other automation would. Deliberately
-not built: an internal recurring-task primitive (a `pg_cron` dependency or
-a new scheduling loop in the runtime worker); a way for a maintenance agent
+not built: a way for a maintenance agent
 to *act* on what it finds — even `propose_change` isn't wired into its
 seeded prompt, so a real finding still requires an operator to read the
 session and decide, the same review-before-apply shape self-modification

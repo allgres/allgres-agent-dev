@@ -132,8 +132,9 @@ fn dispatch_and_claim(limit: usize) -> Value {
         // and claimed by the calls right below. fn_run_schedules locks each
         // due row FOR UPDATE SKIP LOCKED and moves next_run_at to
         // now() + interval_seconds before commit, so concurrent ticks (or
-        // workers) fire a due schedule exactly once, and a schedule that
-        // missed many intervals fires once to catch up, never in a burst.
+        // workers) never create a duplicate session for the same schedule
+        // firing, and a schedule that missed many intervals fires once to
+        // catch up, never in a burst.
         if let Err(e) = Spi::get_one::<JsonB>("SELECT allgres_public.fn_run_schedules()") {
             pgrx::warning!("Allgres: fn_run_schedules failed: {}", e);
         }

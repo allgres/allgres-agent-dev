@@ -305,9 +305,10 @@ ON CONFLICT DO NOTHING;
 -- final_answer (visible in the Sessions thread view like any other run),
 -- and remembers anything worth comparing against next time so trends are
 -- visible across runs, not just a single snapshot -- the same `remember`
--- action any other agent has, no special case needed. There is no
--- scheduler that runs this automatically; an operator (or an external cron
--- hitting POST /api/v1/run) triggers it, the same as any other agent.
+-- action any other agent has, no special case needed. No schedule ships
+-- for it; an operator creates one (docs/task-orchestration.md, Schedules)
+-- or triggers it (or an external cron hitting POST /api/v1/run), the same
+-- as any other agent.
 -- The dashboard folds it with System agents (web/index.html isFoldedAgent)
 -- so a first-run operator does not see it next to general/analyst as if it
 -- were already a conversation agent with a model.

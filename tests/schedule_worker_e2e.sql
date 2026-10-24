@@ -9,12 +9,13 @@
 -- response) and the session completes with the mock's answer.
 --
 --   1. catch-up: a schedule last due 10 days ago (240 missed hourly runs)
---      fires exactly once, and next_run_at becomes now() + 1 hour.
+--      fires once (one session), and next_run_at becomes now() + 1 hour.
 --   2. short interval: a 1-second schedule with max_runs 2 fires twice, on
 --      its own, then deactivates.
---   3. exactly once under concurrency: two transactions running the
---      worker's fn_run_schedules as allgres_worker at the same time (plus the
---      worker itself) fire one due schedule once.
+--   3. no duplicate session for the same schedule firing under forced
+--      contention: while transaction A (running the worker's
+--      fn_run_schedules as allgres_worker) provably holds the fired row's
+--      lock, transaction B (and the worker itself) create no second session.
 --
 -- Needs the worker database (postgres) and dblink for part 3. Rerunnable;
 -- deletes its schedules at the end, tests/cleanup.sql retires the agent.
@@ -47,7 +48,7 @@ SET llm_config = jsonb_build_object('provider', 'allgres_mock', 'model', 'allgre
 WHERE agent_id = (SELECT agent_id FROM allgres_private.agents WHERE name = 'e2e_sched_runner');
 
 DELETE FROM allgres_private.schedules
-WHERE name IN ('e2e_sched_catchup', 'e2e_sched_short', 'e2e_sched_race');
+WHERE name IN ('e2e_sched_catchup', 'e2e_sched_short', 'e2e_sched_race') OR name LIKE 'e2e\_sched\_race\_lost\_%';
 
 -- Asserts every session schedule p_name fired completed with the mock answer
 -- after a harvested LLM call (waits up to ~20 s for the worker).
@@ -143,51 +144,88 @@ END
 $block$;
 SELECT pg_temp.assert_schedule_sessions_reached_executor('e2e_sched_short', 2);
 
--- Part 3: two concurrent worker-path transactions. Connections A and B
--- (dblink) each assume allgres_worker and call fn_run_schedules exactly like
--- the worker tick. A fires the due schedule and keeps its transaction open;
--- B runs while A still holds the row; then A commits and B runs again. The
--- real worker ticks throughout as a third contender. Whoever wins, the
--- schedule must fire once.
+-- Part 3: forced contention between two worker-path transactions.
+-- Connections A and B (dblink) each assume allgres_worker and call
+-- fn_run_schedules exactly like the worker tick. The test only proceeds
+-- once A has fired the due schedule and a NOWAIT probe from a third
+-- connection proves A holds that schedule row's lock. Then B runs while A
+-- still holds it (B must neither fire nor wait), A commits, and B runs
+-- again. The real worker ticks throughout as another contender. If the
+-- worker fires a fresh due schedule before A can (A fired 0), that attempt
+-- proves nothing and is retried with a new schedule; after 5 such attempts
+-- the test FAILS. There is no path that passes without contention.
+-- Check: no duplicate session is created for the same schedule firing.
 SELECT NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'dblink') AS created_dblink \gset
 CREATE EXTENSION IF NOT EXISTS dblink;
-
-SELECT allgres_public.fn_create_schedule(
-  'e2e_sched_race',
-  (SELECT agent_id FROM allgres_private.agents WHERE name = 'e2e_sched_runner'),
-  'Return the Allgres MVP mock answer.', 3600,
-  p_start_at => now() + interval '2 seconds') IS NOT NULL AS created;
 
 DO $block$
 DECLARE
   v_conn text := format('dbname=%s port=%s host=%s', current_database(),
                         current_setting('port'), split_part(current_setting('unix_socket_directories'), ',', 1));
+  v_agent uuid := (SELECT agent_id FROM allgres_private.agents WHERE name = 'e2e_sched_runner');
+  v_sched uuid;
   r_a text;
   r_b1 text;
   r_b2 text;
-  v_locked_by_a boolean;
+  v_probe_state text;
+  v_locked_by_a boolean := false;
+  v_attempt int := 0;
   s allgres_private.schedules%ROWTYPE;
 BEGIN
   PERFORM dblink_connect('sched_a', v_conn);
   PERFORM dblink_connect('sched_b', v_conn);
-  -- Start both transactions only once the schedule is due: fn_run_schedules
-  -- compares against now(), the transaction start time.
-  PERFORM pg_sleep(0.05 + GREATEST(0, extract(epoch FROM
-    (SELECT next_run_at FROM allgres_private.schedules WHERE name = 'e2e_sched_race') - clock_timestamp())));
-  PERFORM dblink_exec('sched_a', 'BEGIN');
+  PERFORM dblink_connect('sched_c', v_conn);  -- autocommit helper and lock probe
+
+  WHILE NOT v_locked_by_a LOOP
+    v_attempt := v_attempt + 1;
+    IF v_attempt > 5 THEN
+      RAISE EXCEPTION 'e2e_sched_race: could not force contention: the worker fired every due race schedule before connection A (5 attempts)';
+    END IF;
+    -- A lost attempt's schedule is kept out of the way, not deleted, so its
+    -- worker-fired session stays traceable; cleaned up at the end.
+    PERFORM dblink_exec('sched_c', format(
+      'UPDATE allgres_private.schedules SET name = %L, is_active = false WHERE name = ''e2e_sched_race''',
+      'e2e_sched_race_lost_' || v_attempt));
+    SELECT x::uuid INTO v_sched FROM dblink('sched_c', format(
+      'SELECT allgres_public.fn_create_schedule(''e2e_sched_race'', %L::uuid, ''Return the Allgres MVP mock answer.'', 3600, p_start_at => now() + interval ''2 seconds'')->>''schedule_id''',
+      v_agent)) AS t(x text);
+    -- Start A only once the schedule is due: fn_run_schedules compares
+    -- against now(), the transaction start time.
+    PERFORM pg_sleep(0.05 + GREATEST(0, extract(epoch FROM
+      (SELECT next_run_at FROM allgres_private.schedules WHERE schedule_id = v_sched) - clock_timestamp())));
+    PERFORM dblink_exec('sched_a', 'BEGIN');
+    PERFORM * FROM dblink('sched_a', 'SELECT allgres.assume_worker_role()::text') AS t(x text);
+    SELECT x INTO r_a FROM dblink('sched_a', 'SELECT allgres_public.fn_run_schedules()::text') AS t(x text);
+    IF (r_a::jsonb->>'fired')::int = 0 THEN
+      PERFORM dblink_exec('sched_a', 'ROLLBACK');
+      RAISE NOTICE 'e2e_sched_race: attempt % lost to the worker (A=%), retrying', v_attempt, r_a;
+      CONTINUE;
+    END IF;
+    -- Prove A holds the row lock: a NOWAIT lock attempt must fail with 55P03.
+    v_probe_state := NULL;
+    BEGIN
+      PERFORM * FROM dblink('sched_c', format(
+        'SELECT schedule_id::text FROM allgres_private.schedules WHERE schedule_id = %L FOR UPDATE NOWAIT', v_sched)) AS t(x text);
+      v_probe_state := 'acquired';
+    EXCEPTION WHEN others THEN
+      v_probe_state := SQLSTATE;
+    END;
+    IF v_probe_state IS DISTINCT FROM '55P03' THEN
+      RAISE EXCEPTION 'e2e_sched_race: A fired (A=%) but the NOWAIT probe did not find the schedule row locked (probe=%)',
+        r_a, v_probe_state;
+    END IF;
+    v_locked_by_a := true;
+  END LOOP;
+
   PERFORM dblink_exec('sched_b', 'BEGIN');
-  PERFORM * FROM dblink('sched_a', 'SELECT allgres.assume_worker_role()::text') AS t(x text);
   PERFORM * FROM dblink('sched_b', 'SELECT allgres.assume_worker_role()::text') AS t(x text);
   -- A worker tick must never wait on another tick's schedule row: B fails
   -- (instead of the test hanging) if it ever blocks on A's lock.
   PERFORM dblink_exec('sched_b', 'SET LOCAL lock_timeout = ''3s''');
-  SELECT x INTO r_a FROM dblink('sched_a', 'SELECT allgres_public.fn_run_schedules()::text') AS t(x text);
-  -- A holds the row now unless the worker got there first.
-  v_locked_by_a := (r_a::jsonb->>'fired')::int > 0;
   BEGIN
     SELECT x INTO r_b1 FROM dblink('sched_b', 'SELECT allgres_public.fn_run_schedules()::text') AS t(x text);
   EXCEPTION WHEN others THEN
-    RAISE EXCEPTION 'e2e_sched_race: a second tick blocked on or failed against the first tick''s schedule row: %', SQLERRM;
+    RAISE EXCEPTION 'e2e_sched_race: a second tick blocked on or failed against the first tick''s locked schedule row: %', SQLERRM;
   END;
   PERFORM pg_sleep(5);  -- the worker ticks against A's lock too (idle backoff <= 4 s)
   PERFORM dblink_exec('sched_a', 'COMMIT');
@@ -195,16 +233,17 @@ BEGIN
   PERFORM dblink_exec('sched_b', 'COMMIT');
   PERFORM dblink_disconnect('sched_a');
   PERFORM dblink_disconnect('sched_b');
+  PERFORM dblink_disconnect('sched_c');
   PERFORM pg_sleep(5);
-  SELECT * INTO s FROM allgres_private.schedules WHERE name = 'e2e_sched_race';
+  SELECT * INTO s FROM allgres_private.schedules WHERE schedule_id = v_sched;
   IF s.run_count <> 1
      OR (SELECT count(*) FROM allgres_private.sessions WHERE schedule_id = s.schedule_id) <> 1
-     OR (v_locked_by_a AND ((r_b1::jsonb->>'fired')::int <> 0 OR (r_b2::jsonb->>'fired')::int <> 0)) THEN
+     OR (r_b1::jsonb->>'fired')::int <> 0 OR (r_b2::jsonb->>'fired')::int <> 0 THEN
     RAISE EXCEPTION 'e2e_sched_race: concurrent ticks fired the schedule % time(s) (sessions=%, A=%, B while A held=%, B after A=%)',
       s.run_count, (SELECT count(*) FROM allgres_private.sessions WHERE schedule_id = s.schedule_id), r_a, r_b1, r_b2;
   END IF;
-  RAISE NOTICE 'e2e_sched_race: fired once (A=%, B while A held=%, B after A committed=%, fired by %)',
-    r_a, r_b1, r_b2, CASE WHEN v_locked_by_a THEN 'A' ELSE 'the worker' END;
+  RAISE NOTICE 'e2e_sched_race: contention forced on attempt % (NOWAIT probe=55P03); one firing, one session (A=%, B while A held=%, B after A committed=%)',
+    v_attempt, r_a, r_b1, r_b2;
 END
 $block$;
 SELECT pg_temp.assert_schedule_sessions_reached_executor('e2e_sched_race', 1);
@@ -213,6 +252,6 @@ SELECT CASE WHEN :'created_dblink'::boolean THEN 'DROP EXTENSION dblink' ELSE 'S
 :drop_dblink;
 
 DELETE FROM allgres_private.schedules
-WHERE name IN ('e2e_sched_catchup', 'e2e_sched_short', 'e2e_sched_race');
+WHERE name IN ('e2e_sched_catchup', 'e2e_sched_short', 'e2e_sched_race') OR name LIKE 'e2e\_sched\_race\_lost\_%';
 
 SELECT 'schedule worker e2e ok' AS result;
