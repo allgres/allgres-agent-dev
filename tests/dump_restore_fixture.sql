@@ -33,7 +33,7 @@ BEGIN
 
   -- Executor-reach fixture, the same shape as tests/fixed_url_procedure_e2e.sql:
   -- a user http_get function bound to a user procedure, granted only the
-  -- procedure. The .invalid host makes the worker harvest "host not found".
+  -- procedure. The .invalid host makes the worker harvest a DNS failure.
   v_fn := (allgres_public.fn_create_function('dr_fx_get', 'dump/restore worker fixture', 'http_get',
              '{"url":"https://dr-fx.allgres-test.invalid/fixed"}'::jsonb)->>'function_id')::uuid;
   v_proc := (allgres_public.fn_create_procedure('dr-fx-proc', 'Fetch the fixed URL.')->>'procedure_id')::uuid;

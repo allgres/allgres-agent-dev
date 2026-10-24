@@ -212,7 +212,11 @@ fn claim_provider_probe_jobs(limit: i32) -> Value {
     })
 }
 
-fn submit_http_result(call_id: &str, status: i32, body: &str) {
+/// `error_kind` is the executor's own classification of a request that got
+/// no HTTP response (crate::outbound::TransportErrorKind); fn_complete_outbound
+/// stores it in outbound_calls.error_kind and refuses it from any backend
+/// other than this runtime worker.
+fn submit_http_result(call_id: &str, status: i32, body: &str, error_kind: Option<&str>) {
     // Postgres text cannot hold NUL; this is sanitisation, not escaping.
     let body = truncate_utf8(&body.replace('\0', ""), MAX_RESPONSE_BYTES).to_string();
     BackgroundWorker::transaction(|| {
@@ -228,8 +232,8 @@ fn submit_http_result(call_id: &str, status: i32, body: &str) {
             return;
         }
         if let Err(e) = Spi::get_one_with_args::<JsonB>(
-            "SELECT allgres_public.fn_complete_outbound($1::uuid, $2, $3)",
-            &[call_id.into(), status.into(), body.as_str().into()],
+            "SELECT allgres_public.fn_complete_outbound($1::uuid, $2, $3, $4)",
+            &[call_id.into(), status.into(), body.as_str().into(), error_kind.into()],
         ) {
             pgrx::warning!("Allgres: fn_complete_outbound failed for call {}: {}", call_id, e);
         }
@@ -325,6 +329,7 @@ pub(crate) fn dashboard_rpc(request: &str) -> String {
 #[unsafe(no_mangle)]
 #[pg_guard]
 pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
+    crate::IN_RUNTIME_WORKER.store(true, std::sync::atomic::Ordering::Relaxed);
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
     BackgroundWorker::connect_worker_to_spi(Some(&configured_database()), None);
 
@@ -366,7 +371,12 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
                 Ok(r) => {
                     in_flight = in_flight.saturating_sub(1);
                     match r.queue {
-                        OutboundQueue::Outbound => submit_http_result(&r.call_id, r.status, &r.body),
+                        OutboundQueue::Outbound => submit_http_result(
+                            &r.call_id,
+                            r.status,
+                            &r.body,
+                            r.error_kind.map(|k| k.as_str()),
+                        ),
                         OutboundQueue::Oauth => submit_oauth_result(&r.call_id, r.status, &r.body),
                         OutboundQueue::AgentEmbedding => {
                             submit_agent_embedding_result(&r.call_id, r.status, &r.body)

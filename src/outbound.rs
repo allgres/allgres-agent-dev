@@ -40,6 +40,83 @@ pub(crate) struct OutboundResult {
     pub(crate) queue: OutboundQueue,
     pub(crate) status: i32,
     pub(crate) body: String,
+    /// Set only when the request failed before any HTTP response arrived
+    /// (status 0/-1): which transport step failed. See TransportErrorKind.
+    pub(crate) error_kind: Option<TransportErrorKind>,
+}
+
+/// Why an outbound request got no HTTP response at all, decided here from
+/// ureq's error *value* and from what GuardedResolver itself observed --
+/// never from the error's text, which differs by OS resolver (glibc says
+/// "failed to lookup address information: Name or service not known",
+/// other resolvers return an empty answer that ureq reports as "host not
+/// found"). fn_complete_outbound stores `as_str()` in
+/// outbound_calls.error_kind, and accepts it only from the runtime worker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TransportErrorKind {
+    /// The name did not resolve (lookup error or empty answer).
+    Dns,
+    /// The name resolved, but every address was refused by the
+    /// private-network guard: a policy refusal, not a network failure.
+    BlockedAddress,
+    /// Resolved to an allowed address, but the TCP connection failed.
+    Connect,
+    /// A configured timeout elapsed.
+    Timeout,
+    /// The operator cancelled the call mid-flight.
+    Cancelled,
+    /// Anything else (TLS, protocol, body/IO after connecting).
+    Transport,
+}
+
+impl TransportErrorKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            TransportErrorKind::Dns => "dns",
+            TransportErrorKind::BlockedAddress => "blocked_address",
+            TransportErrorKind::Connect => "connect",
+            TransportErrorKind::Timeout => "timeout",
+            TransportErrorKind::Cancelled => "cancelled",
+            TransportErrorKind::Transport => "transport",
+        }
+    }
+}
+
+/// What GuardedResolver saw for this request, if resolution itself failed.
+/// Shared between the resolver (owned by the ureq Agent) and the code that
+/// classifies the request's final error.
+type ResolverNote = Arc<Mutex<Option<TransportErrorKind>>>;
+
+/// Pure classification, unit-tested in src/tests.rs. `resolver` wins
+/// because it is first-hand: GuardedResolver knows whether DNS failed or
+/// the guard refused the answer, while ureq reports both as HostNotFound.
+pub(crate) fn classify_transport_error(
+    err: &ureq::Error,
+    resolver: Option<TransportErrorKind>,
+    cancelled: bool,
+) -> TransportErrorKind {
+    if let Some(kind) = resolver {
+        return kind;
+    }
+    if cancelled {
+        return TransportErrorKind::Cancelled;
+    }
+    match err {
+        ureq::Error::HostNotFound => TransportErrorKind::Dns,
+        ureq::Error::Timeout(_) => TransportErrorKind::Timeout,
+        ureq::Error::ConnectionFailed => TransportErrorKind::Connect,
+        ureq::Error::Io(e) => match e.kind() {
+            std::io::ErrorKind::TimedOut => TransportErrorKind::Timeout,
+            std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::NotConnected
+            | std::io::ErrorKind::AddrNotAvailable
+            | std::io::ErrorKind::HostUnreachable
+            | std::io::ErrorKind::NetworkUnreachable => TransportErrorKind::Connect,
+            _ => TransportErrorKind::Transport,
+        },
+        _ => TransportErrorKind::Transport,
+    }
 }
 
 /// Mirrors `allgres_private.is_blocked_host`'s IPv4-literal ranges exactly, so
@@ -93,6 +170,22 @@ fn is_blocked_ip(ip: &std::net::IpAddr) -> bool {
 #[derive(Debug)]
 struct GuardedResolver {
     allow_private: bool,
+    note: ResolverNote,
+}
+
+impl GuardedResolver {
+    fn new(allow_private: bool) -> Self {
+        GuardedResolver {
+            allow_private,
+            note: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn record(&self, kind: TransportErrorKind) {
+        if let Ok(mut n) = self.note.lock() {
+            *n = Some(kind);
+        }
+    }
 }
 
 impl ureq::unversioned::resolver::Resolver for GuardedResolver {
@@ -102,11 +195,30 @@ impl ureq::unversioned::resolver::Resolver for GuardedResolver {
         config: &ureq::config::Config,
         timeout: ureq::unversioned::transport::NextTimeout,
     ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
-        let addrs = ureq::unversioned::resolver::DefaultResolver::default()
-            .resolve(uri, config, timeout)?;
+        let addrs = match ureq::unversioned::resolver::DefaultResolver::default()
+            .resolve(uri, config, timeout)
+        {
+            Ok(addrs) => addrs,
+            Err(e) => {
+                // A resolver timeout is a timeout; any other resolver error
+                // (getaddrinfo failure, empty answer) is a DNS failure,
+                // whatever text the platform's resolver put in it.
+                self.record(if matches!(e, ureq::Error::Timeout(_)) {
+                    TransportErrorKind::Timeout
+                } else {
+                    TransportErrorKind::Dns
+                });
+                return Err(e);
+            }
+        };
+        if addrs.is_empty() {
+            self.record(TransportErrorKind::Dns);
+            return Err(ureq::Error::HostNotFound);
+        }
         if !self.allow_private {
             for addr in &addrs {
                 if is_blocked_ip(&addr.ip()) {
+                    self.record(TransportErrorKind::BlockedAddress);
                     return Err(ureq::Error::HostNotFound);
                 }
             }
@@ -349,7 +461,7 @@ pub(crate) fn guarded_post_json(
     let agent = ureq::Agent::with_parts(
         config,
         ureq::unversioned::transport::DefaultConnector::default(),
-        GuardedResolver { allow_private },
+        GuardedResolver::new(allow_private),
     );
     let mut req = agent.post(url);
     if let Some(h) = headers {
@@ -365,29 +477,52 @@ pub(crate) fn guarded_post_json(
     }
 }
 
-pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
+/// (status, body text, and -- when no HTTP response arrived -- why; see
+/// TransportErrorKind). The body text is ureq's own error text, unchanged.
+pub(crate) fn perform_http(
+    call_id: &str,
+    call: &Value,
+) -> (i32, String, Option<TransportErrorKind>) {
+    let resolver = GuardedResolver::new(
+        call.get("allow_private")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    );
+    let note = resolver.note.clone();
     let cancel_guard = CancelGuard::register(call_id);
+    let cancel = cancel_guard.flag.clone();
+    let (status, body, err_kind) = perform_http_inner(call, &cancel_guard, resolver);
+    let kind = err_kind.map(|e| {
+        let resolver_kind = note.lock().ok().and_then(|n| *n);
+        classify_transport_error(&e, resolver_kind, cancel.load(Ordering::Relaxed))
+    });
+    (status, body, kind)
+}
+
+/// Body of perform_http. Every failure that has a ureq::Error returns it
+/// alongside the usual (status, text) so the caller can classify it.
+fn perform_http_inner(
+    call: &Value,
+    cancel_guard: &CancelGuard,
+    resolver: GuardedResolver,
+) -> (i32, String, Option<ureq::Error>) {
     let cancel_flag = cancel_guard.flag.clone();
+    let ok = |(status, text): (i32, String)| (status, text, None::<ureq::Error>);
     let Some(url) = call.get("url").and_then(Value::as_str) else {
-        return (-1, "missing outbound URL".into());
+        return (-1, "missing outbound URL".into(), None);
     };
     // The SQL layer validates scheme and host before queueing; this is a cheap
     // second check so a malformed row can never become a file:// fetch.
     let lowered = url.to_ascii_lowercase();
     if !(lowered.starts_with("http://") || lowered.starts_with("https://")) {
-        return (-1, "outbound URL scheme not allowed".into());
+        return (-1, "outbound URL scheme not allowed".into(), None);
     }
 
     let kind = call.get("kind").and_then(Value::as_str).unwrap_or("llm");
     let headers = call.get("headers").and_then(Value::as_object);
     let body = call.get("body").cloned().unwrap_or_else(|| json!({}));
-    // Only an LLM provider can ever carry this, and only when the operator
-    // opted it in (allow_private_network); http_get always queues false. See
-    // GuardedResolver.
-    let allow_private = call
-        .get("allow_private")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    // allow_private (only an operator-opted-in LLM provider; http_get
+    // always queues false) is already in `resolver` -- see GuardedResolver.
 
     let config = ureq::Agent::config_builder()
         .timeout_global(Some(HTTP_TIMEOUT))
@@ -402,7 +537,7 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
             inner: ureq::unversioned::transport::DefaultConnector::default(),
             cancel: cancel_flag,
         },
-        GuardedResolver { allow_private },
+        resolver,
     );
 
     let outcome = if kind == "mcp" {
@@ -443,7 +578,7 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                     .map(str::to_string);
                 let (init_status, init_body) = read_response(init_response);
                 if init_status == 0 {
-                    return (-1, init_body);
+                    return (-1, init_body, None);
                 }
                 let init_json = serde_json::from_str::<Value>(&init_body).ok();
                 let init_valid = init_json
@@ -457,8 +592,8 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                         == Some(-32601)
                     {
                         return match mcp_request!(None::<&str>).send_json(&body) {
-                            Ok(r) => read_response(r),
-                            Err(e) => (0, e.to_string()),
+                            Ok(r) => ok(read_response(r)),
+                            Err(e) => (0, e.to_string(), Some(e)),
                         };
                     }
                     return (
@@ -468,6 +603,7 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                             MAX_RESPONSE_BYTES,
                         )
                         .to_string(),
+                        None,
                     );
                 }
                 let initialized = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
@@ -475,19 +611,22 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                     Ok(r) if r.status().is_success() => {
                         mcp_request!(session.as_deref()).send_json(&body)
                     }
-                    Ok(_r) => return (-1, "MCP initialized notification rejected".into()),
-                    Err(e) => return (-1, format!("MCP initialized notification failed: {e}")),
+                    Ok(_r) => return (-1, "MCP initialized notification rejected".into(), None),
+                    Err(e) => {
+                        let text = format!("MCP initialized notification failed: {e}");
+                        return (-1, text, Some(e));
+                    }
                 }
             }
             Ok(r) => {
                 let (status, text) = read_response(r);
                 if status == 0 {
-                    return (-1, text);
+                    return (-1, text, None);
                 }
                 if status == 400 || status == 404 || status == 405 {
                     return match mcp_request!(None::<&str>).send_json(&body) {
-                        Ok(fallback) => read_response(fallback),
-                        Err(e) => (0, e.to_string()),
+                        Ok(fallback) => ok(read_response(fallback)),
+                        Err(e) => (0, e.to_string(), Some(e)),
                     };
                 }
                 return (
@@ -497,9 +636,13 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                         MAX_RESPONSE_BYTES,
                     )
                     .to_string(),
+                    None,
                 );
             }
-            Err(e) => return (-1, format!("MCP initialize failed: {e}")),
+            Err(e) => {
+                let text = format!("MCP initialize failed: {e}");
+                return (-1, text, Some(e));
+            }
         }
     } else if kind == "function" {
         // http_get always queued "GET" here (the column defaults to it); the
@@ -584,8 +727,8 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
     };
 
     match outcome {
-        Ok(r) => read_response(r),
-        Err(e) => (0, e.to_string()),
+        Ok(r) => ok(read_response(r)),
+        Err(e) => (0, e.to_string(), Some(e)),
     }
 }
 
@@ -608,13 +751,14 @@ pub(crate) fn spawn_http_pool(threads: usize) -> (Sender<OutboundJob>, Receiver<
                     guard.recv()
                 };
                 let Ok(job) = job else { return };
-                let (status, body) = perform_http(&job.call_id, &job.call);
+                let (status, body, error_kind) = perform_http(&job.call_id, &job.call);
                 if out
                     .send(OutboundResult {
                         call_id: job.call_id,
                         queue: job.queue,
                         status,
                         body,
+                        error_kind,
                     })
                     .is_err()
                 {

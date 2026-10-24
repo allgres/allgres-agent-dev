@@ -74,7 +74,7 @@ fn mcp_streamable_http_negotiates_and_carries_session() {
         "allow_private": true,
         "body": {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ping","arguments":{}}}
     });
-    let (status, body) = crate::outbound::perform_http("mcp-test", &call);
+    let (status, body, _) = crate::outbound::perform_http("mcp-test", &call);
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"text\":\"ok\""));
     server.join().expect("fixture server");
@@ -481,4 +481,73 @@ fn node_body_stops_at_its_own_closing_brace() {
 #[test]
 fn unparseable_input_is_reported_rather_than_silently_empty() {
     assert_eq!(analyze_dump("")["ok"], false);
+}
+
+// --- Transport error classification (outbound_calls.error_kind) ----------
+// fixed_url_procedure_e2e.sql asserts error_kind = 'dns' instead of matching
+// resolver wording, so these pin down that the kind comes from the error
+// value and GuardedResolver's own observation, never from the text.
+
+#[test]
+fn transport_error_kind_ignores_resolver_wording() {
+    use crate::outbound::{classify_transport_error, TransportErrorKind as K};
+    // The CI runner's glibc wording and the "host not found" wording are
+    // the same kind once GuardedResolver saw the lookup fail...
+    let glibc = ureq::Error::Io(std::io::Error::other(
+        "failed to lookup address information: Name or service not known",
+    ));
+    assert_eq!(classify_transport_error(&glibc, Some(K::Dns), false), K::Dns);
+    assert_eq!(classify_transport_error(&ureq::Error::HostNotFound, None, false), K::Dns);
+    // ...and DNS-looking text alone is not evidence of a DNS failure.
+    assert_eq!(classify_transport_error(&glibc, None, false), K::Transport);
+    // The private-network guard refusing a resolved address is a policy
+    // refusal, even though ureq reports it as HostNotFound.
+    assert_eq!(
+        classify_transport_error(&ureq::Error::HostNotFound, Some(K::BlockedAddress), false),
+        K::BlockedAddress
+    );
+    let refused = ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::ConnectionRefused));
+    assert_eq!(classify_transport_error(&refused, None, false), K::Connect);
+    assert_eq!(classify_transport_error(&ureq::Error::ConnectionFailed, None, false), K::Connect);
+    assert_eq!(
+        classify_transport_error(&ureq::Error::Timeout(ureq::Timeout::Connect), None, false),
+        K::Timeout
+    );
+    assert_eq!(classify_transport_error(&refused, None, true), K::Cancelled);
+    assert_eq!(K::Dns.as_str(), "dns");
+    assert_eq!(K::BlockedAddress.as_str(), "blocked_address");
+    assert_eq!(K::Connect.as_str(), "connect");
+}
+
+#[test]
+fn perform_http_classifies_dns_connect_and_blocked() {
+    use crate::outbound::{perform_http, TransportErrorKind as K};
+    use serde_json::json;
+    // DNS: a 64-character label is rejected by the platform resolver itself
+    // (no network query), so this is a real lookup failure on any machine.
+    let host = format!("{}.allgres-test.invalid", "a".repeat(64));
+    let (status, _, kind) = perform_http(
+        "kind-dns",
+        &json!({"kind": "function", "method": "GET", "url": format!("http://{host}/x")}),
+    );
+    assert_eq!((status, kind), (0, Some(K::Dns)));
+
+    // Connect: an allowed (opted-in private) address with nothing listening.
+    let port = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        l.local_addr().expect("addr").port()
+    };
+    let url = format!("http://127.0.0.1:{port}/x");
+    let (status, _, kind) = perform_http(
+        "kind-connect",
+        &json!({"kind": "function", "method": "GET", "url": url, "allow_private": true}),
+    );
+    assert_eq!((status, kind), (0, Some(K::Connect)));
+
+    // Blocked: the same address without the opt-in is the guard's refusal.
+    let (status, body, kind) = perform_http(
+        "kind-blocked",
+        &json!({"kind": "function", "method": "GET", "url": url}),
+    );
+    assert_eq!((status, kind), (0, Some(K::BlockedAddress)), "{body}");
 }

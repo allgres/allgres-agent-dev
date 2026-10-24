@@ -33,6 +33,15 @@ use std::collections::HashMap;
 use std::fs;
 use std::time::Duration;
 
+/// True only inside the `allgres runtime` background worker process: set
+/// at the top of `allgres_runtime_main`, never by anything SQL can reach.
+/// `allgres.is_runtime_worker()` exposes it so fn_complete_outbound can
+/// accept an executor-only field (outbound_calls.error_kind) from that
+/// process alone -- a client backend, superuser included, has no way to
+/// flip a static in its own process from SQL.
+pub(crate) static IN_RUNTIME_WORKER: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pgrx::pg_module_magic!();
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -150,6 +159,13 @@ mod allgres {
     #[pg_extern]
     fn native_version() -> &'static str {
         VERSION
+    }
+
+    /// Whether the calling backend is the `allgres runtime` worker (see
+    /// IN_RUNTIME_WORKER). Read-only; reveals nothing but that bit.
+    #[pg_extern(parallel_safe)]
+    fn is_runtime_worker() -> bool {
+        crate::IN_RUNTIME_WORKER.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Structural analysis of a candidate agent statement, using PostgreSQL's

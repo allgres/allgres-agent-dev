@@ -64,17 +64,27 @@ jobs:
           fi
 
       - name: cargo pgrx init
+        id: pgrx_init
         run: cargo pgrx init --pg${{ matrix.pg }}="$PG_CONFIG"
+
+      # From here on every test step runs as long as what it needs was set
+      # up, also when an earlier *test* step failed, so one push reports
+      # every failure (unit tests, SQL suite, dump/restore) instead of only
+      # the first. The job still fails if any step did.
 
       - name: Rust unit tests (request parsing, auth/rate-limit, parse-tree reader)
         run: cargo test --no-default-features --features "pg${{ matrix.pg }},pg_test" --lib
 
       - name: cargo pgrx install
+        id: pgrx_install
+        if: ${{ !cancelled() && steps.pgrx_init.outcome == 'success' }}
         run: |
           sudo chown "$(id -un)" "$("$PG_CONFIG" --pkglibdir)" "$("$PG_CONFIG" --sharedir)/extension"
           cargo pgrx install --no-default-features --features pg${{ matrix.pg }} --pg-config "$PG_CONFIG"
 
       - name: Configure and restart the cluster
+        id: cluster
+        if: ${{ !cancelled() && steps.pgrx_install.outcome == 'success' }}
         run: |
           PGCONF="/etc/postgresql/${{ matrix.pg }}/main/postgresql.conf"
           PGENV="/etc/postgresql/${{ matrix.pg }}/main/environment"
@@ -86,6 +96,7 @@ jobs:
           for _ in $(seq 1 30); do sudo -u postgres pg_isready -q -p "$PGPORT" && break; sleep 1; done
 
       - name: CREATE EXTENSION and run fn_selftest / smoke / e2e
+        if: ${{ !cancelled() && steps.cluster.outcome == 'success' }}
         run: |
           sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -c "CREATE EXTENSION allgres;"
           sudo -u postgres psql -p "$PGPORT" -d postgres -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
@@ -110,10 +121,14 @@ jobs:
           # The full tests/*.sql list (scripts/run_sql_tests.sh, cleanup always
           # last), not a hand-picked subset: schedule_worker_e2e's forced
           # contention needs dblink, which ships in the PGDG postgresql-NN
-          # package (contrib); the test creates the extension itself.
+          # package (contrib); the test creates the extension itself. It runs
+          # every file and lists all failing ones before exiting non-zero.
           sudo -u postgres env PGPORT="$PGPORT" PGDATABASE=postgres ./scripts/run_sql_tests.sh
 
       - name: Logical dump/restore test (two-pass restore on throwaway clusters)
+        # Needs only the installed extension (own clusters), not the SQL
+        # suite above passing.
+        if: ${{ !cancelled() && steps.pgrx_install.outcome == 'success' }}
         run: |
           # Own initdb'd clusters on a private Unix socket and web port 18088;
           # the cluster above keeps running on its own port and 8088.

@@ -327,7 +327,7 @@ REVOKE ALL ON FUNCTION allgres_public.fn_submit_result(uuid, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_pump(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_dispatch_tasks() FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_outbound(int, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION allgres_public.fn_complete_outbound(uuid, int, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_complete_outbound(uuid, int, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_sql(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_sql(uuid, boolean, jsonb, int, boolean, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_oauth(int) FROM PUBLIC;
@@ -347,7 +347,7 @@ GRANT EXECUTE ON FUNCTION allgres_public.fn_submit_result(uuid, jsonb) TO allgre
 GRANT EXECUTE ON FUNCTION allgres_public.fn_pump(text) TO allgres_worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_dispatch_tasks() TO allgres_worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_outbound(int, text) TO allgres_worker;
-GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_outbound(uuid, int, text) TO allgres_worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_outbound(uuid, int, text, text) TO allgres_worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_sql(int) TO allgres_worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_sql(uuid, boolean, jsonb, int, boolean, text) TO allgres_worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_function_builds(int) TO allgres_worker;
@@ -2207,6 +2207,9 @@ GRANT EXECUTE ON FUNCTION allgres_public.fn_start_dynamic_workers() TO allgres_o
 -- through fn_llm_complete (allgres_private, owned by allgres_llm_admin),
 -- which is what actually builds the credentialed request.
 GRANT EXECUTE ON FUNCTION allgres.native_llm_http_send(text, jsonb, jsonb, boolean) TO allgres_llm_admin;
+
+-- is_runtime_worker: only fn_complete_outbound (allgres_owner) needs it.
+GRANT EXECUTE ON FUNCTION allgres.is_runtime_worker() TO allgres_owner;
 
 -- ---------------------------------------------------------------------------
 -- 14. Final ownership pass.

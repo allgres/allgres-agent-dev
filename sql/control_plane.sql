@@ -2404,6 +2404,19 @@ ALTER TABLE allgres_private.outbound_calls
     CHECK (method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE'));
 ALTER TABLE allgres_private.outbound_calls
   ADD COLUMN IF NOT EXISTS connection_id uuid REFERENCES allgres_private.api_connections(connection_id);
+-- Why a call got no HTTP response at all (response_status 0/-1), as the
+-- runtime worker's Rust executor classified it from the transport error
+-- itself (src/outbound.rs, TransportErrorKind) -- not from the error text,
+-- which is resolver/OS wording: the same unresolvable name reads "host not
+-- found" on one machine and "failed to lookup address information: Name or
+-- service not known" on another. 'blocked_address' is the private-network
+-- guard refusing a resolved address (a policy refusal); the rest are
+-- network failures. NULL whenever an HTTP response arrived, and for every
+-- completion that did not come from the runtime worker: fn_complete_outbound
+-- refuses a non-NULL kind from any other backend.
+ALTER TABLE allgres_private.outbound_calls
+  ADD COLUMN IF NOT EXISTS error_kind text
+    CHECK (error_kind IN ('dns', 'blocked_address', 'connect', 'timeout', 'cancelled', 'transport'));
 
 CREATE INDEX IF NOT EXISTS outbound_ready_idx
   ON allgres_private.outbound_calls (created_at)
@@ -7030,10 +7043,18 @@ EXCEPTION WHEN others THEN
 END;
 $fn$;
 
+-- p_error_kind: see outbound_calls.error_kind. Only the runtime worker
+-- process may pass one (allgres.is_runtime_worker(), a flag in that
+-- process's memory that SQL cannot set), so a test can tell an
+-- executor-observed DNS failure from a completion recorded by any SQL
+-- caller, superuser included. (A superuser can still UPDATE the column
+-- directly; nothing inside the database can stop that.)
+DROP FUNCTION IF EXISTS allgres_public.fn_complete_outbound(uuid, int, text);
 CREATE OR REPLACE FUNCTION allgres_public.fn_complete_outbound(
   p_call_id uuid,
   p_status int,
-  p_body text
+  p_body text,
+  p_error_kind text DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -7056,6 +7077,11 @@ DECLARE
   v_mcp_fname text;
 BEGIN
   PERFORM set_config('statement_timeout', '2000', true);
+
+  IF p_error_kind IS NOT NULL AND NOT allgres.is_runtime_worker() THEN
+    RAISE EXCEPTION 'fn_complete_outbound: error_kind is recorded only by the allgres runtime worker'
+      USING ERRCODE = '42501';
+  END IF;
 
   SELECT * INTO c
   FROM allgres_private.outbound_calls
@@ -7085,7 +7111,8 @@ BEGIN
   IF c.kind IN ('function', 'mcp') AND c.method <> 'GET'
      AND (p_status IS NULL OR p_status = 0 OR p_status >= 500) THEN
     UPDATE allgres_private.outbound_calls SET response_status = p_status,
-      response_body = left(COALESCE(p_body, ''), 200000) WHERE call_id = p_call_id;
+      response_body = left(COALESCE(p_body, ''), 200000),
+      error_kind = p_error_kind WHERE call_id = p_call_id;
     PERFORM allgres_private.pause_ambiguous_outbound(p_call_id, 'transport_or_server_result_unknown');
     RETURN jsonb_build_object('call_id', p_call_id, 'submit', jsonb_build_object('action', 'wait'));
   END IF;
@@ -7094,6 +7121,7 @@ BEGIN
   SET status = 'harvested',
       response_status = p_status,
       response_body = left(COALESCE(p_body, ''), 200000),
+      error_kind = p_error_kind,
       updated_at = now()
   WHERE call_id = p_call_id;
 

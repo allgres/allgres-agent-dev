@@ -143,8 +143,9 @@ ROLLBACK;
 -- rows: the worker only sees committed calls, and only in database postgres.
 -- Same proof as fixed_url_procedure_e2e.sql: an RFC 2606 .invalid https host
 -- (http_get never reaches private addresses), so the executor's own DNS
--- failure is what fn_complete_outbound records; this file never calls a
--- claim or completion function here.
+-- failure is what fn_complete_outbound records -- error_kind = 'dns', set
+-- only by the runtime worker, not resolver wording (see that file); this
+-- file never calls a claim or completion function here.
 DO $block$
 BEGIN
   IF current_database() <> 'postgres' THEN
@@ -194,19 +195,21 @@ DECLARE
   v_call uuid;
   v_status text;
   v_body text;
+  v_kind text;
 BEGIN
   SELECT task_id, call_id INTO STRICT v_task, v_call FROM _legacy_reserved_e2e;
   IF v_call IS NULL OR EXISTS (SELECT 1 FROM allgres_private.function_calls WHERE task_id = v_task) THEN
     RAISE EXCEPTION 'legacy reserved-name e2e: builtin http_get was not enqueued (task=%, call=%)', v_task, v_call;
   END IF;
   FOR i IN 1..200 LOOP
-    SELECT status, response_body INTO v_status, v_body
+    SELECT status, response_body, error_kind INTO v_status, v_body, v_kind
     FROM allgres_private.outbound_calls WHERE call_id = v_call AND task_id = v_task;
     EXIT WHEN v_status NOT IN ('queued', 'in_flight');
     PERFORM pg_sleep(0.1);
   END LOOP;
   IF v_status IS DISTINCT FROM 'harvested'
-     OR v_body IS NULL OR v_body NOT ILIKE '%host not found%'
+     OR v_kind IS DISTINCT FROM 'dns'
+     OR COALESCE(v_body, '') = ''
      OR NOT EXISTS (SELECT 1 FROM allgres_private.outbound_calls
                     WHERE call_id = v_call AND kind = 'function' AND function = 'http_get'
                       AND url = 'https://e2e-legacy.allgres-test.invalid/builtin?x=1'
@@ -215,8 +218,8 @@ BEGIN
      OR EXISTS (SELECT 1 FROM allgres_private.execution_logs WHERE task_id = v_task AND role = 'error'
                   AND content->>'reason' IN ('function_not_permitted', 'http_host_not_permitted',
                                              'function_not_built', 'unknown_function')) THEN
-    RAISE EXCEPTION 'legacy reserved-name e2e: builtin http_get did not reach the executor (call=%, status=%, body=%)',
-      v_call, v_status, v_body;
+    RAISE EXCEPTION 'legacy reserved-name e2e: builtin http_get did not reach the executor (call=%, status=%, error_kind=%, body=%)',
+      v_call, v_status, v_kind, v_body;
   END IF;
 END
 $block$;

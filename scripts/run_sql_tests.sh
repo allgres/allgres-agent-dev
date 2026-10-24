@@ -34,18 +34,28 @@ if [[ "$addr" != "127.0.0.1:8088" ]]; then
   done
 fi
 
-rc=0
+# Every file runs, also after an earlier one failed, so one CI run reports
+# every failing file instead of only the first; the script still exits 1
+# when any file (or cleanup.sql) failed, and lists them at the end. Files
+# are independent fixtures (each creates or reuses its own named rows), and
+# cleanup.sql runs last either way.
+
+failed=()
 for f in "${files[@]}"; do
   echo "== tests/$f.sql"
   if ! psql -X -q -v ON_ERROR_STOP=1 -f "$dir/$f.sql" >/dev/null; then
     echo "FAILED: tests/$f.sql" >&2
-    rc=1
-    break
+    failed+=("tests/$f.sql")
   fi
 done
 
 echo "== tests/cleanup.sql"
-psql -X -q -v ON_ERROR_STOP=1 -f "$dir/cleanup.sql" >/dev/null || { echo "FAILED: tests/cleanup.sql" >&2; rc=1; }
+psql -X -q -v ON_ERROR_STOP=1 -f "$dir/cleanup.sql" >/dev/null || { echo "FAILED: tests/cleanup.sql" >&2; failed+=("tests/cleanup.sql"); }
 
-[[ $rc -eq 0 ]] && echo "SQL tests passed."
-exit $rc
+if [[ ${#failed[@]} -eq 0 ]]; then
+  echo "SQL tests passed."
+  exit 0
+fi
+echo "SQL tests FAILED: ${#failed[@]} of $(( ${#files[@]} + 1 )) files:" >&2
+printf '  %s\n' "${failed[@]}" >&2
+exit 1

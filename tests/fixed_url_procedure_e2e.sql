@@ -4,7 +4,14 @@
 -- statement commits before polling; no SQL completion is simulated here.
 -- http_get rejects private addresses at creation and in GuardedResolver.
 -- The RFC 2606 .invalid URL proves worker handoff through a DNS failure
--- without a private mock endpoint or any security exception.
+-- without a private mock endpoint or any security exception. "DNS failure"
+-- is outbound_calls.error_kind = 'dns': the Rust executor's own
+-- classification (src/outbound.rs, TransportErrorKind), which only the
+-- runtime worker can record -- never the error text, whose wording depends
+-- on the OS resolver. A resolver that answers every name (some sandboxes
+-- return a 198.18/15 address for anything) makes the private-network guard
+-- refuse the call instead: error_kind = 'blocked_address', and this test
+-- fails, as it must, because that is a policy refusal and not a DNS failure.
 DO $block$
 DECLARE
   v_fn uuid;
@@ -58,30 +65,33 @@ DECLARE
   v_status text;
   v_proc uuid;
   v_body text;
+  v_kind text;
 BEGIN
   SELECT task_id, call_id INTO STRICT v_task, v_call FROM _fixed_url_procedure_e2e;
   IF v_call IS NULL THEN
     RAISE EXCEPTION 'fixed URL procedure e2e did not enqueue a call (task=%)', v_task;
   END IF;
   FOR i IN 1..200 LOOP
-    SELECT status, procedure_id, response_body INTO v_status, v_proc, v_body
+    SELECT status, procedure_id, response_body, error_kind INTO v_status, v_proc, v_body, v_kind
     FROM allgres_private.outbound_calls WHERE call_id = v_call AND task_id = v_task;
     EXIT WHEN v_status NOT IN ('queued', 'in_flight');
     PERFORM pg_sleep(0.1);
   END LOOP;
   -- fn_complete_outbound records the worker's transport error in response_body
-  -- and sets harvested. This test never calls a claim or completion function.
+  -- and its kind in error_kind, and sets harvested. This test never calls a
+  -- claim or completion function.
   IF v_status IS DISTINCT FROM 'harvested'
      OR v_proc IS DISTINCT FROM (SELECT procedure_id FROM allgres_private.procedures WHERE name = 'e2e-fx-proc')
-     OR v_body IS NULL OR v_body NOT ILIKE '%host not found%'
+     OR v_kind IS DISTINCT FROM 'dns'
+     OR COALESCE(v_body, '') = ''
      OR NOT EXISTS (SELECT 1 FROM allgres_private.outbound_calls
                     WHERE call_id = v_call AND kind = 'function' AND function = 'http_get'
                       AND url = 'https://e2e-fx.allgres-test.invalid/fixed?x=1'
                       AND procedure_function_id = (SELECT function_id FROM allgres_private.functions WHERE name = 'e2e_fx_get')
                       AND NOT allow_private AND response_status = 0)
      OR EXISTS (SELECT 1 FROM allgres_private.function_calls WHERE task_id = v_task) THEN
-    RAISE EXCEPTION 'fixed URL procedure e2e was not executed (call=%, status=%, procedure=%, body=%)',
-      v_call, v_status, v_proc, v_body;
+    RAISE EXCEPTION 'fixed URL procedure e2e was not executed (call=%, status=%, procedure=%, error_kind=%, body=%)',
+      v_call, v_status, v_proc, v_kind, v_body;
   END IF;
   IF EXISTS (SELECT 1 FROM allgres_private.execution_logs
              WHERE task_id = v_task AND role = 'error'
