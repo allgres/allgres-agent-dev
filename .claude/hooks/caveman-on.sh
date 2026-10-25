@@ -1,8 +1,8 @@
 #!/bin/bash
-# SessionStart: turns on the caveman skill (vendored from
-# github.com/JuliusBrussee/caveman @ 1f951fb, MIT; see the LICENSE beside it) (terse replies) for every
-# session, including after /clear and compaction. Say "stop caveman" or
-# "normal mode" to turn it off for the rest of a session.
+# SessionStart: turns on the caveman skill (terse replies) for every session,
+# including after /clear and compaction. Say "stop caveman" or "normal mode"
+# to turn it off for the rest of a session. The skill is vendored from
+# github.com/JuliusBrussee/caveman at 1f951fb (MIT, LICENSE beside it).
 skill="$CLAUDE_PROJECT_DIR/.claude/skills/caveman/SKILL.md"
 [ -f "$skill" ] || exit 0
 python3 - "$skill" <<'PY'
