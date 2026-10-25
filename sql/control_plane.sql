@@ -7009,11 +7009,7 @@ BEGIN
         'message', 'mcp http ' || COALESCE(p_status::text, '0') || ': ' || left(COALESCE(p_body, ''), 2000)
       );
     ELSE
-      BEGIN
-        v_parsed := p_body::jsonb;
-      EXCEPTION WHEN others THEN
-        v_parsed := NULL;
-      END;
+      v_parsed := allgres_private.mcp_json_body(p_body);
       IF v_parsed IS NULL THEN
         v_payload := jsonb_build_object(
           'type', 'error',
@@ -7616,6 +7612,21 @@ BEGIN
     FOR UPDATE SKIP LOCKED
   LOOP
     UPDATE allgres_private.provider_probes
+    SET status = 'lost', error = 'timeout', updated_at = now()
+    WHERE call_id = r.call_id;
+    n := n + 1;
+  END LOOP;
+
+  -- And for an MCP discovery the worker never came back from; the server's
+  -- health stays at its last real result, same tolerance as the probes above.
+  FOR r IN
+    SELECT call_id
+    FROM allgres_private.mcp_probes
+    WHERE status = 'in_flight'
+      AND updated_at < now() - make_interval(secs => GREATEST(15, COALESCE(p_timeout_seconds, 90)))
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    UPDATE allgres_private.mcp_probes
     SET status = 'lost', error = 'timeout', updated_at = now()
     WHERE call_id = r.call_id;
     n := n + 1;

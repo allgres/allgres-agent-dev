@@ -281,6 +281,9 @@ BEGIN
       OR (p_queue = 'procedure_calls' AND r.action = 'call_function' AND EXISTS (
         SELECT 1 FROM jsonb_array_elements(v_local_scope->'functions') d
         WHERE r.resource IN ('*', d->>'name'))));
+  -- A tool registered from an MCP server as write or physical needs a person
+  -- every time, whatever this agent's own rules say.
+  IF COALESCE(f.requires_approval, false) THEN v_requires := true; END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_rules) r WHERE r->>'decision' = 'deny') THEN
     v_reason := 'execution_denied';
   END IF;

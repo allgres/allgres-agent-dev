@@ -15,7 +15,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','Access & appearance','Audit log'];
+  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Access & appearance','Audit log'];
   for (const label of labels) {
     const button = page.locator('#nav button', { hasText: label }).first();
     await expect(button).toBeVisible();
@@ -147,6 +147,33 @@ test('first-run setup keeps unconfigured agents in drafts', async ({ page }) => 
   await page.locator('#aDraft').check();
   await page.locator('#saveA').click();
   await expect(page.locator('#view')).toContainText(draftName);
+});
+
+test('admin connects an MCP server, confirms tool risk, and registers a tool', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.locator('#nav button', { hasText: 'MCP servers' }).click();
+  await page.locator('#mcName').fill('ui_mock_mcp');
+  await page.locator('#mcUrl').fill(baseURL + '/mock/mcp');
+  await page.locator('#mcPrivate').check();
+  await page.locator('#mcGo').click();
+  const server = page.locator('#view .panel', { hasText: 'ui_mock_mcp' });
+  await expect(server.getByText('connected', { exact: true })).toBeVisible({ timeout: 20000 });
+  const row = name => server.locator('tbody tr', { hasText: name });
+  // Nothing can be registered before a person says how risky a tool is.
+  await expect(row('get_status').getByRole('button', { name: 'Register' })).toBeDisabled();
+  await expect(row('move_arm').getByText('Suggested: physical')).toBeVisible();
+  await row('get_status').locator('select.mcpRisk').selectOption('read');
+  await expect(row('get_status').getByRole('button', { name: 'Register' })).toBeEnabled();
+  await row('move_arm').locator('select.mcpRisk').selectOption('physical');
+  await expect(row('move_arm').getByText('Always asks a person')).toBeVisible();
+  await row('get_status').getByRole('button', { name: 'Register' }).click();
+  await expect(row('get_status').getByText('Give an agent the ability')).toBeVisible();
+  // The registered tool shows up as a function an agent can be given.
+  await page.locator('#nav button', { hasText: 'Functions & procedures' }).click();
+  await expect(page.locator('#view')).toContainText('ui_mock_mcp_get_status');
+  // A server's tools do not appear on the APIs page.
+  await page.locator('#nav button', { hasText: 'APIs' }).click();
+  await expect(page.locator('#view')).not.toContainText('/mock/mcp');
 });
 
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {

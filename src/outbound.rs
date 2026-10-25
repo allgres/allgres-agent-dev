@@ -27,6 +27,7 @@ pub(crate) enum OutboundQueue {
     Oauth,
     AgentEmbedding,
     ProviderProbe,
+    McpProbe,
 }
 
 pub(crate) struct OutboundJob {
@@ -309,6 +310,19 @@ impl ureq::unversioned::transport::Transport for CancellableTransport {
 /// Never turn a failed/truncated body into a successful empty response.
 /// status 0 means dispatch happened but the result is unknown; -1 is reserved
 /// for failures before the application/tool request was dispatched.
+/// The JSON-RPC message in an MCP reply: plain JSON, or the last `data:` line
+/// of a text/event-stream that parses as an object with a result or error.
+fn mcp_message(text: &str) -> Option<Value> {
+    if let Ok(v) = serde_json::from_str::<Value>(text) {
+        return Some(v);
+    }
+    text.lines()
+        .filter_map(|l| l.strip_prefix("data:"))
+        .filter_map(|d| serde_json::from_str::<Value>(d.trim()).ok())
+        .filter(|v| v.get("result").is_some() || v.get("error").is_some())
+        .last()
+}
+
 fn read_response(mut response: ureq::http::Response<ureq::Body>) -> (i32, String) {
     let status = response.status().as_u16() as i32;
     match response
@@ -418,9 +432,19 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                 "clientInfo": {"name": "allgres", "version": env!("CARGO_PKG_VERSION")}
             }
         });
+        // Streamable HTTP in the 2026-07-28 revision routes on Mcp-Method /
+        // Mcp-Name headers; older servers ignore headers they do not know.
+        let call_method = body.get("method").and_then(Value::as_str).unwrap_or("tools/call").to_string();
+        let call_name = body.pointer("/params/name").and_then(Value::as_str).map(str::to_string);
         macro_rules! mcp_request {
-            ($session:expr) => {{
-                let mut req = agent.post(url);
+            ($session:expr) => {
+                mcp_request!($session, "initialize", None::<&str>)
+            };
+            ($session:expr, $method:expr, $name:expr) => {{
+                let mut req = agent.post(url).header("mcp-method", $method);
+                if let Some(n) = $name {
+                    req = req.header("mcp-name", n);
+                }
                 if let Some(h) = headers {
                     for (k, v) in h {
                         if let Some(s) = v.as_str() {
@@ -445,7 +469,7 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                 if init_status == 0 {
                     return (-1, init_body);
                 }
-                let init_json = serde_json::from_str::<Value>(&init_body).ok();
+                let init_json = mcp_message(&init_body);
                 let init_valid = init_json
                     .as_ref()
                     .is_some_and(|v| v.get("result").is_some() && v.get("error").is_none());
@@ -456,7 +480,7 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                         .and_then(Value::as_i64)
                         == Some(-32601)
                     {
-                        return match mcp_request!(None::<&str>).send_json(&body) {
+                        return match mcp_request!(None::<&str>, call_method.as_str(), call_name.as_deref()).send_json(&body) {
                             Ok(r) => read_response(r),
                             Err(e) => (0, e.to_string()),
                         };
@@ -471,9 +495,9 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                     );
                 }
                 let initialized = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
-                match mcp_request!(session.as_deref()).send_json(&initialized) {
+                match mcp_request!(session.as_deref(), "notifications/initialized", None::<&str>).send_json(&initialized) {
                     Ok(r) if r.status().is_success() => {
-                        mcp_request!(session.as_deref()).send_json(&body)
+                        mcp_request!(session.as_deref(), call_method.as_str(), call_name.as_deref()).send_json(&body)
                     }
                     Ok(_r) => return (-1, "MCP initialized notification rejected".into()),
                     Err(e) => return (-1, format!("MCP initialized notification failed: {e}")),
@@ -484,8 +508,12 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
                 if status == 0 {
                     return (-1, text);
                 }
+                // The caller needs to tell "log in" from "unreachable".
+                if status == 401 || status == 403 {
+                    return (status, truncate_utf8(&text, MAX_RESPONSE_BYTES).to_string());
+                }
                 if status == 400 || status == 404 || status == 405 {
-                    return match mcp_request!(None::<&str>).send_json(&body) {
+                    return match mcp_request!(None::<&str>, call_method.as_str(), call_name.as_deref()).send_json(&body) {
                         Ok(fallback) => read_response(fallback),
                         Err(e) => (0, e.to_string()),
                     };

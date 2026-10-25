@@ -331,6 +331,8 @@ REVOKE ALL ON FUNCTION allgres_public.fn_complete_outbound(uuid, int, text) FROM
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_sql(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_sql(uuid, boolean, jsonb, int, boolean, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_oauth(int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_claim_mcp_probe(int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_complete_mcp_probe(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_oauth(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_watchdog(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_run_schedules() FROM PUBLIC;
@@ -364,6 +366,8 @@ GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_agent_embedding(int) TO worker
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_agent_embedding(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_provider_probe(int) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_provider_probe(uuid, int, text) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_mcp_probe(int) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_mcp_probe(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_watchdog(int) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_run_schedules() TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_run_sandboxed_sql(text) TO sandbox;
@@ -1705,6 +1709,7 @@ BEGIN
           'is_enabled', c.is_enabled,
           'allow_private_network', c.allow_private_network,
           'cost_per_call_usd',c.cost_per_call_usd,
+          'kind', c.kind, 'health', c.health,
           'has_secret', EXISTS (
             SELECT 1 FROM allgres_private.api_connection_secrets s
             WHERE s.connection_id = c.connection_id AND NULLIF(s.api_key, '') IS NOT NULL
@@ -1712,6 +1717,71 @@ BEGIN
         ) ORDER BY c.name)
         FROM allgres_private.api_connections c
       ), '[]'::jsonb));
+
+    -- MCP servers (docs/stage3-design.md, slice 3a). A server is a
+    -- connection of kind 'mcp'; discovery runs in the worker, outside
+    -- PostgreSQL.
+    WHEN 'mcp.servers' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'servers', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'connection_id', c.connection_id, 'name', c.name, 'base_url', c.base_url,
+          'auth_kind', c.auth_kind, 'is_enabled', c.is_enabled,
+          'allow_private_network', c.allow_private_network,
+          'health', c.health, 'health_checked_at', c.health_checked_at,
+          'health_detail', c.health_detail,
+          'discovering', EXISTS (
+            SELECT 1 FROM allgres_private.mcp_probes mp
+            WHERE mp.connection_id = c.connection_id AND mp.status IN ('queued', 'in_flight')),
+          'tools', (SELECT count(*) FROM allgres_private.mcp_tools m
+                    WHERE m.connection_id = c.connection_id AND m.status <> 'removed'),
+          'registered', (SELECT count(*) FROM allgres_private.mcp_tools m
+                    WHERE m.connection_id = c.connection_id AND m.status = 'registered'),
+          'changed', (SELECT count(*) FROM allgres_private.mcp_tools m
+                    WHERE m.connection_id = c.connection_id AND m.status = 'changed')
+        ) ORDER BY c.name)
+        FROM allgres_private.api_connections c WHERE c.kind = 'mcp'
+      ), '[]'::jsonb));
+
+    WHEN 'mcp.connect' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_mcp_connect(
+        p_request->>'name', p_request->>'base_url',
+        COALESCE(NULLIF(p_request->>'auth_kind', ''), 'none'),
+        NULLIF(p_request->>'api_key', ''),
+        COALESCE((p_request->>'allow_private_network')::boolean, false));
+
+    WHEN 'mcp.discover' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_mcp_discover_start((p_request->>'connection_id')::uuid);
+
+    WHEN 'mcp.tools' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'tools', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'tool_name', m.tool_name, 'description', m.description,
+          'input_schema', m.input_schema, 'server_hints', m.server_hints,
+          'suggested_risk', m.suggested_risk, 'risk', m.risk, 'approval', m.approval,
+          'status', m.status, 'function_id', m.registered_function_id,
+          'function_name', f.name, 'function_active', f.is_active,
+          'procedure_name', pr.name
+        ) ORDER BY m.tool_name)
+        FROM allgres_private.mcp_tools m
+        LEFT JOIN allgres_private.functions f ON f.function_id = m.registered_function_id
+        LEFT JOIN allgres_private.procedures pr ON pr.procedure_id = m.registered_procedure_id
+        WHERE m.connection_id = (p_request->>'connection_id')::uuid
+      ), '[]'::jsonb));
+
+    WHEN 'mcp.tool_risk' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_mcp_tool_set_risk(
+        (p_request->>'connection_id')::uuid, p_request->>'tool',
+        p_request->>'risk', NULLIF(p_request->>'approval', ''));
+
+    WHEN 'mcp.tool_register' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_mcp_tool_register(
+        (p_request->>'connection_id')::uuid, p_request->>'tool');
 
     WHEN 'connections.create' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
