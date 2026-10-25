@@ -159,6 +159,75 @@ test('regular user sees only scoped chat and personal settings', async ({ page }
   await expect(page.getByText('Admins only')).toBeVisible();
 });
 
+test('admin sets up approval routing and sees the decision records', async ({ page }) => {
+  page.on('dialog', d => d.accept());
+  const stamp = Date.now(), role = `UI approver ${stamp}`, unit = `UI unit ${stamp}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  // Mine / All toggle on the approvals list, and the two admin tabs.
+  await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mine', exact: true }).click();
+  await expect(page.getByText('Nothing is waiting on you')).toBeVisible();
+  await page.getByRole('button', { name: 'Routing', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Rules' })).toBeVisible();
+  // A role, a unit, a person who holds the role, and a rule that names it.
+  await page.locator('#roName').fill(role);
+  await page.locator('#roAdd').click();
+  // Assert on the table, not the panel: a panel also holds the forms, whose
+  // selects list the same names before the page has redrawn.
+  const panel = name => page.locator('.panel', { has: page.getByRole('heading', { name, exact: true }) });
+  await expect(panel('Roles').locator('table')).toContainText(role);
+  await page.locator('#unName').fill(unit);
+  await page.locator('#unAdd').click();
+  await expect(panel('Units').locator('table')).toContainText(unit);
+  await page.locator('#meUser').selectOption({ label: 'ui_regular' });
+  await page.locator('#meRole').selectOption({ label: role });
+  await page.locator('#meUnit').selectOption({ label: unit });
+  await page.locator('#meAdd').click();
+  const people = panel('People').locator('table');
+  await expect(people).toContainText('ui_regular');
+  await expect(people).toContainText(unit);
+  await page.locator('#ruApplies').selectOption('approval');
+  await page.locator('#ruKind').fill('execution');
+  await page.locator('#ruRole').selectOption({ label: role });
+  await page.locator('#ruUnit').selectOption({ label: unit });
+  await page.locator('#ruAdd').click();
+  const rules = panel('Rules').locator('table');
+  await expect(rules).toContainText('kind execution');
+  await expect(rules).toContainText(role);
+  // Escalation needs both halves.
+  await page.locator('#ruEscHours').fill('2');
+  await page.locator('#ruRole').selectOption({ label: role });
+  await page.locator('#ruAdd').click();
+  await expect(page.locator('#toast')).toContainText('Escalation needs both a time and a role');
+  await expect(rules).toContainText(role);
+  // Decision records: the two decision points, empty so far.
+  await page.getByRole('button', { name: 'Decisions', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'approval_decision' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'proposal_decision' })).toBeVisible();
+  await expect(page.getByText('Recorded fields:').first()).toContainText('reason');
+  await page.getByRole('button', { name: 'Export training set' }).first().click();
+  await expect(page.locator('#toast')).toContainText(/Nothing to export|Exported/);
+  // Clean up: deleting the role takes its rule and membership with it.
+  await page.getByRole('button', { name: 'Routing', exact: true }).click();
+  await panel('Roles').locator('tr', { hasText: role }).getByRole('button', { name: 'Delete' }).click();
+  await expect(panel('Roles').locator('table')).not.toContainText(role);
+  await expect(panel('Rules').locator('table')).not.toContainText('kind execution');
+  await panel('Units').locator('tr', { hasText: unit }).getByRole('button', { name: 'Delete' }).click();
+  await expect(panel('Units').locator('table')).not.toContainText(unit);
+  // A regular user gets the toggle but not the admin tabs.
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.locator('#liGo')).toBeVisible();
+  await page.locator('#liUser').fill('ui_regular');
+  await page.locator('#liPass').fill('ui-regular-password');
+  await page.locator('#liGo').click();
+  await expect(page.locator('#whoami')).toContainText('ui_regular');
+  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Routing', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Decisions', exact: true })).toHaveCount(0);
+});
+
 test('mobile navigation remains keyboard reachable', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await login(page, 'ui_regular', 'ui-regular-password');

@@ -37,6 +37,9 @@
 .u-white-space-pre-wrap-word-break-break-word{white-space:pre-wrap;word-break:break-word}
 .u-margin-top-12px-gap-8px{margin-top:12px;gap:8px}
 .u-max-width-200px{max-width:200px}
+.u-max-width-90px{max-width:90px}
+.u-max-width-140px{max-width:140px}
+.u-max-width-180px{max-width:180px}
 .u-max-width-110px{max-width:110px}
 .u-max-width-320px-white-space-pre-wrap{max-width:320px;white-space:pre-wrap}
 .u-margin-top-14px-border-top-1px-solid-var-line-padding-top-12px-align-items-flex-end{margin-top:14px;border-top:1px solid var(--line);padding-top:12px;align-items:flex-end}
@@ -110,7 +113,7 @@ a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}a:
 <script nonce="__CSP_NONCE__">
 const savedUi=(key,fallback)=>{try{return localStorage.getItem('allgres_ui_'+key)||fallback}catch{return fallback}};
 const saveUi=(key,value)=>{try{localStorage.setItem('allgres_ui_'+key,value)}catch{}};
-const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users:[],chatAgentId:null,chatMode:savedUi('chat_mode','general'),projectView:savedUi('project_view','manage'),chatProjectId:null,projects:[],sessions:[],approvals:[],proposals:[],fixes:[],proposalAgentFilter:null,tasks:[],logs:[],memories:[],auditLog:[],settings:null,overview:null,auditTab:savedUi('audit_tab','Log'),approvalsTab:savedUi('approvals_tab','Approvals'),settingsTab:savedUi('settings_tab','Integrations')};
+const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users:[],chatAgentId:null,chatMode:savedUi('chat_mode','general'),projectView:savedUi('project_view','manage'),chatProjectId:null,projects:[],sessions:[],approvals:[],proposals:[],fixes:[],proposalAgentFilter:null,tasks:[],logs:[],memories:[],auditLog:[],settings:null,overview:null,auditTab:savedUi('audit_tab','Log'),approvalsTab:savedUi('approvals_tab','Approvals'),apMine:savedUi('ap_mine','0')==='1',settingsTab:savedUi('settings_tab','Integrations')};
 // Sessions/Tasks/Logs folded into Audit (as tabs); Users folded into
 // Settings (as a section); Approvals/Proposals/Fixes folded into one
 // Approvals page (as tabs, open to regular users too -- item 41); Chat/
@@ -172,7 +175,7 @@ const I18N={
   theme:'Theme',dark:'Dark',light:'Light',
   noData:'Nothing here yet.',loading:'Loading…',
   sessionsTab:'Sessions',tasksTab:'Tasks',logsTab:'Logs',auditTab:'Audit log',
-  approvalsTab:'Approvals',proposalsTab:'Proposals',fixesTab:'Fixes',
+  approvalsTab:'Approvals',proposalsTab:'Proposals',fixesTab:'Fixes',routingTab:'Routing',decisionsTab:'Decisions',
   usersSection:'Users',providersSection:'LLM providers',sandboxSection:'SQL sandbox allowlist',accessSection:'Dashboard access',
 };
 function t(key){return I18N[key]??key}
@@ -577,18 +580,32 @@ async function threadModal(sessionId){
 // scoped server-side (visible_agent_ids) to whatever they're assigned. ---
 async function approvalsPage(){
   const tabs=[['Approvals','approvalsTab'],['Proposals','proposalsTab'],['Fixes','fixesTab']];
+  if(state.me?.role==='admin')tabs.push(['Routing','routingTab'],['Decisions','decisionsTab']);
+  if(!tabs.some(x=>x[0]===state.approvalsTab))state.approvalsTab='Approvals';
   $('#view').innerHTML=`<div class="row u-margin-bottom-22px">${tabs.map(([tb,k])=>`<button class="btn small apTabBtn${state.approvalsTab===tb?' primary':''}" data-tab="${tb}">${esc(t(k))}</button>`).join('')}</div><div id="apTabBody"></div>`;
   document.querySelectorAll('.apTabBtn').forEach(b=>b.onclick=()=>{state.approvalsTab=b.dataset.tab;saveUi('approvals_tab',state.approvalsTab);approvalsPage()});
   const body=$('#apTabBody');
   if(state.approvalsTab==='Approvals')await approvalsTab(body);
   if(state.approvalsTab==='Proposals')await proposalsTab(body);
   if(state.approvalsTab==='Fixes')await fixesTab(body);
+  if(state.approvalsTab==='Routing')await routingTab(body);
+  if(state.approvalsTab==='Decisions')await decisionsTab(body);
 }
+// Who a routed request waits on, and who may act on it. A request no rule
+// routed shows nothing extra. can_decide is the server's own answer.
+function routeNote(x){
+  if(!x.routed_role)return '';
+  const esc_=x.escalate_at?` <span class="muted">· opens to a second role ${esc(x.escalate_at)}</span>`:'';
+  return `<div class="muted u-font-size-12px">Routed to <b>${esc(x.routed_role)}</b>${esc_}</div>`;
+}
+function mineToggle(){return `<div class="row u-margin-bottom-22px"><button class="btn small apMine${state.apMine?' primary':''}" data-mine="1">Mine</button><button class="btn small apMine${state.apMine?'':' primary'}" data-mine="0">All I can see</button><span class="muted u-font-size-12px">Mine is what you may decide.</span></div>`}
+function bindMine(target,reload){target.querySelectorAll('.apMine').forEach(b=>b.onclick=()=>{state.apMine=b.dataset.mine==='1';saveUi('ap_mine',state.apMine?'1':'0');reload()})}
 async function decideApproval(id,accept,reply,after){try{await rpc('approvals.decide',{approval_id:id,accept,reply});toast(accept?'Approved':'Rejected');after()}catch(e){toast(e.message)}}
 async function approvalsTab(target){
   target=target||$('#view');
-  const d=await rpc('approvals.list',{limit:200});state.approvals=d.approvals||[];
-  target.innerHTML=`<div class="panel">${state.approvals.length?state.approvals.map(a=>`<div class="listrow"><div class="row"><b>${esc(a.agent)}</b><span class="muted"> — ${esc(a.goal)}</span><span class="spacer"></span><span class="mono muted u-font-size-11px">${esc(a.created_at)}</span></div><div class="u-margin-6px-0">${esc(a.reason||'(no reason given)')}</div>${a.payload?.snapshot?`<details><summary>Review exact execution</summary><pre class="mono">${esc(JSON.stringify(a.payload.snapshot,null,2))}</pre></details>`:''}<div class="field"><textarea class="textarea apReply u-min-height-50px" data-id="${esc(a.approval_id)}" placeholder="Reply (optional)…"></textarea></div><div class="row"><button class="btn primary small apAccept" data-id="${esc(a.approval_id)}">${esc(t('approve'))}</button><button class="btn danger small apReject" data-id="${esc(a.approval_id)}">${esc(t('reject'))}</button><button class="btn small openThread" data-id="${esc(a.session_id)}">Open thread</button></div></div>`).join(''):`<div class="muted">No approvals need your attention. Requests from agents will appear here when they pause for a decision.</div>`}</div>`;
+  const d=await rpc('approvals.list',{limit:200,mine:!!state.apMine});state.approvals=d.approvals||[];
+  target.innerHTML=`${mineToggle()}<div class="panel">${state.approvals.length?state.approvals.map(a=>`<div class="listrow"><div class="row"><b>${esc(a.agent)}</b><span class="muted"> — ${esc(a.goal)}</span><span class="spacer"></span><span class="mono muted u-font-size-11px">${esc(a.created_at)}</span></div><div class="u-margin-6px-0">${esc(a.reason||'(no reason given)')}</div>${routeNote(a)}${a.payload?.snapshot?`<details><summary>Review exact execution</summary><pre class="mono">${esc(JSON.stringify(a.payload.snapshot,null,2))}</pre></details>`:''}${a.can_decide===false?`<div class="muted u-margin-6px-0">You can see this request but not decide it${a.routed_role?`; only ${esc(a.routed_role)} can`:''}.</div>`:`<div class="field"><textarea class="textarea apReply u-min-height-50px" data-id="${esc(a.approval_id)}" placeholder="Reply (optional)…"></textarea></div>`}<div class="row">${a.can_decide===false?'':`<button class="btn primary small apAccept" data-id="${esc(a.approval_id)}">${esc(t('approve'))}</button><button class="btn danger small apReject" data-id="${esc(a.approval_id)}">${esc(t('reject'))}</button>`}<button class="btn small openThread" data-id="${esc(a.session_id)}">Open thread</button></div></div>`).join(''):`<div class="muted">${state.apMine?'Nothing is waiting on you. Switch to “All I can see” to see requests routed to others.':'No approvals need your attention. Requests from agents will appear here when they pause for a decision.'}</div>`}</div>`;
+  bindMine(target,approvalsPage);
   target.querySelectorAll('.apAccept').forEach(b=>b.onclick=()=>decideApproval(b.dataset.id,true,target.querySelector(`.apReply[data-id="${b.dataset.id}"]`)?.value||'',approvalsPage));
   target.querySelectorAll('.apReject').forEach(b=>b.onclick=()=>decideApproval(b.dataset.id,false,target.querySelector(`.apReply[data-id="${b.dataset.id}"]`)?.value||'',approvalsPage));
   target.querySelectorAll('.openThread').forEach(b=>b.onclick=()=>threadModal(b.dataset.id));
@@ -599,17 +616,78 @@ async function approvalsTab(target){
 async function decideProposal(id,approve,reply,after){try{const r=await rpc('proposals.decide',{proposal_id:id,approve,reply});toast(r.status==='stale'?'Stale -- the policy changed since this was proposed':(approve?'Approved':'Rejected'));after()}catch(e){toast(e.message)}}
 async function proposalsTab(target){
   target=target||$('#view');
-  const d=await rpc('proposals.list',state.proposalAgentFilter?{agent_id:state.proposalAgentFilter}:{});
+  const d=await rpc('proposals.list',{...(state.proposalAgentFilter?{agent_id:state.proposalAgentFilter}:{}),...(state.apMine?{mine:true}:{})});
   state.proposals=d.proposals||[];
   const pending=state.proposals.filter(p=>p.status==='pending'),decided=state.proposals.filter(p=>p.status!=='pending');
   const changes=c=>{const entries=Object.entries(c||{});return `<div class="muted">${entries.length?entries.map(([key,value])=>`<div><b>${esc(key.replaceAll('_',' '))}:</b> ${esc(typeof value==='string'?value:JSON.stringify(value))}</div>`).join(''):'No field changes supplied.'}</div><details><summary>Raw proposal</summary><pre class="mono u-font-size-12px-white-space-pre-wrap">${esc(JSON.stringify(c,null,2))}</pre></details>`};
   const label=p=>p.kind==='create_agent'?`${esc(p.agent)} → new agent "${esc(p.proposed_changes?.name||'')}"`:(p.target_agent&&p.target_agent!==p.agent?`${esc(p.agent)} → ${esc(p.target_agent)}`:esc(p.agent));
   target.innerHTML=`${state.proposalAgentFilter?`<div class="row u-margin-bottom-22px"><span class="muted">Showing proposals for one agent.</span><button class="btn small" id="clearFilter">Show all agents</button></div>`:''}
-<div class="panel"><h3>Pending</h3>${pending.length?pending.map(p=>`<div class="listrow"><div class="row"><b>${label(p)}</b><span class="spacer"></span><span class="mono muted u-font-size-11px">${esc(p.created_at)}</span></div><div class="u-margin-6px-0">${esc(p.reason||'(no reason given)')}</div>${changes(p.proposed_changes)}<div class="field"><textarea class="textarea prReply u-min-height-50px" data-id="${esc(p.proposal_id)}" placeholder="Reply (optional)…"></textarea></div><div class="row"><button class="btn primary small prAccept" data-id="${esc(p.proposal_id)}">${esc(t('approve'))}</button><button class="btn danger small prReject" data-id="${esc(p.proposal_id)}">${esc(t('reject'))}</button></div></div>`).join(''):`<div class="muted">No proposals need review. Agent change requests will appear here.</div>`}</div>
+${mineToggle()}<div class="panel"><h3>Pending</h3>${pending.length?pending.map(p=>`<div class="listrow"><div class="row"><b>${label(p)}</b><span class="spacer"></span><span class="mono muted u-font-size-11px">${esc(p.created_at)}</span></div><div class="u-margin-6px-0">${esc(p.reason||'(no reason given)')}</div>${routeNote(p)}${changes(p.proposed_changes)}${p.can_decide===false?`<div class="muted u-margin-6px-0">You can see this proposal but not decide it${p.routed_role?`; only ${esc(p.routed_role)} can`:''}.</div>`:`<div class="field"><textarea class="textarea prReply u-min-height-50px" data-id="${esc(p.proposal_id)}" placeholder="Reply (optional)…"></textarea></div><div class="row"><button class="btn primary small prAccept" data-id="${esc(p.proposal_id)}">${esc(t('approve'))}</button><button class="btn danger small prReject" data-id="${esc(p.proposal_id)}">${esc(t('reject'))}</button></div>`}</div>`).join(''):`<div class="muted">${state.apMine?'Nothing is waiting on you. Switch to “All I can see” to see proposals routed to others.':'No proposals need review. Agent change requests will appear here.'}</div>`}</div>
 <div class="panel"><h3>Decided</h3>${decided.length?decided.map(p=>`<div class="listrow"><div class="row"><b>${label(p)}</b>${status(p.status)}<span class="spacer"></span><span class="mono muted u-font-size-11px">${esc(p.decided_at||'')}</span></div>${p.reason?`<div class="muted u-margin-6px-0">${esc(p.reason)}</div>`:''}${changes(p.proposed_changes)}${p.decided_reply?`<div class="muted u-font-size-12px-margin-top-6px">Reply: ${esc(p.decided_reply)}</div>`:''}</div>`).join(''):'<div class="muted">No decided proposals yet.</div>'}</div>`;
   target.querySelectorAll('.prAccept').forEach(b=>b.onclick=()=>decideProposal(b.dataset.id,true,target.querySelector(`.prReply[data-id="${b.dataset.id}"]`)?.value||'',approvalsPage));
   target.querySelectorAll('.prReject').forEach(b=>b.onclick=()=>decideProposal(b.dataset.id,false,target.querySelector(`.prReply[data-id="${b.dataset.id}"]`)?.value||'',approvalsPage));
   const cf=target.querySelector('#clearFilter');if(cf)cf.onclick=()=>{state.proposalAgentFilter=null;approvalsPage()};
+  bindMine(target,approvalsPage);
+}
+
+// --- Routing (admin): who decides what. Units and roles for people,
+// memberships, rules that route an approval or proposal to a role, and
+// time-boxed delegation. See docs/approvals-and-roles.md. ---
+const opt=(v,label,sel)=>`<option value="${esc(v)}"${sel?' selected':''}>${esc(label)}</option>`;
+async function routingTab(target){
+  const [o,u,c]=await Promise.all([rpc('org.state'),rpc('users.list'),rpc('canvas.state').catch(()=>({groups:[]}))]);
+  const users=u.users||[],groups=c.groups||[];
+  const roleOpts=(o.roles||[]).map(r=>opt(r.role_id,r.name)).join(''),unitOpts=(o.units||[]).map(x=>opt(x.unit_id,x.name)).join('');
+  const userOpts=users.map(x=>opt(x.user_id,x.username)).join('');
+  const hrs=sec=>sec==null?'':(sec%3600===0?`${sec/3600} h`:`${Math.round(sec/60)} min`);
+  const table=(head,rows,empty)=>`<table class="table"><thead><tr>${head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')||`<tr><td colspan="${head.length}" class="muted">${esc(empty)}</td></tr>`}</tbody></table>`;
+  target.innerHTML=`<div class="muted u-font-size-12px-margin-bottom-10px">Without a rule, an approval or proposal is decided as before: by an admin, or by a user assigned to the agent. A rule sends matching requests to a role; the agent's own user can then see the request but not decide it.</div>
+<div class="panel"><h3>Rules</h3>${table(['Priority','Applies to','Matches','Decider','Then after','',],(o.rules||[]).map(r=>`<tr><td class="mono">${esc(r.priority)}</td><td>${esc(r.applies_to)}</td><td>${[r.match_kind?'kind '+esc(r.match_kind):'',r.match_group?'group '+esc(r.match_group):''].filter(Boolean).join(', ')||'<span class="muted">everything</span>'}</td><td><b>${esc(r.decider_role)}</b>${r.decider_unit?` <span class="muted">in ${esc(r.decider_unit)}</span>`:''}</td><td>${r.escalate_role?`${esc(hrs(r.escalate_after_seconds))} → <b>${esc(r.escalate_role)}</b>`:'<span class="muted">—</span>'}</td><td><button class="btn danger small rtDelRule" data-id="${esc(r.rule_id)}">Delete</button></td></tr>`),'No rules yet.')}
+<div class="row wrap u-margin-top-12px-gap-8px"><select class="select u-max-width-140px" id="ruApplies"><option value="approval">approvals</option><option value="proposal">proposals</option></select><input class="input u-max-width-200px" id="ruKind" placeholder="kind (optional), e.g. execution" list="ruKinds"><datalist id="ruKinds"><option value="await_human"><option value="execution"><option value="outbound_unknown"><option value="create_function"><option value="update_function"><option value="create_agent"><option value="policy_change"></datalist><select class="select u-max-width-200px" id="ruGroup"><option value="">any agent group</option>${groups.map(g=>opt(g.group_id,g.name)).join('')}</select><select class="select u-max-width-180px" id="ruRole"><option value="">decider role…</option>${roleOpts}</select><select class="select u-max-width-180px" id="ruUnit"><option value="">any unit</option>${unitOpts}</select><input class="input u-max-width-110px" id="ruEscHours" type="number" min="1" placeholder="after hours"><select class="select u-max-width-180px" id="ruEscRole"><option value="">no escalation</option>${roleOpts}</select><input class="input u-max-width-90px" id="ruPriority" type="number" value="100" title="Lower runs first"><button class="btn primary" id="ruAdd">Add rule</button></div></div>
+<div class="panel"><h3>Roles</h3>${table(['Role','What it is for',''],(o.roles||[]).map(r=>`<tr><td><b>${esc(r.name)}</b></td><td class="muted">${esc(r.description)}</td><td><button class="btn danger small rtDelRole" data-id="${esc(r.role_id)}">Delete</button></td></tr>`),'No roles yet.')}<div class="row wrap u-margin-top-12px-gap-8px"><input class="input u-max-width-200px" id="roName" placeholder="role, e.g. Marketing head"><input class="input" id="roDesc" placeholder="what it decides (optional)"><button class="btn" id="roAdd">Add role</button></div><div class="muted u-font-size-12px-margin-top-6px">Deleting a role also deletes the rules that name it. A request already routed to it can then be decided only by an admin.</div></div>
+<div class="panel"><h3>Units</h3>${table(['Unit','Under',''],(o.units||[]).map(x=>`<tr><td><b>${esc(x.name)}</b></td><td class="muted">${esc((o.units.find(y=>y.unit_id===x.parent_unit_id)||{}).name||'')}</td><td><button class="btn danger small rtDelUnit" data-id="${esc(x.unit_id)}">Delete</button></td></tr>`),'No units yet.')}<div class="row wrap u-margin-top-12px-gap-8px"><input class="input u-max-width-200px" id="unName" placeholder="unit, e.g. Marketing"><select class="select u-max-width-200px" id="unParent"><option value="">top level</option>${unitOpts}</select><button class="btn" id="unAdd">Add unit</button></div></div>
+<div class="panel"><h3>People</h3>${table(['Person','Role','Unit',''],(o.memberships||[]).map(m=>`<tr><td><b>${esc(m.username)}</b></td><td>${esc(m.role)}</td><td class="muted">${esc(m.unit||'anywhere')}</td><td><button class="btn danger small rtDelMem" data-id="${esc(m.membership_id)}">Remove</button></td></tr>`),'Nobody holds a role yet.')}<div class="row wrap u-margin-top-12px-gap-8px"><select class="select u-max-width-200px" id="meUser"><option value="">person…</option>${userOpts}</select><select class="select u-max-width-200px" id="meRole"><option value="">role…</option>${roleOpts}</select><select class="select u-max-width-200px" id="meUnit"><option value="">anywhere</option>${unitOpts}</select><button class="btn" id="meAdd">Give role</button></div></div>
+<div class="panel"><h3>Delegation</h3><div class="muted u-font-size-12px-margin-bottom-10px">While a delegation is active, the second person may decide what the first person's roles decide.</div>${table(['From','To','Until','',''],(o.delegations||[]).map(d=>`<tr><td><b>${esc(d.from)}</b></td><td><b>${esc(d.to)}</b></td><td class="mono u-font-size-12px">${esc(d.valid_until)}</td><td>${d.active?status('running'):status('disabled')}</td><td><button class="btn danger small rtDelDel" data-id="${esc(d.delegation_id)}">Remove</button></td></tr>`),'No delegations.')}<div class="row wrap u-margin-top-12px-gap-8px"><select class="select u-max-width-200px" id="deFrom"><option value="">from…</option>${userOpts}</select><select class="select u-max-width-200px" id="deTo"><option value="">to…</option>${userOpts}</select><input class="input u-max-width-220px" id="deUntil" type="datetime-local" title="Active until"><button class="btn" id="deAdd">Delegate</button></div></div>`;
+  const go=async(action,body,msg)=>{try{await rpc(action,body);toast(msg);approvalsPage()}catch(e){toast(e.message)}};
+  const v=id=>$('#'+id).value;
+  target.querySelectorAll('.rtDelRule').forEach(b=>b.onclick=()=>go('approval_rules.delete',{rule_id:b.dataset.id},'Rule deleted'));
+  target.querySelectorAll('.rtDelRole').forEach(b=>b.onclick=()=>{if(confirm('Delete this role? Rules that name it and everyone who holds it are removed too.'))go('org.roles.delete',{role_id:b.dataset.id},'Role deleted')});
+  target.querySelectorAll('.rtDelUnit').forEach(b=>b.onclick=()=>go('org.units.delete',{unit_id:b.dataset.id},'Unit deleted'));
+  target.querySelectorAll('.rtDelMem').forEach(b=>b.onclick=()=>go('org.memberships.remove',{membership_id:b.dataset.id},'Role removed'));
+  target.querySelectorAll('.rtDelDel').forEach(b=>b.onclick=()=>go('approval_delegations.remove',{delegation_id:b.dataset.id},'Delegation removed'));
+  $('#roAdd').onclick=()=>go('org.roles.save',{name:v('roName'),description:v('roDesc')},'Role added');
+  $('#unAdd').onclick=()=>go('org.units.save',{name:v('unName'),parent_unit_id:v('unParent')},'Unit added');
+  $('#meAdd').onclick=()=>{if(!v('meUser')||!v('meRole'))return toast('Pick a person and a role');go('org.memberships.add',{user_id:v('meUser'),role_id:v('meRole'),unit_id:v('meUnit')},'Role given')};
+  $('#deAdd').onclick=()=>{if(!v('deFrom')||!v('deTo')||!v('deUntil'))return toast('Pick two people and an end time');go('approval_delegations.add',{from_user_id:v('deFrom'),to_user_id:v('deTo'),valid_until:new Date(v('deUntil')).toISOString()},'Delegation added')};
+  $('#ruAdd').onclick=()=>{
+    if(!v('ruRole'))return toast('Pick the role that decides');
+    const hours=Number(v('ruEscHours')||0);
+    if(!!hours!==!!v('ruEscRole'))return toast('Escalation needs both a time and a role');
+    go('approval_rules.save',{rule:{applies_to:v('ruApplies'),match_kind:v('ruKind'),match_agent_group_id:v('ruGroup'),decider_role_id:v('ruRole'),decider_unit_id:v('ruUnit'),escalate_after_seconds:hours?hours*3600:'',escalate_role_id:v('ruEscRole'),priority:Number(v('ruPriority')||100)}},'Rule added');
+  };
+}
+
+// --- Decisions (admin): what has been kept of people's decisions, in the
+// shape Laya's trainer reads, and the export. See docs/decision-records.md. ---
+function downloadText(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'application/x-ndjson'}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+async function decisionsTab(target){
+  const [st,pt]=await Promise.all([rpc('decisions.stats'),rpc('decisions.points.list')]);
+  const stats=Object.fromEntries((st.points||[]).map(x=>[x.point_key,x]));
+  target.innerHTML=`<div class="muted u-font-size-12px-margin-bottom-10px">Every time a person approves or rejects a request, Allgres keeps the situation, the question, and the answer in the format Laya's <code>laya-train</code> and <code>laya-evals</code> read. Nothing here trains or runs a model; export the files and use Laya's own tools. See docs/decision-records.md.</div>
+${(pt.points||[]).map(p=>{const s=stats[p.point_key]||{};return `<div class="panel"><div class="row"><h3 class="u-margin-0">${esc(p.point_key)}</h3><span class="mono muted">v${esc(p.version)}</span><span class="spacer"></span><button class="btn small dcExport" data-point="${esc(p.point_key)}" data-split="train">Export training set</button><button class="btn small dcExport" data-point="${esc(p.point_key)}" data-split="eval">Export evaluation set</button></div>
+<div class="u-margin-6px-0">${esc(p.instructions)}</div>
+<div class="muted u-font-size-12px">Answers: ${Object.entries(p.criteria||{}).map(([k,d])=>`<b>${esc(k)}</b> — ${esc(d)}`).join(' · ')}</div>
+<div class="muted u-font-size-12px">Recorded fields: ${(p.state_fields||[]).map(esc).join(', ')||'none'}</div>
+<div class="cards u-margin-top-12px">${[['Records',s.records||0],['By people',s.human||0],['Training',s.train||0],['Evaluation',s.eval||0],['Gold labels',s.gold||0]].map(([l,n])=>`<div class="card"><div class="metric">${n}</div><div class="label">${l}</div></div>`).join('')}</div>${s.last_at?`<div class="muted u-font-size-11px-margin-top-6px">First ${esc(s.first_at)} · last ${esc(s.last_at)}</div>`:''}</div>`}).join('')||'<div class="muted">No decision points.</div>'}
+<div class="muted u-font-size-12px">Exports include gold and silver labels. Train with <code>laya-train --data train.jsonl</code>, then check with <code>laya-evals run eval.jsonl</code>. A fine-tune needs a meaningful number of decisions of one kind first.</div>`;
+  target.querySelectorAll('.dcExport').forEach(b=>b.onclick=async()=>{
+    try{
+      const r=await rpc('decisions.export',{point_key:b.dataset.point,split:b.dataset.split});
+      if(!r.count)return toast('Nothing to export yet for this set');
+      downloadText(`${b.dataset.point}-${b.dataset.split}.jsonl`,r.jsonl);
+      toast(`Exported ${r.count} line${r.count===1?'':'s'} · sha256 ${r.sha256.slice(0,12)}…`);
+    }catch(e){toast(e.message)}
+  });
 }
 
 // --- Fixes: fixer's remediation proposals (revoke a permission, or

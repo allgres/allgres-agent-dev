@@ -52,7 +52,12 @@ answer, add another label; the export uses the latest label of the best tier.
 
 ## Getting the data out
 
-Over the dashboard API (admin only):
+**In the dashboard**, admins have a **Decisions** tab on the Approvals page: for
+each decision point, the question, its answers, the fields recorded, and how
+many records there are by people, by split, and by label, with buttons to
+download the training set or the evaluation set.
+
+**Over the dashboard API** (admin only):
 
 | Action | Purpose |
 |---|---|
@@ -94,6 +99,5 @@ running; see its [fine-tuning guide](https://github.com/NandhaKishorM/laya/blob/
 ## Not here yet
 
 Nothing reads these records to make a decision: using Laya to decide on a
-person's behalf is a later stage. There are no screens yet; use the API or
-psql. Retention is unlimited, since records cannot be deleted; a purge tool is
+person's behalf is a later stage. Retention is unlimited, since records cannot be deleted; a purge tool is
 not provided.
