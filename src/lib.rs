@@ -144,7 +144,10 @@ extension_sql_file!("../sql/canvas.sql", name = "canvas", requires = ["seed_data
 // routing (docs/approvals-and-roles.md), after Canvas (a rule can match a
 // Canvas group) and before the self-test that exercises it.
 extension_sql_file!("../sql/org_routing.sql", name = "org_routing", requires = ["canvas"]);
-extension_sql_file!("../sql/selftest.sql", requires = ["org_routing"]);
+// And decision points and records (docs/decision-records.md), which read the
+// routing columns org_routing adds.
+extension_sql_file!("../sql/decision_records.sql", name = "decision_records", requires = ["org_routing"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["decision_records"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]
