@@ -61,8 +61,9 @@ routes around. An admin can always decide.
 on the Approvals and Proposals tabs: *Mine* is what you may decide. A routed
 request shows who it is routed to and when it opens to the second role, and if
 you may not decide it the buttons are replaced by a note saying who can. Admins
-get two more tabs. **Routing** manages rules, roles, units, who holds which role,
-and delegation. **Decisions** is described in [decision-records.md](decision-records.md).
+manage rules, roles, units, who holds which role, and delegation on the
+**People** page (under Organization), and get a **Decisions** tab on Approvals,
+described in [decision-records.md](decision-records.md).
 
 **Over the dashboard API** (admin only):
 

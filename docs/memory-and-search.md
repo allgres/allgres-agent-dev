@@ -61,7 +61,7 @@ is actually used today).
 `delegate` has always required an agent to already know the exact
 `agent_name` of who to hand a task to. A new `search_agents` action lets
 it describe the task instead: register a `purpose='embedding'` provider in
-Settings (`kind` must be `openai_compat` — an OpenAI-shaped `/embeddings`
+Connections → Models & prices (`kind` must be `openai_compat` — an OpenAI-shaped `/embeddings`
 endpoint, real or a local server), and every agent's name + system_prompt
 is embedded and kept current automatically whenever it's created or its
 prompt changes. `search_agents` embeds the query the same way and ranks

@@ -66,14 +66,23 @@ rather than an error if `/proc` is unavailable).
 
 ## Navigation, language, and theme
 
-Sessions/Tasks/Logs and the audit trail are one **Audit** page with four
-tabs now, not four separate nav entries; Users is a section of **Settings**
-rather than its own page; Approvals/Proposals/Fixes are three tabs of one
-**Approvals** page, open to regular users too (see [System
-agents](system-agents.md)).
+The admin menu is grouped by what you are doing:
 
-Settings has a dark/light theme switch stored in the browser's
+| Group | Pages |
+|---|---|
+| (top) | **Home** |
+| **Organization** | **Canvas**, **Agents**, **People** (accounts, roles, units, approval rules, delegation) |
+| **Work** | **General**, **Projects**, **Approvals** (Approvals, Proposals, Fixes, and for admins Decisions; open to regular users too, see [System agents](system-agents.md)), **Activity** (Sessions, Tasks, Logs), **Schedules** |
+| **Abilities** | **Functions & procedures**, **Memories**, **SQL** |
+| **Connections** | **Models & prices**, **APIs** |
+| **Settings** | **Access & appearance** (token, your name, SQL allowlist, theme), **Audit log** |
+
+Regular users see **Work** (General, Projects, Approvals) and **My agents**.
+Internal page ids are unchanged, so a browser's saved page still opens. The
+pages that used to be one Settings page are the same panels, shown a few at a
+time (`SETTINGS_PAGES` in `web/index.html`).
+
+The Access & appearance page has a dark/light theme switch stored in the browser's
 `localStorage`. The partial English/한국어 switch was removed: the current
 dashboard is English-only rather than presenting a partly translated UI.
-The top-level dashboard and Settings navigation buttons are labeled
-**Dashboard** and **Settings** respectively.
+The top navigation button is labeled **Home**.

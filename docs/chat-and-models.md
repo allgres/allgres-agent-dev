@@ -11,7 +11,7 @@ provider or model name baked in anywhere, so an agent with nothing
 configured fails closed with a clear error (`agent has no llm_config.provider
 configured`) instead of quietly reaching a real endpoint.
 
-Providers are managed from **Settings**: `provider.create`
+Providers are managed from **Connections → Models & prices**: `provider.create`
 (`fn_create_provider`) adds a new one (name, kind, base URL, an optional API
 key, and whether it may point at a loopback/private-network address) — not
 just the five seeded ones (`xai`, `openai`, `anthropic`, `ollama`,
@@ -33,7 +33,7 @@ OAuth -- `is_enabled` only ever meant "an operator turned this on," never
 "this endpoint actually answers with the stored credential," and an
 operator previously had no way to tell the two apart short of running an
 agent turn and watching it fail. A 2xx response is stored as
-`last_probe_status='ok'` (the Settings list's Status column reflects this,
+`last_probe_status='ok'` (the Models & prices list's Status column reflects this,
 not just `is_enabled`) and its body -- OpenAI, xAI, and Anthropic's
 `/models`/`/v1/models` all return the same `{"data":[{"id":...}]}` shape --
 becomes `available_models`, which is exactly what backs the datalist above.

@@ -4,7 +4,7 @@ Part of the [documentation index](../README.md).
 
 Roadmap item 4: a **procedure** (`allgres_private.procedures`) is a named,
 versioned, reusable "how to do X" an operator curates once from the
-**Settings → Procedures** panel. It has two independent halves: `content`,
+**Abilities → Functions & procedures → Procedures** panel. It has two independent halves: `content`,
 free text an agent reads in its own prompt (a checklist, background, when
 to use this — whatever shape is useful), and `body`, real PL/pgSQL code
 the agent can actually *run* (see "Running a procedure" below). A
@@ -103,7 +103,7 @@ Three handlers exist:
   interoperability gap for some servers, not yet addressed.
 
 Create or edit a Function via the `functions.create` / `functions.update` /
-`functions.bind` dashboard_rpc actions, or Settings' own Functions panel
+`functions.bind` dashboard_rpc actions, or the Functions panel on Functions & procedures
 (name, description, handler-specific fields, and — for `plpgsql` only,
 the one handler `functions.update` can edit after creation — body and
 param_schema, alongside its build status). **Any agent** may also author

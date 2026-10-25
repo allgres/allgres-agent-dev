@@ -23,7 +23,7 @@ that gap. Every row now carries:
 
 - `operator_name` — a self-reported label, present only when the call
   arrived through the dashboard: the browser sends whatever name is set in
-  Settings (`sessionStorage`, per browser tab, the same way the dashboard
+  **Access & appearance** (`sessionStorage`, per browser tab, the same way the dashboard
   token itself is), and `dashboard_rpc` stamps the current transaction with
   it (`allgres_private.set_audit_context`) before dispatching, so every
   function it calls already knows to attach it. **This alone is not access
@@ -36,7 +36,7 @@ that gap. Every row now carries:
   when the call carried a `session_token` that `allgres_private.
   session_user` resolved to an active account (the same resolution every
   admin-gated action already does). Unlike `operator_name`, this cannot be
-  spoofed by typing a different name in Settings: it comes from the actual
+  spoofed by typing a different name in Access & appearance: it comes from the actual
   logged-in session, not anything the caller sends directly.
   `set_audit_context` resolves and stamps it the same way as
   `operator_name`, alongside it, not instead of it — a row can carry a
