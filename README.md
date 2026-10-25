@@ -135,7 +135,7 @@ The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-pl
    - Refuse delegation to system agents.
    - List real functions in the permission picker.
    - Show the empty-board guide on a fresh install.
-1. **People, approvals, and decision records** (routing, roles, and decision records are in; screens are not).
+1. **People, approvals, and decision records** (routing, roles, decision records, and their screens are in).
    - Give people roles and approval routing.
    - Register decision points as data.
    - Record every decision in PostgreSQL in Laya's official training format, whether or not Laya is connected.

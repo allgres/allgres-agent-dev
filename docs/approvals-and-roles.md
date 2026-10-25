@@ -57,7 +57,14 @@ routes around. An admin can always decide.
 
 ## Using it
 
-Over the dashboard API (admin only):
+**In the dashboard.** The Approvals page has a **Mine / All I can see** toggle
+on the Approvals and Proposals tabs: *Mine* is what you may decide. A routed
+request shows who it is routed to and when it opens to the second role, and if
+you may not decide it the buttons are replaced by a note saying who can. Admins
+get two more tabs. **Routing** manages rules, roles, units, who holds which role,
+and delegation. **Decisions** is described in [decision-records.md](decision-records.md).
+
+**Over the dashboard API** (admin only):
 
 | Action | Purpose |
 |---|---|
@@ -95,8 +102,7 @@ SELECT allgres_public.fn_org_save_rule(jsonb_build_object(
 
 ## Not here yet
 
-There are no screens for this yet. Set it up through the API or psql; the
-Approvals page already lists only what the signed-in user may see, but does not
-yet show who a request is routed to or hide the buttons the user cannot use.
-Users cannot delegate their own authority themselves; an admin sets delegations. See
-[stage1-design.md](stage1-design.md) for what comes next.
+Users cannot delegate their own authority themselves; an admin sets
+delegations. A rule can match by request type and Canvas group only, not by the
+amount or other details of a request. See [stage1-design.md](stage1-design.md)
+for what comes next.
