@@ -8,7 +8,7 @@ Allgres anywhere that matters — see also the top-level
 
 `ALLGRES_DASHBOARD_TOKEN` is the base authentication layer everyone
 sharing this install has in common, and it is empty by default. Real
-per-operator accounts (username/password, Settings → Users) exist and can
+per-operator accounts (username/password, People) exist and can
 be layered on top, but are optional — see below for exactly what changes
 once the first one is created.
 
@@ -24,8 +24,8 @@ exposing it.
 This is the whole security model in the default, single-operator
 deployment mode: no accounts have ever been created, so there is nothing
 for a login session to gate, and the bearer token above is doing all the
-work. The moment an operator creates even one account (Settings' Users
-section), that changes: `allgres_private.require_admin_if_accounts_exist`
+work. The moment an operator creates even one account (the People
+page), that changes: `allgres_private.require_admin_if_accounts_exist`
 starts requiring a real admin *session*, on top of the bearer token, for
 every action on the platform-configuration surface — creating or editing
 an agent (system or not), providers, the SQL sandbox allowlist, and OAuth
@@ -84,7 +84,7 @@ Procedure body's own synchronous `fn_llm_complete` call (below):
   permission for the target host;
 - `http_request` adds method (GET/POST/PUT/PATCH/DELETE), headers, and a
   body, plus an optional named `allgres_private.api_connections` credential
-  (Settings → API connections). A connection's secret is resolved and
+  (Connections → APIs). A connection's secret is resolved and
   injected only at claim time, the same as an LLM provider's api_key — it is
   never written into `outbound_calls.request_headers`. When a connection is
   named, the agent supplies a path relative to that connection's own
@@ -107,7 +107,7 @@ request-build time. Previously anyone with dashboard access could point the
 worker — carrying the provider API key — at an arbitrary address.
 
 Enable a local Ollama or an in-cluster gateway by ticking "Allow loopback /
-private-network endpoint" on that provider in Settings.
+private-network endpoint" on that provider in Models & prices.
 
 ## External call idempotency
 

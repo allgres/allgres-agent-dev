@@ -38,10 +38,10 @@
 | | Schedules | 정해진 일정으로 도는 일 | Settings의 Automation |
 | **Abilities** | Functions & procedures | 에이전트가 쓰는 도구와 사용법 문서, 모델 실험 | Settings의 Automation |
 | | Memories | 기억 | Settings 묶음 |
-| | SQL | SQL 콘솔과 허용 목록 | 맨 위 SQL + Settings의 허용 목록 |
+| | SQL | SQL 콘솔 | 맨 위 SQL |
 | **Connections** | Models & prices | 모델 제공사, 가격 | Settings의 Integrations |
 | | APIs | API 연결 | Settings의 Integrations |
-| **Settings** | Access & appearance | 토큰, 내 이름, 테마, 자체 점검 | Settings의 Administration |
+| **Settings** | Access & appearance | 토큰, 내 이름, SQL 허용 목록, 테마, 자체 점검 | Settings의 Administration |
 | | Audit log | 감사 기록 | Audit의 Log 탭 |
 
 **일반 사용자**는 지금처럼 Chat(General, Projects, Approvals)과 My agents입니다. 묶음 이름만 Work로 맞춥니다.
@@ -74,8 +74,7 @@
 | APIs | API connections |
 | Functions & procedures | Functions, Procedures, Capability lifecycle, Function model experiments |
 | Schedules | Schedules |
-| Access & appearance | Dashboard access, Theme |
-| SQL | SQL sandbox allowlist (SQL 콘솔 아래) |
+| Access & appearance | Dashboard access, SQL sandbox allowlist, Theme |
 
 기존 "Settings" 한 화면은 없애지 않고 **Access & appearance**로 줄입니다. Users 패널은 People로 옮깁니다.
 

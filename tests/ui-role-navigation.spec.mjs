@@ -15,7 +15,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Dashboard','General','Projects','Approvals','SQL','Settings','Agents','Memories','Audit'];
+  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','Access & appearance','Audit log'];
   for (const label of labels) {
     const button = page.locator('#nav button', { hasText: label }).first();
     await expect(button).toBeVisible();
@@ -25,7 +25,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   await page.locator('#nav button', { hasText: 'General' }).click();
   await expect(page.locator('#generalChatThread')).toBeVisible();
   await expect(page.locator('#msgInput')).toHaveCount(0);
-  await page.locator('#nav button', { hasText: 'Settings' }).click();
+  await page.locator('#nav button', { hasText: 'Access & appearance' }).click();
   await expect(page.locator('#bulkApply')).toHaveCount(0);
   expect(cspErrors).toEqual([]);
   await page.evaluate(async () => {
@@ -112,7 +112,7 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
 test('admin data tables fit a narrow viewport', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await login(page, 'ui_admin', 'ui-admin-password');
-  for(const label of ['Agents','SQL','Audit']){
+  for(const label of ['Agents','SQL','Audit log']){
     await page.getByRole('button',{name:label,exact:true}).first().click();
     const width=await page.evaluate(()=>({document:document.documentElement.scrollWidth,viewport:document.documentElement.clientWidth}));
     expect(width.document).toBeLessThanOrEqual(width.viewport);
@@ -153,7 +153,7 @@ test('regular user sees only scoped chat and personal settings', async ({ page }
   await page.locator('#nav button', { hasText: 'General' }).click();
   await expect(page.locator('#generalChatThread')).toBeVisible();
   await expect(page.getByText('not assigned to your account')).toHaveCount(0);
-  for (const forbidden of ['Dashboard','Canvas','SQL','Agents','Memories','Audit'])
+  for (const forbidden of ['Home','Canvas','SQL','Agents','People','Memories','Audit log'])
     await expect(page.locator('#nav').getByRole('button',{name:forbidden,exact:true})).toHaveCount(0);
   await page.goto(baseURL + '/canvas');
   await expect(page.getByText('Admins only')).toBeVisible();
@@ -164,11 +164,11 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   const stamp = Date.now(), role = `UI approver ${stamp}`, unit = `UI unit ${stamp}`;
   await login(page, 'ui_admin', 'ui-admin-password');
   await page.locator('#nav button', { hasText: 'Approvals' }).click();
-  // Mine / All toggle on the approvals list, and the two admin tabs.
+  // Mine / All toggle on the approvals list, and the admin Decisions tab.
   await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Mine', exact: true }).click();
   await expect(page.getByText('Nothing is waiting on you')).toBeVisible();
-  await page.getByRole('button', { name: 'Routing', exact: true }).click();
+  await page.locator('#nav button', { hasText: 'People' }).click();
   await expect(page.getByRole('heading', { name: 'Rules' })).toBeVisible();
   // A role, a unit, a person who holds the role, and a rule that names it.
   await page.locator('#roName').fill(role);
@@ -202,6 +202,7 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await expect(page.locator('#toast')).toContainText('Escalation needs both a time and a role');
   await expect(rules).toContainText(role);
   // Decision records: the two decision points, empty so far.
+  await page.locator('#nav button', { hasText: 'Approvals' }).click();
   await page.getByRole('button', { name: 'Decisions', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'approval_decision' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'proposal_decision' })).toBeVisible();
@@ -209,7 +210,7 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await page.getByRole('button', { name: 'Export training set' }).first().click();
   await expect(page.locator('#toast')).toContainText(/Nothing to export|Exported/);
   // Clean up: deleting the role takes its rule and membership with it.
-  await page.getByRole('button', { name: 'Routing', exact: true }).click();
+  await page.locator('#nav button', { hasText: 'People' }).click();
   await panel('Roles').locator('tr', { hasText: role }).getByRole('button', { name: 'Delete' }).click();
   await expect(panel('Roles').locator('table')).not.toContainText(role);
   await expect(panel('Rules').locator('table')).not.toContainText('kind execution');
@@ -224,8 +225,8 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await expect(page.locator('#whoami')).toContainText('ui_regular');
   await page.locator('#nav button', { hasText: 'Approvals' }).click();
   await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Routing', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Decisions', exact: true })).toHaveCount(0);
+  await expect(page.locator('#nav').getByRole('button', { name: 'People', exact: true })).toHaveCount(0);
 });
 
 test('mobile navigation remains keyboard reachable', async ({ page }) => {

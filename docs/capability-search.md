@@ -38,6 +38,6 @@ The lifecycle is deliberately gated:
 4. Published objects are versioned rather than silently overwritten and keep a
    rollback path.
 
-The Settings capability index shows lifecycle and embedding freshness and can
+The capability index on Functions & procedures shows lifecycle and embedding freshness and can
 refresh source metadata. Refreshing does not bypass the embedding provider or
 execute a capability.

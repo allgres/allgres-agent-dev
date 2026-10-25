@@ -5,7 +5,7 @@ confused.
 
 ## Use Hermes as an OpenAI-compatible model endpoint
 
-Create an `openai_compat` Provider in **Settings → Overview → LLM providers**,
+Create an `openai_compat` Provider in **Connections → Models & prices → LLM providers**,
 set Hermes' base URL, and store its API credential there. Select that Provider
 as an Agent default or as a personal Agent preference. OAuth is only applicable
 when the endpoint actually implements an OAuth authorization-code or device-code
