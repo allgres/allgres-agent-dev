@@ -122,8 +122,16 @@ test('admin data tables fit a narrow viewport', async ({ page }) => {
 test('first-run setup keeps unconfigured agents in drafts', async ({ page }) => {
   const draftName=`ui_draft_${Date.now()}`;
   await login(page, 'ui_admin', 'ui-admin-password');
-  await expect(page.getByText('Start a conversation')).toBeVisible();
-  await expect(page.getByRole('button', { name: '3. Say hello to General' })).toBeVisible();
+  // A fresh install starts at Home with the three get-started steps, in order.
+  await expect(page.getByRole('heading', { name: 'Get started' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '1. Connect a model' })).toBeVisible();
+  // The earlier canvas test already built a team here, so step 2 may show as done.
+  await expect(page.getByRole('button', { name: /Build a team/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: '3. Give it a first job' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Waiting for you' })).toBeVisible();
+  await expect(page.getByText('Nothing needs your decision.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'In progress' })).toBeVisible();
+  await expect(page.getByText('System status')).toBeVisible();
   await page.locator('#nav button', { hasText: 'Agents' }).click();
   await expect(page.getByText('System agents (')).toBeVisible();
   await page.getByText('System agents (').click();

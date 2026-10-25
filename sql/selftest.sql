@@ -5035,7 +5035,13 @@ BEGIN
       AND (r->'db_sessions'->>'total')::int >= 1
       AND (r->'host'->'cpu_count') IS NOT NULL
       AND (r->>'agents')::int = (SELECT count(*) FROM allgres_private.agents WHERE name NOT LIKE 'selftest%')
-      AND (r->>'active_agents')::int = (SELECT count(*) FROM allgres_private.agents WHERE is_active AND name NOT LIKE 'selftest%');
+      AND (r->>'active_agents')::int = (SELECT count(*) FROM allgres_private.agents WHERE is_active AND name NOT LIKE 'selftest%')
+      -- The "get started" steps on Home: agents a person built (not system,
+      -- not the seeded examples) and finished tasks by agents that are not
+      -- system agents.
+      AND (r->>'team_agents')::int = (SELECT count(*) FROM allgres_private.agents
+                                      WHERE NOT is_system AND name NOT IN ('general', 'analyst', 'health_monitor') AND name NOT LIKE 'selftest%')
+      AND (r->>'completed_tasks')::int >= 0;
     v := v || jsonb_build_array(jsonb_build_object('name', 'overview_reports_pg_version_db_sessions_and_host_stats', 'ok', ok));
 
     r := allgres.dashboard_rpc(jsonb_build_object('action', 'settings.get', 'session_token', v_admin_tok));

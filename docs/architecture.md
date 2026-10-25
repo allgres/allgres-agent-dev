@@ -77,6 +77,12 @@ The admin menu is grouped by what you are doing:
 | **Connections** | **Models & prices**, **APIs** |
 | **Settings** | **Access & appearance** (token, your name, SQL allowlist, theme), **Audit log** |
 
+**Home** puts what needs you first: three *Get started* steps until they are
+done (a provider that passed its connection test and a model for General; an
+agent a person built, not a system or seeded one; a finished task), then
+requests waiting for your decision, tasks in progress, and anything that needs
+attention. The counters, cluster, and workers are under *System status*.
+
 Regular users see **Work** (General, Projects, Approvals) and **My agents**.
 Internal page ids are unchanged, so a browser's saved page still opens. The
 pages that used to be one Settings page are the same panels, shown a few at a

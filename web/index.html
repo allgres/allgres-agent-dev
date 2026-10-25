@@ -345,22 +345,44 @@ function workersWithWeb(reported){
   return workers;
 }
 async function overview(){
-  const [d,settings,agentsData]=await Promise.all([
+  const [d,settings,agentsData,mine]=await Promise.all([
     api('/api/v1/status'),
     api('/api/v1/settings').catch(()=>({providers:[]})),
-    api('/api/v1/agents').catch(()=>({agents:[]}))
+    api('/api/v1/agents').catch(()=>({agents:[]})),
+    rpc('approvals.list',{limit:3,mine:true}).catch(()=>({approvals:[]}))
   ]);
   state.overview=d;
-  const providerReady=(settings.providers||[]).some(p=>p.purpose!=='embedding'&&p.is_enabled&&p.last_probe_status==='ok');
+  const providers=settings.providers||[];
+  const providerReady=providers.some(p=>p.purpose!=='embedding'&&p.is_enabled&&p.last_probe_status==='ok');
   const general=(agentsData.agents||[]).find(a=>a.name==='general');
   const modelReady=Boolean(general?.llm_config?.provider&&general?.llm_config?.model);
-  const spokeToGeneral=Number(d.general_completed_tasks||0)>0;
-  $('#view').innerHTML=`${secretBanner(d.secret_storage)}<div class="hero"><h2>One database. One extension.</h2><p>Agents, state, policy, queue, audit, native I/O and dashboard inside PostgreSQL.</p></div>
-  <div class="panel"><h3>Start a conversation</h3><p class="muted">Three steps to your first reply. A saved provider still needs a successful connection test.</p><div class="row wrap"><button class="btn ${providerReady?'':'primary'}" id="onboardProvider">${providerReady?'✓ ': '1. '}Add a provider and test connection</button><button class="btn ${providerReady&&!modelReady?'primary':''}" id="onboardModel">${modelReady?'✓ ': '2. '}Choose General's model</button><button class="btn ${modelReady&&!spokeToGeneral?'primary':''}" id="onboardChat">${spokeToGeneral?'✓ ': '3. '}Say hello to General</button></div></div>
-  ${clusterCard()}<div class="cards">${[['Agents',d.agents],['Active',d.active_agents],['Running',d.running_tasks],['Outbound',d.queued_outbound],['SQL',d.queued_sql],['Approvals',d.pending_approvals],['Failed',d.failed_tasks]].map(x=>`<div class="card"><div class="metric">${x[1]}</div><div class="label">${x[0]}</div></div>`).join('')}</div><div class="grid2"><div class="panel"><h3>Workers</h3>${workersWithWeb(d.workers).map(w=>`<div class="row"><span class="dot"></span><span>${esc(w.name)}</span><span class="spacer"></span><span class="mono muted">${w.self?'serving this page':'PID '+esc(w.pid)}</span></div>`).join('')||'<div class="muted">No workers reported</div>'}</div><div class="panel"><h3>Recent tasks</h3>${taskRows(d.recent_tasks||[],true)}</div></div>`;
-  $('#onboardProvider').onclick=()=>openPage('Models');
-  $('#onboardModel').onclick=()=>general?agentModal(general):openPage('Agents');
-  $('#onboardChat').onclick=()=>{state.chatMode='general';saveUi('chat_mode','general');openPage('Chat')};
+  const connected=providerReady&&modelReady,teamBuilt=Number(d.team_agents||0)>0,firstJob=Number(d.completed_tasks||0)>0;
+  const steps=[
+    {done:connected,label:'Connect a model',hint:providerReady?'A provider works. Choose its model for General.':'Add a provider and test the connection.',id:'hmConnect'},
+    {done:teamBuilt,label:'Build a team',hint:'Add agents on the canvas and decide who hands work to whom.',id:'hmTeam'},
+    {done:firstJob,label:'Give it a first job',hint:'Ask General, or run a task on one of your agents.',id:'hmJob'}
+  ];
+  const next=steps.findIndex(x=>!x.done);
+  const waiting=['running','queued','waiting_human','waiting_children'];
+  const recent=d.recent_tasks||[];
+  const active=recent.filter(x=>waiting.includes(x.status)),failed=recent.filter(x=>x.status==='failed');
+  const brokenProviders=providers.filter(p=>p.is_enabled&&p.last_probe_status&&p.last_probe_status!=='ok'&&p.last_probe_status!=='untested');
+  const pending=mine.approvals||[];
+  const section=(title,body,extra='')=>`<div class="panel"><div class="row"><h3 class="u-margin-0">${title}</h3><span class="spacer"></span>${extra}</div>${body}</div>`;
+  $('#view').innerHTML=`${secretBanner(d.secret_storage)}
+  ${next>=0?section('Get started',`<p class="muted">Three steps to a working team.</p><div class="row wrap">${steps.map((x,n)=>`<button class="btn ${n===next?'primary':''}" id="${x.id}" title="${esc(x.hint)}">${x.done?'✓ ':`${n+1}. `}${esc(x.label)}</button>`).join('')}</div><div class="muted u-font-size-12px-margin-top-6px">${esc(steps[next].hint)}</div>`):''}
+  ${section('Waiting for you',pending.length?pending.map(a=>`<div class="listrow"><div class="row"><b>${esc(a.agent)}</b><span class="muted"> — ${esc(a.reason||a.goal||'')}</span><span class="spacer"></span><button class="btn primary small hmAccept" data-id="${esc(a.approval_id)}">${esc(t('approve'))}</button><button class="btn danger small hmReject" data-id="${esc(a.approval_id)}">${esc(t('reject'))}</button></div></div>`).join(''):`<div class="muted">Nothing needs your decision.</div>`,`<button class="btn small" id="hmAllApprovals">${Number(d.pending_approvals)>pending.length?`All ${esc(d.pending_approvals)} approvals`:'Approvals'}</button>`)}
+  ${section('In progress',active.length?taskRows(active,true):`<div class="muted">No task is running right now.</div>`,`<button class="btn small" id="hmActivity">Activity</button>`)}
+  ${failed.length||brokenProviders.length?section('Needs attention',`${brokenProviders.map(p=>`<div class="row u-padding-4px-0">${status(p.last_probe_status)}<b>${esc(p.name)}</b><span class="muted"> — the last connection test did not pass.</span><span class="spacer"></span><button class="btn small hmFixModels">Open Models &amp; prices</button></div>`).join('')}${failed.length?`<div class="muted u-font-size-12px">Failed recently:</div>${taskRows(failed,true)}`:''}`):''}
+  <details class="panel"><summary><b>System status</b></summary><div class="u-margin-top-12px">${clusterCard()}<div class="cards">${[['Agents',d.agents],['Active',d.active_agents],['Running',d.running_tasks],['Outbound',d.queued_outbound],['SQL',d.queued_sql],['Approvals',d.pending_approvals],['Failed',d.failed_tasks]].map(x=>`<div class="card"><div class="metric">${x[1]}</div><div class="label">${x[0]}</div></div>`).join('')}</div><div class="grid2"><div class="panel"><h3>Workers</h3>${workersWithWeb(d.workers).map(w=>`<div class="row"><span class="dot"></span><span>${esc(w.name)}</span><span class="spacer"></span><span class="mono muted">${w.self?'serving this page':'PID '+esc(w.pid)}</span></div>`).join('')||'<div class="muted">No workers reported</div>'}</div><div class="panel"><h3>Recent tasks</h3>${taskRows(d.recent_tasks||[],true)}</div></div></div></details>`;
+  $('#hmConnect')&&($('#hmConnect').onclick=()=>providerReady?(general?agentModal(general):openPage('Agents')):openPage('Models'));
+  $('#hmTeam')&&($('#hmTeam').onclick=()=>location.assign('/canvas'));
+  $('#hmJob')&&($('#hmJob').onclick=()=>{state.chatMode='general';saveUi('chat_mode','general');openPage('Chat')});
+  $('#hmAllApprovals').onclick=()=>openPage('Approvals');
+  $('#hmActivity').onclick=()=>openPage('Activity');
+  document.querySelectorAll('.hmFixModels').forEach(b=>b.onclick=()=>openPage('Models'));
+  document.querySelectorAll('.hmAccept').forEach(b=>b.onclick=()=>decideApproval(b.dataset.id,true,'',overview));
+  document.querySelectorAll('.hmReject').forEach(b=>b.onclick=()=>decideApproval(b.dataset.id,false,'',overview));
 }
 function secretBanner(mode){if(!mode||mode==='encrypted')return '';const why=mode==='plaintext_no_pgcrypto'?'pgcrypto is not installed':'allgres.secret_key is not set';return `<div class="banner">Provider API keys are stored in plaintext because ${esc(why)}. See README, "Secrets at rest".</div>`}
 function taskRows(a,compact=false){if(!a.length)return '<div class="muted">No tasks yet.</div>';return `<table class="table"><thead><tr><th>Agent</th><th>Status</th><th>Goal</th>${compact?'':'<th>Steps</th><th>Updated</th>'}</tr></thead><tbody>${a.map(t=>`<tr><td>${esc(t.agent)}</td><td>${status(t.status)}</td><td>${esc(t.goal||'')}</td>${compact?'':`<td>${esc(t.step_count)}</td><td class="mono muted">${esc(t.updated_at||'')}</td>`}</tr>`).join('')}</tbody></table>`}
