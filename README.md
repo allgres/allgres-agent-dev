@@ -140,7 +140,7 @@ The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-pl
    - Register decision points as data.
    - Record every decision in PostgreSQL in Laya's official training format, whether or not Laya is connected.
 2. **Dashboard UX (done).** Restructure the menus, add first-run guidance, and use one vocabulary.
-3. **Connections.**
+3. **Connections** ([design](docs/stage3-design.md)).
    - One-step model, MCP (including OAuth), API, and decision-model connections.
    - Per-tool risk levels.
    - Inbound events.
