@@ -74,7 +74,7 @@ The admin menu is grouped by what you are doing:
 | **Organization** | **Canvas**, **Agents**, **People** (accounts, roles, units, approval rules, delegation) |
 | **Work** | **General**, **Projects**, **Approvals** (Approvals, Proposals, Fixes, and for admins Decisions; open to regular users too, see [System agents](system-agents.md)), **Activity** (Sessions, Tasks, Logs), **Schedules** |
 | **Abilities** | **Functions & procedures**, **Memories**, **SQL** |
-| **Connections** | **Models & prices**, **APIs** |
+| **Connections** | **Models & prices**, **APIs**, **MCP servers** |
 | **Settings** | **Access & appearance** (token, your name, SQL allowlist, theme), **Audit log** |
 
 **Home** puts what needs you first: three *Get started* steps until they are

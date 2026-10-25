@@ -147,7 +147,10 @@ extension_sql_file!("../sql/org_routing.sql", name = "org_routing", requires = [
 // And decision points and records (docs/decision-records.md), which read the
 // routing columns org_routing adds.
 extension_sql_file!("../sql/decision_records.sql", name = "decision_records", requires = ["org_routing"]);
-extension_sql_file!("../sql/selftest.sql", requires = ["decision_records"]);
+// And MCP servers as connections (docs/stage3-design.md): discovery, risk
+// levels, registration. Before the self-test that exercises them.
+extension_sql_file!("../sql/mcp_connections.sql", name = "mcp_connections", requires = ["decision_records"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["mcp_connections"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]

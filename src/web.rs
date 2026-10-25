@@ -520,6 +520,64 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
+    // Mock MCP servers for tests, gated like the other /mock/* doubles. They
+    // let a test drive discovery and tool calls through the real worker
+    // without an external server. Variants: /mock/mcp (initialize
+    // handshake), /mock/mcp-auth (needs "Authorization: Bearer mcp-secret"),
+    // /mock/mcp-sse (answers as a text/event-stream), and /mock/mcp-stateless
+    // (no initialize; every request must carry the Mcp-Method header).
+    if path.starts_with("/mock/mcp") {
+        if !cfg.mock_enabled || r.method != "POST" {
+            respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+            return;
+        }
+        if path == "/mock/mcp-auth" && r.header("authorization") != Some("Bearer mcp-secret") {
+            respond_json(&mut s, "401 Unauthorized", "{\"error\":\"unauthorized\"}");
+            return;
+        }
+        let req = body_json(&r);
+        let method = req.get("method").and_then(Value::as_str).unwrap_or("").to_string();
+        let id = req.get("id").cloned().unwrap_or(Value::Null);
+        if path == "/mock/mcp-stateless" && r.header("mcp-method") != Some(method.as_str()) {
+            respond_json(&mut s, "400 Bad Request", "{\"error\":\"Mcp-Method header required\"}");
+            return;
+        }
+        let reply = match method.as_str() {
+            "initialize" if path == "/mock/mcp-stateless" => {
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found"}})
+            }
+            "initialize" => json!({"jsonrpc": "2.0", "id": id, "result": {
+                "protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                "serverInfo": {"name": "allgres-mock-mcp", "version": "1"}}}),
+            "notifications/initialized" => {
+                respond(&mut s, "202 Accepted", "application/json", "", "");
+                return;
+            }
+            "tools/list" => json!({"jsonrpc": "2.0", "id": id, "result": {"tools": [
+                {"name": "get_status", "description": "Read the machine status",
+                 "inputSchema": {"type": "object", "properties": {}},
+                 "annotations": {"readOnlyHint": true}},
+                {"name": "move_arm", "description": "Move the arm to a position",
+                 "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}}, "required": ["x"]}},
+                {"name": "frobnicate", "description": "Does something unspecified",
+                 "inputSchema": {"type": "object", "properties": {}}}]}}),
+            "tools/call" => {
+                let name = req.pointer("/params/name").and_then(Value::as_str).unwrap_or("");
+                let args = req.pointer("/params/arguments").cloned().unwrap_or_else(|| json!({}));
+                json!({"jsonrpc": "2.0", "id": id, "result": {
+                    "content": [{"type": "text", "text": format!("mock {name} ran with {args}")}]}})
+            }
+            _ => json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found"}}),
+        };
+        if path == "/mock/mcp-sse" {
+            let body = format!("event: message\ndata: {reply}\n\n");
+            respond(&mut s, "200 OK", "text/event-stream", &body, "");
+        } else {
+            respond_json(&mut s, "200 OK", &reply.to_string());
+        }
+        return;
+    }
+
     // A mock embeddings endpoint, gated the same way as /mock/chat/completions:
     // lets a test drive the real fn_claim_agent_embedding/fn_claim_outbound ->
     // perform_http (send_json) -> fn_complete_agent_embedding/

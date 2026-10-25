@@ -695,6 +695,73 @@
     ]
   },
   {
+    "action": "mcp.servers",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "mcp.connect",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "allow_private_network",
+      "api_key",
+      "auth_kind",
+      "base_url",
+      "name",
+      "session_token"
+    ]
+  },
+  {
+    "action": "mcp.discover",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "connection_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "mcp.tools",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "connection_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "mcp.tool_risk",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "approval",
+      "connection_id",
+      "risk",
+      "session_token",
+      "tool"
+    ]
+  },
+  {
+    "action": "mcp.tool_register",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "connection_id",
+      "session_token",
+      "tool"
+    ]
+  },
+  {
     "action": "connections.create",
     "guards": [
       "require_admin_if_accounts_exist"

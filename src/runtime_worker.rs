@@ -201,6 +201,25 @@ fn claim_provider_probe_jobs(limit: i32) -> Value {
     })
 }
 
+/// Same claim shape for MCP discovery/health probes (mcp_probes): the
+/// request body is a JSON-RPC tools/list, sent through the same "mcp"
+/// handshake path an mcp_call Function uses.
+fn claim_mcp_probe_jobs(limit: i32) -> Value {
+    BackgroundWorker::transaction(|| {
+        if !drop_privileges() {
+            return json!({ "count": 0, "calls": [] });
+        }
+        Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_claim_mcp_probe($1)",
+            &[limit.into()],
+        )
+        .ok()
+        .flatten()
+        .map(|j| j.0)
+        .unwrap_or_else(|| json!({ "count": 0, "calls": [] }))
+    })
+}
+
 fn submit_http_result(call_id: &str, status: i32, body: &str) {
     // Postgres text cannot hold NUL; this is sanitisation, not escaping.
     let body = truncate_utf8(&body.replace('\0', ""), MAX_RESPONSE_BYTES).to_string();
@@ -295,6 +314,27 @@ fn submit_provider_probe_result(call_id: &str, status: i32, body: &str) {
     });
 }
 
+/// Completion for an MCP discovery/health probe. No task_id, so a failed
+/// privilege drop leaves the row 'in_flight' for fn_watchdog to reclaim.
+fn submit_mcp_probe_result(call_id: &str, status: i32, body: &str) {
+    let body = truncate_utf8(&body.replace('\0', ""), MAX_RESPONSE_BYTES).to_string();
+    BackgroundWorker::transaction(|| {
+        if !drop_privileges() {
+            pgrx::warning!(
+                "Allgres: skipping fn_complete_mcp_probe for call {} -- privilege drop failed",
+                call_id
+            );
+            return;
+        }
+        if let Err(e) = Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_complete_mcp_probe($1::uuid, $2, $3)",
+            &[call_id.into(), status.into(), body.as_str().into()],
+        ) {
+            pgrx::warning!("Allgres: fn_complete_mcp_probe failed for call {}: {}", call_id, e);
+        }
+    });
+}
+
 pub(crate) fn dashboard_rpc(request: &str) -> String {
     BackgroundWorker::transaction(|| {
         if !drop_privileges() {
@@ -363,6 +403,7 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
                         OutboundQueue::ProviderProbe => {
                             submit_provider_probe_result(&r.call_id, r.status, &r.body)
                         }
+                        OutboundQueue::McpProbe => submit_mcp_probe_result(&r.call_id, r.status, &r.body),
                     }
                 }
                 Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
@@ -477,6 +518,30 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
                         obj.insert("kind".to_string(), json!("function"));
                     }
                     let job = OutboundJob { call_id: id.to_string(), queue: OutboundQueue::ProviderProbe, call };
+                    if jobs.send(job).is_err() {
+                        break;
+                    }
+                    in_flight += 1;
+                    queued += 1;
+                }
+            }
+        }
+
+        // 3e. MCP discovery/health probes (mcp_probes): a tools/list over the
+        // same "mcp" handshake an mcp_call Function uses, no task_id.
+        if ready && in_flight < capacity {
+            let claimed = claim_mcp_probe_jobs((capacity - in_flight) as i32);
+            if let Some(calls) = claimed.get("calls").and_then(Value::as_array) {
+                for call in calls {
+                    let Some(id) = call.get("call_id").and_then(Value::as_str) else { continue };
+                    if !valid_uuid(id) {
+                        continue;
+                    }
+                    let mut call = call.clone();
+                    if let Some(obj) = call.as_object_mut() {
+                        obj.insert("kind".to_string(), json!("mcp"));
+                    }
+                    let job = OutboundJob { call_id: id.to_string(), queue: OutboundQueue::McpProbe, call };
                     if jobs.send(job).is_err() {
                         break;
                     }
