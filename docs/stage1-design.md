@@ -1,6 +1,6 @@
 # 1단계 설계: 사람 조직, 결재, 판단 지점, 판단 기록
 
-> 상태: **1a 구현됨** (조직, 결재 규칙, 대리, 기한 올리기: [approvals-and-roles.md](approvals-and-roles.md)). 1b, 1c는 아직입니다. 7장의 결정은 모두 권장안으로 진행했습니다. [docs/improvement-plan.md](improvement-plan.md)의 1단계를 현재 코드에 맞춰 구체화한 설계입니다.
+> 상태: **1a, 1b 구현됨** (조직·결재: [approvals-and-roles.md](approvals-and-roles.md), 판단 기록·내보내기: [decision-records.md](decision-records.md)). 1c(화면)는 아직입니다. 7장의 결정은 모두 권장안으로 진행했습니다. [docs/improvement-plan.md](improvement-plan.md)의 1단계를 현재 코드에 맞춰 구체화한 설계입니다.
 
 ## 1. 목표와 범위
 

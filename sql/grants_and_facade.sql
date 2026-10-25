@@ -857,13 +857,14 @@ BEGIN
           RAISE EXCEPTION 'this proposal is routed to a role you do not hold; only that role can decide it' USING ERRCODE = 'P0001';
         END IF;
       END IF;
-      v_created := allgres_public.fn_decide_proposal(
+      -- Stamped before deciding, so the decision record sees who decided.
+      -- A refused decision raises and takes the stamp back with it.
+      PERFORM allgres_private.stamp_decider('proposal', (p_request->>'proposal_id')::uuid, v_user.user_id, COALESCE(v_via, 'admin'));
+      RETURN allgres_public.fn_decide_proposal(
         (p_request->>'proposal_id')::uuid,
         (p_request->>'approve')::boolean,
         NULLIF(p_request->>'reply', '')
       );
-      PERFORM allgres_private.stamp_decider('proposal', (p_request->>'proposal_id')::uuid, v_user.user_id, COALESCE(v_via, 'admin'));
-      RETURN v_created;
 
     -- Read-only visibility into self_improve's model-optimizer canary
     -- experiments. Admin-only, the same as a 'create_agent' proposal in the
@@ -2041,13 +2042,12 @@ BEGIN
           RAISE EXCEPTION 'this approval is routed to a role you do not hold; only that role can decide it' USING ERRCODE = 'P0001';
         END IF;
       END IF;
-      v_created := allgres_public.fn_decide_approval(
+      PERFORM allgres_private.stamp_decider('approval', (p_request->>'approval_id')::uuid, v_user.user_id, COALESCE(v_via, 'admin'));
+      RETURN allgres_public.fn_decide_approval(
         (p_request->>'approval_id')::uuid,
         (p_request->>'accept')::boolean,
         NULLIF(p_request->>'reply', '')
       );
-      PERFORM allgres_private.stamp_decider('approval', (p_request->>'approval_id')::uuid, v_user.user_id, COALESCE(v_via, 'admin'));
-      RETURN v_created;
 
     -- ---------------------------------------------------------------------
     -- People, roles, and approval routing (sql/org_routing.sql,
@@ -2102,6 +2102,39 @@ BEGIN
     WHEN 'approval_delegations.remove' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_public.fn_org_remove_delegation((p_request->>'delegation_id')::uuid);
+
+    -- ---------------------------------------------------------------------
+    -- Decision points and records (sql/decision_records.sql,
+    -- docs/decision-records.md). Admin-only.
+    -- ---------------------------------------------------------------------
+    WHEN 'decisions.points.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_points();
+
+    WHEN 'decisions.points.save' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_point_save(
+        p_request->>'point_key', p_request->>'instructions', p_request->'criteria',
+        COALESCE(ARRAY(SELECT jsonb_array_elements_text(COALESCE(p_request->'state_fields', '[]'::jsonb))), '{}'),
+        COALESCE(p_request->>'risk_level', 'medium'));
+
+    WHEN 'decisions.stats' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_stats();
+
+    WHEN 'decisions.label.add' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_add_label(
+        (p_request->>'record_id')::uuid, p_request->>'answer', COALESCE(p_request->>'tier', 'gold'),
+        COALESCE(p_request->>'note', ''), v_user.user_id);
+
+    WHEN 'decisions.export' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_export(
+        COALESCE(p_request->>'split', 'train'), NULLIF(p_request->>'point_key', ''),
+        COALESCE(ARRAY(SELECT jsonb_array_elements_text(p_request->'tiers')), ARRAY['gold', 'silver']),
+        NULLIF(p_request->>'since', '')::timestamptz, NULLIF(p_request->>'until', '')::timestamptz,
+        COALESCE((p_request->>'limit')::int, 10000), COALESCE((p_request->>'offset')::int, 0), v_user.user_id);
 
     WHEN 'selftest' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');

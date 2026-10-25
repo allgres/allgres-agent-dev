@@ -620,6 +620,11 @@ BEGIN
     RAISE EXCEPTION 'fn_decide_proposal: already decided (%)', r.status USING ERRCODE = 'P0001';
   END IF;
 
+  -- Marks the approved/rejected status change below as a person's decision,
+  -- so the decision record (sql/decision_records.sql) is kept for it and for
+  -- nothing else. A stale outcome is not a decision on the merits.
+  PERFORM set_config('allgres.human_decision', 'proposal', true);
+
   IF NOT p_approve THEN
     UPDATE allgres_private.change_proposals
     SET status = 'rejected', decided_at = now(), decided_reply = p_reply

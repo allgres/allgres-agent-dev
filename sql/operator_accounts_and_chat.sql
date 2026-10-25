@@ -37,6 +37,9 @@ BEGIN
     RAISE EXCEPTION 'approval expired';
   END IF;
 
+  -- Marks the status change below as a person's decision, so the decision
+  -- record (sql/decision_records.sql) is kept for it and for nothing else.
+  PERFORM set_config('allgres.human_decision', 'approval', true);
   UPDATE allgres_private.human_approvals
   SET status = CASE WHEN p_accept THEN 'approved' ELSE 'rejected' END,
       reply_text = p_reply,

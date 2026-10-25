@@ -1181,6 +1181,67 @@
     ]
   },
   {
+    "action": "decisions.points.list",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "decisions.points.save",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "criteria",
+      "instructions",
+      "point_key",
+      "risk_level",
+      "session_token",
+      "state_fields"
+    ]
+  },
+  {
+    "action": "decisions.stats",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "decisions.label.add",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "answer",
+      "note",
+      "record_id",
+      "session_token",
+      "tier"
+    ]
+  },
+  {
+    "action": "decisions.export",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "limit",
+      "offset",
+      "point_key",
+      "session_token",
+      "since",
+      "split",
+      "tiers",
+      "until"
+    ]
+  },
+  {
     "action": "selftest",
     "guards": [
       "require_admin_if_accounts_exist"

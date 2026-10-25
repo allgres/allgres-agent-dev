@@ -5313,7 +5313,8 @@ BEGIN
     'canvas.run', 'agents.set_task_model',
     'org.state', 'org.units.save', 'org.units.delete', 'org.roles.save', 'org.roles.delete',
     'org.memberships.add', 'org.memberships.remove', 'approval_rules.save', 'approval_rules.delete',
-    'approval_delegations.add', 'approval_delegations.remove'
+    'approval_delegations.add', 'approval_delegations.remove',
+    'decisions.points.list', 'decisions.points.save', 'decisions.stats', 'decisions.label.add', 'decisions.export'
   ]::text[]) a
   WHERE a <> ALL(COALESCE(v_live_rpc_actions, ARRAY[]::text[]));
   SELECT array_agg(a ORDER BY a) INTO v_extra_rpc_actions
@@ -5343,7 +5344,8 @@ BEGIN
     'canvas.run', 'agents.set_task_model',
     'org.state', 'org.units.save', 'org.units.delete', 'org.roles.save', 'org.roles.delete',
     'org.memberships.add', 'org.memberships.remove', 'approval_rules.save', 'approval_rules.delete',
-    'approval_delegations.add', 'approval_delegations.remove'
+    'approval_delegations.add', 'approval_delegations.remove',
+    'decisions.points.list', 'decisions.points.save', 'decisions.stats', 'decisions.label.add', 'decisions.export'
   ]::text[]);
   ok := v_missing_rpc_actions IS NULL AND v_extra_rpc_actions IS NULL;
   v := v || jsonb_build_array(jsonb_build_object(
@@ -5353,6 +5355,7 @@ BEGIN
 
   v := v || allgres_private.canvas_selftest_cases();
   v := v || allgres_private.org_selftest_cases();
+  v := v || allgres_private.decision_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -5705,6 +5708,197 @@ BEGIN
     AND decision_access(u_admin, 'approval', a_routed) = 'admin'
     AND NOT EXISTS (SELECT 1 FROM allgres_private.approval_rules WHERE rule_id = v_rule_prop);
   v := v || jsonb_build_array(jsonb_build_object('name', 'org_deleted_role_leaves_only_admin', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- ---------------------------------------------------------------------------
+-- Decision points and records (sql/decision_records.sql). Called from
+-- fn_selftest, so the fixtures below roll back with everything else.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION allgres_private.decision_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  v_agent uuid; v_sid uuid; v_tid uuid; u_admin uuid;
+  a1 uuid; a2 uuid; a3 uuid; v_prop uuid; v_rec uuid; v_rec2 uuid;
+  v_text text; v_n int; v_err text; v_split1 text; v_split2 text; v_checks jsonb;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_dec_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES ('selftest-dec-admin-token', u_admin, now() + interval '1 hour');
+  v_agent := (allgres_public.fn_create_agent('selftest_dec_agent', 'decision fixture')->>'agent_id')::uuid;
+  v_sid := gen_random_uuid();
+  INSERT INTO allgres_private.sessions (session_id, agent_id, goal, status) VALUES (v_sid, v_agent, 'selftest Reconcile the March ledger', 'open');
+  INSERT INTO allgres_private.tasks (session_id, agent_id, status, policy_generation)
+    VALUES (v_sid, v_agent, 'waiting_human', 1) RETURNING task_id INTO v_tid;
+
+  ok := (SELECT count(*) FROM allgres_private.decision_points WHERE point_key IN ('approval_decision', 'proposal_decision') AND version = 1) = 2;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_points_seeded', 'ok', ok));
+
+  -- A person's approval, decided through the dashboard.
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at)
+    VALUES (v_tid, 'pending', jsonb_build_object(
+      'reason', 'Execution requires approval', 'queue', 'http', 'call_id', gen_random_uuid(),
+      'action', 'http_request', 'resource', 'https://api.example.com/v1/ledger?key=SECRET456',
+      'snapshot', jsonb_build_object('token', 'SECRET123')), now() + interval '1 hour')
+    RETURNING approval_id INTO a1;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'approvals.decide', 'approval_id', a1,
+    'accept', true, 'session_token', 'selftest-dec-admin-token'));
+  SELECT record_id INTO v_rec FROM allgres_private.decision_records WHERE source_kind = 'approval' AND source_id = a1;
+  ok := (r->>'ok')::boolean AND v_rec IS NOT NULL
+    AND (SELECT answer = 'approve' AND decided_by = 'human' AND decider_user_id = u_admin AND decided_via = 'admin'
+                AND point_key = 'approval_decision' AND point_version = 1 AND split IN ('train', 'eval')
+         FROM allgres_private.decision_records WHERE record_id = v_rec);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_record_kept_for_approval', 'ok', ok, 'detail', r));
+
+  SELECT state INTO v_text FROM allgres_private.decision_records WHERE record_id = v_rec;
+  ok := v_text LIKE '%Approval type: execution%' AND v_text LIKE '%Reason: Execution requires approval%'
+    AND v_text LIKE '%Agent: selftest_dec_agent%' AND v_text LIKE '%Task goal: selftest Reconcile the March ledger%'
+    AND v_text LIKE '%Action: http_request%' AND v_text LIKE '%Resource: https://api.example.com/v1/ledger'
+    AND v_text NOT LIKE '%SECRET%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_state_keeps_secrets_out', 'ok', ok, 'detail', v_text));
+
+  ok := (SELECT questions->'approval_decision'->>'type' = 'choice'
+                AND questions->'approval_decision'->'criteria' ? 'approve'
+                AND questions->'approval_decision'->'criteria' ? 'reject'
+                AND length(questions->'approval_decision'->>'instructions') > 0
+         FROM allgres_private.decision_records WHERE record_id = v_rec)
+    AND (SELECT count(*) = 1 AND bool_and(tier = 'gold' AND expected = '{"approval_decision": "approve"}'::jsonb)
+         FROM allgres_private.decision_labels WHERE record_id = v_rec);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_record_has_question_and_gold_label', 'ok', ok));
+
+  -- A rejection is kept too; a status something else sets is not a decision.
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at)
+    VALUES (v_tid, 'pending', jsonb_build_object('reason', 'Asked to wait'), now() + interval '1 hour')
+    RETURNING approval_id INTO a2;
+  PERFORM allgres_public.fn_decide_approval(a2, false, 'not now');
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at)
+    VALUES (v_tid, 'pending', jsonb_build_object('reason', 'Timed out'), now() + interval '1 hour')
+    RETURNING approval_id INTO a3;
+  UPDATE allgres_private.human_approvals SET status = 'rejected', reply_text = 'approval_timeout' WHERE approval_id = a3;
+  ok := (SELECT answer = 'reject' AND decider_user_id IS NULL FROM allgres_private.decision_records WHERE source_id = a2)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = a3);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_record_only_for_a_persons_decision', 'ok', ok));
+
+  -- A change proposal.
+  INSERT INTO allgres_private.change_proposals (agent_id, kind, proposed_changes, reason, base_generation)
+    VALUES (v_agent, 'create_function', jsonb_build_object('name', 'ledger_sum', 'description', 'Sums a ledger column', 'body', 'SECRET_BODY'),
+            'Needed for reconciliation', 1) RETURNING proposal_id INTO v_prop;
+  PERFORM allgres_public.fn_decide_proposal(v_prop, false, 'too broad');
+  SELECT state INTO v_text FROM allgres_private.decision_records WHERE source_kind = 'proposal' AND source_id = v_prop;
+  ok := v_text LIKE '%Proposal kind: create_function%' AND v_text LIKE '%Proposed by: selftest_dec_agent%'
+    AND v_text LIKE '%Change: function ledger_sum: Sums a ledger column%' AND v_text NOT LIKE '%SECRET%'
+    AND (SELECT answer = 'reject' AND point_key = 'proposal_decision' FROM allgres_private.decision_records WHERE source_id = v_prop);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_record_kept_for_proposal', 'ok', ok, 'detail', v_text));
+
+  -- Append only.
+  BEGIN
+    UPDATE allgres_private.decision_records SET answer = 'reject' WHERE record_id = v_rec;
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%append-only%';
+  END;
+  BEGIN
+    DELETE FROM allgres_private.decision_labels WHERE record_id = v_rec;
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := ok AND SQLERRM LIKE '%append-only%';
+  END;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_records_are_append_only', 'ok', ok));
+
+  -- The same situation always lands on the same side of the split.
+  v_rec2 := record_decision('approval_decision', v_text || 'x', 'approve');
+  -- (Written in two steps: a row a function inserts is not visible to the
+  -- statement that called it.)
+  v_rec2 := record_decision('approval_decision', 'Same situation', 'approve');
+  SELECT split INTO v_split1 FROM allgres_private.decision_records WHERE record_id = v_rec2;
+  v_rec2 := record_decision('approval_decision', 'Same situation', 'reject');
+  SELECT split INTO v_split2 FROM allgres_private.decision_records WHERE record_id = v_rec2;
+  ok := v_split1 IS NOT NULL AND v_split1 = v_split2;
+  FOR v_n IN 1..60 LOOP
+    PERFORM record_decision('approval_decision', 'Situation number ' || v_n, CASE WHEN v_n % 2 = 0 THEN 'approve' ELSE 'reject' END);
+  END LOOP;
+  ok := ok AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE split = 'eval')
+           AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE split = 'train');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_split_follows_the_situation', 'ok', ok));
+
+  BEGIN
+    PERFORM record_decision('approval_decision', 'x', 'maybe');
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%not one of the answers%';
+  END;
+  v_rec2 := record_decision('approval_decision', repeat('y', 5000), 'approve');
+  ok := ok AND (SELECT length(state) = 4000 AND (context->>'state_truncated')::boolean FROM allgres_private.decision_records WHERE record_id = v_rec2);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_record_checks_answer_and_length', 'ok', ok));
+
+  -- A correction adds a label; the export uses the latest of the best tier.
+  PERFORM allgres_public.fn_decision_add_label(v_rec, 'reject', 'gold', 'on reflection', u_admin);
+  r := allgres_public.fn_decision_export('all', 'approval_decision');
+  v_text := r->>'jsonl';
+  v_checks := jsonb_build_object(
+    'ok', (r->>'ok')::boolean,
+    'count', (r->>'count')::int = (SELECT count(*) FROM allgres_private.decision_records WHERE point_key = 'approval_decision'),
+    'sha256', (r->>'sha256') = encode(sha256(convert_to(v_text, 'UTF8')), 'hex'),
+    'newline', right(v_text, 1) = E'\n',
+    'keys', NOT EXISTS (
+      SELECT 1 FROM regexp_split_to_table(trim(trailing E'\n' FROM v_text), E'\n') l
+      WHERE NOT ((l::jsonb) ?& ARRAY['state', 'questions', 'expected'])),
+    'corrected_to_reject', EXISTS (
+      SELECT 1 FROM regexp_split_to_table(trim(trailing E'\n' FROM v_text), E'\n') l
+      WHERE (l::jsonb)->>'state' LIKE '%Task goal: selftest Reconcile the March ledger%' AND (l::jsonb)->'expected' = '{"approval_decision": "reject"}'::jsonb),
+    'no_stale_approve', NOT EXISTS (
+      SELECT 1 FROM regexp_split_to_table(trim(trailing E'\n' FROM v_text), E'\n') l
+      WHERE (l::jsonb)->>'state' LIKE '%Task goal: selftest Reconcile the March ledger%' AND (l::jsonb)->'expected' = '{"approval_decision": "approve"}'::jsonb),
+    'logged', EXISTS (SELECT 1 FROM allgres_private.decision_exports WHERE sha256 = r->>'sha256' AND row_count = (r->>'count')::int));
+  ok := NOT EXISTS (SELECT 1 FROM jsonb_each(v_checks) c WHERE c.value <> 'true'::jsonb);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_export_is_laya_jsonl', 'ok', ok, 'detail', v_checks));
+
+  -- Training and evaluation lines never share a situation.
+  ok := NOT EXISTS (
+    SELECT 1 FROM regexp_split_to_table(trim(trailing E'\n' FROM allgres_public.fn_decision_export('train', 'approval_decision')->>'jsonl'), E'\n') t
+    JOIN regexp_split_to_table(trim(trailing E'\n' FROM allgres_public.fn_decision_export('eval', 'approval_decision')->>'jsonl'), E'\n') e
+      ON (t::jsonb)->>'state' = (e::jsonb)->>'state');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_export_train_and_eval_do_not_overlap', 'ok', ok));
+
+  -- Changing a question makes a new version; old records keep the old one.
+  r := allgres_public.fn_decision_point_save('approval_decision',
+    'Decide whether to approve this request from an agent to run or continue.',
+    (SELECT criteria FROM allgres_private.decision_points WHERE point_key = 'approval_decision' AND version = 1),
+    (SELECT state_fields FROM allgres_private.decision_points WHERE point_key = 'approval_decision' AND version = 1));
+  ok := (r->>'changed')::boolean IS FALSE AND (r->>'version')::int = 1;
+  r := allgres_public.fn_decision_point_save('approval_decision', 'Approve only if the request is safe as described.',
+    (SELECT criteria FROM allgres_private.decision_points WHERE point_key = 'approval_decision' AND version = 1),
+    ARRAY['reason', 'agent']);
+  ok := ok AND (r->>'version')::int = 2 AND (r->>'changed')::boolean
+    AND (SELECT count(*) FROM allgres_private.decision_points WHERE point_key = 'approval_decision') = 2
+    AND (SELECT point_version = 1 FROM allgres_private.decision_records WHERE record_id = v_rec);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_point_change_makes_new_version', 'ok', ok));
+
+  -- A record that cannot be kept never stops the decision. Version 3 offers
+  -- different answers, so recording "approve" fails inside the trigger.
+  PERFORM allgres_public.fn_decision_point_save('approval_decision', 'Choose yes or no.',
+    jsonb_build_object('yes', 'ok', 'no', 'not ok'), ARRAY['reason']);
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at)
+    VALUES (v_tid, 'pending', jsonb_build_object('reason', 'Unrecordable'), now() + interval '1 hour')
+    RETURNING approval_id INTO a3;
+  PERFORM allgres_public.fn_decide_approval(a3, true, 'ok');
+  ok := (SELECT status = 'approved' FROM allgres_private.human_approvals WHERE approval_id = a3)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = a3)
+    AND EXISTS (SELECT 1 FROM allgres_private.audit_log WHERE action = 'decision_records.failed' AND details->>'source_id' = a3::text);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_survives_a_failed_record', 'ok', ok));
+
+  r := allgres_public.fn_decision_stats();
+  ok := EXISTS (SELECT 1 FROM jsonb_array_elements(r->'points') e
+                WHERE e->>'point_key' = 'approval_decision' AND (e->>'human')::int >= 2 AND (e->>'gold')::int >= 2);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_stats_count_records_and_labels', 'ok', ok));
 
   RETURN v;
 END;
