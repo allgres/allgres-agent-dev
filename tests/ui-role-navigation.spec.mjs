@@ -47,6 +47,9 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   await expect(page).toHaveURL(/\/canvas$/);
   const general = page.locator('.agent-node', { hasText: 'general' }).first();
   await expect(general).toBeVisible();
+  // The seeded agents do not count as a team, so a fresh install still gets
+  // the first-team guide.
+  await expect(page.getByRole('region', { name: 'Build your first team' })).toBeVisible();
   // First visit explains the board once; system agents start hidden.
   await page.getByRole('button', { name: 'Got it' }).click();
   await expect(page.locator('.agent-node.is-system')).toHaveCount(0);

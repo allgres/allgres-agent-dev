@@ -97,6 +97,7 @@ DECLARE
   v_admin_tok text;
   v_user_tok text;
   v_audit_tok text;
+  v_opts jsonb;
   v_acct_agent uuid;
   v_procedure_function uuid;
   v_memory_id uuid;
@@ -2756,6 +2757,26 @@ BEGIN
     'action', 'allowlist.remove', 'ref', 'selftest_audit_marker', 'session_token', v_audit_tok
   ));
 
+  -- The permissions editor's function picker lists the registered functions,
+  -- not just the two built-in HTTP actions, so a function an operator or the
+  -- creator agent adds can be granted right away.
+  PERFORM allgres_public.fn_create_function(
+    'selftest_options_fn', 'permissions.options fixture', 'http_get',
+    jsonb_build_object('url', 'https://example.com/allgres-selftest-options')
+  );
+  v_opts := allgres.dashboard_rpc(jsonb_build_object('action', 'permissions.options', 'session_token', v_audit_tok));
+  v := v || jsonb_build_array(jsonb_build_object(
+    'name', 'permissions_options_lists_registered_functions',
+    'ok', COALESCE(
+      v_opts->'functions' @> '["selftest_options_fn", "http_get", "http_request"]'::jsonb
+      AND jsonb_array_length(v_opts->'functions') = (
+        SELECT count(DISTINCT n) FROM (
+          SELECT 'http_get' AS n UNION ALL SELECT 'http_request'
+          UNION ALL SELECT name FROM allgres_private.functions WHERE is_active
+        ) q), false),
+    'detail', v_opts->'functions'));
+  DELETE FROM allgres_private.functions WHERE name = 'selftest_options_fn';
+
   SELECT count(*) INTO n_logs FROM allgres_private.audit_log;
   PERFORM allgres.dashboard_rpc(jsonb_build_object('action', 'overview', 'session_token', v_audit_tok));
   SELECT count(*) INTO v_gen FROM allgres_private.audit_log;
@@ -5361,6 +5382,7 @@ DECLARE
   r jsonb;
   v_lead uuid;
   v_worker uuid;
+  v_boss uuid;
   v_sys uuid;
   g_div uuid;
   g_team uuid;
@@ -5414,6 +5436,52 @@ BEGIN
     AND allgres_private.agent_has_permission(v_worker, 'http_host', 'example.com')
     AND allgres_private.agent_has_permission(v_lead, 'http_host', 'example.com');
   v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_grant_includes_superiors', 'ok', ok));
+
+  -- A line obeys the ceiling too. The boss lacks example.com, which the lead
+  -- and the worker below it hold, so boss -> lead is refused and nothing is
+  -- stored.
+  v_boss := (allgres_public.fn_create_agent('selftest_canvas_boss', 'boss')->>'agent_id')::uuid;
+  BEGIN
+    PERFORM allgres_public.fn_canvas_add_delegation(v_boss, v_lead);
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%selftest_canvas_boss lacks http_host example.com%';
+  END;
+  ok := ok AND NOT allgres_private.agent_has_permission(v_boss, 'agent', 'selftest_canvas_lead');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_line_stops_at_ceiling', 'ok', ok));
+
+  -- The gap can sit further down: the worker, not the lead, holds this host
+  -- (granted outside Canvas), and it still blocks a line to the lead.
+  PERFORM allgres_public.fn_grant_permission(v_boss, 'http_host', 'example.com');
+  PERFORM allgres_public.fn_grant_permission(v_worker, 'http_host', 'below.example.com');
+  BEGIN
+    PERFORM allgres_public.fn_canvas_add_delegation(v_boss, v_lead);
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%selftest_canvas_boss lacks http_host below.example.com%';
+  END;
+  ok := ok AND NOT allgres_private.agent_has_permission(v_boss, 'agent', 'selftest_canvas_lead');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_line_ceiling_reaches_agents_below', 'ok', ok));
+
+  PERFORM allgres_public.fn_grant_permission(v_boss, 'http_host', 'below.example.com');
+  PERFORM allgres_public.fn_canvas_add_delegation(v_boss, v_lead);
+  ok := allgres_private.agent_has_permission(v_boss, 'agent', 'selftest_canvas_lead');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_line_allowed_when_ceiling_held', 'ok', ok));
+  PERFORM allgres_public.fn_canvas_remove_delegation(v_boss, v_lead);
+  PERFORM allgres_public.fn_revoke_permission(v_worker, 'http_host', 'below.example.com');
+
+  -- A system agent is never a receiver, whatever the caller.
+  BEGIN
+    PERFORM allgres_public.fn_canvas_add_delegation(v_lead, v_sys);
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%system agent cannot be delegated to%';
+  END;
+  ok := ok AND NOT EXISTS (
+    SELECT 1 FROM allgres_private.permissions p
+    WHERE p.agent_id = v_lead AND p.resource_type = 'agent'
+      AND lower(p.resource_ref) = (SELECT lower(name) FROM allgres_private.agents WHERE agent_id = v_sys));
+  v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_line_refuses_system_agent', 'ok', ok));
 
   PERFORM allgres_public.fn_canvas_save_positions(jsonb_build_array(
     jsonb_build_object('kind', 'agent', 'id', v_lead, 'x', 40, 'y', 60),

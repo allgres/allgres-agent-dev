@@ -128,9 +128,9 @@ The [RPM guide](docs/deployment/rpm.md) finds the newest published Fedora 43/Pos
 
 ## Next work
 
-The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-plan.md) (Korean). It records the discussion so far, the principles that bind it, and the order of work. Nothing in it has been started yet. Each stage must pass the plan's validation scenarios before the next one begins:
+The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-plan.md) (Korean). It records the discussion so far, the principles that bind it, and the order of work. Stage 0 is done; the rest has not been started. Each stage must pass the plan's validation scenarios before the next one begins:
 
-0. **Safety fixes.**
+0. **Safety fixes (done).**
    - Apply the delegation ceiling when a delegation line is drawn.
    - Refuse delegation to system agents.
    - List real functions in the permission picker.

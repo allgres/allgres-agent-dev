@@ -168,7 +168,7 @@ a { color: inherit; }
 .add-saved { display: flex; align-items: center; }
 .add-saved .add-row { flex: 1; min-width: 0; }
 
-.empty-card { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px)); text-align: center; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 20px; box-shadow: var(--shadow); padding: 28px 28px 24px; z-index: 5; }
+.empty-card { position: absolute; left: 50%; top: 84px; transform: translateX(-50%); width: min(420px, calc(100% - 32px)); text-align: center; background: var(--panel); border: 1px solid var(--line-soft); border-radius: 20px; box-shadow: var(--shadow); padding: 28px 28px 24px; z-index: 5; }
 .empty-card h2 { margin: 10px 0 6px; font-size: 20px; letter-spacing: -0.3px; }
 .empty-card p { margin: 0 0 18px; color: var(--muted); }
 .empty-art { display: flex; justify-content: center; gap: 10px; position: relative; height: 54px; }

@@ -6,6 +6,8 @@ All notable changes will be documented here.
 
 - Canvas (`/canvas`, admin menu → Canvas): a board for building the organization. Add agents and nested teams from one **+ Add** menu (or start from an example team), drop one agent's card onto another to put it under that agent (a delegation line, an `agent` grant), give abilities named in plain words under a delegation ceiling, chat with any agent or General, start tasks (optionally on a per-task model), save a group as a reusable configuration, and see who actually handed work to whom in the Flow view. English and Korean; system agents hidden until asked for. New tables `agent_groups`, `agent_group_members`, `canvas_positions`, and `canvas_templates`, columns `agents.allow_task_model` and `tasks.llm_override`, and 15 `canvas.*`/`agents.set_task_model` RPC actions (sql/canvas.sql). The React source lives in `web/canvas`; the built page is committed as `web/canvas.html`, so building the extension still needs no Node.js.
 
+- Canvas safety fixes. Drawing a delegation line now obeys the delegation ceiling: it is refused, with the missing grants named, when an agent above the line lacks a view, function, procedure, or HTTP host that the receiving agent (or an agent below it) holds. A system agent can no longer be the receiver of a line. The permissions editor's function picker lists every active registered function, not only `http_get` and `http_request`. A fresh install shows the "Build your first team" guide again (the seeded agents no longer count as a team), now above the seeded cards.
+
 ## 0.1.0-alpha.3
 
 - Built-in mock now answers `GET /mock/models` (and `/mock/v1/models`) so Settings → Test connection works against the same endpoint bootstrap uses for a first chat.

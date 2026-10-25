@@ -429,6 +429,16 @@ $fn$;
 -- `agent` permission the Agents page and permissions.grant write, so the
 -- runtime's delegate check (agent_has_permission) sees it with no special
 -- case.
+--
+-- Two rules apply here, as they do to a grant (docs/canvas.md):
+--   * System agents are never a receiver. Canvas hides them, and a line to
+--     one would hand a regular agent a system agent's reach.
+--   * The delegation ceiling. The line puts p_from, and every agent above
+--     it, above p_to and everything p_to can delegate to. Each of them must
+--     already hold every view, function, procedure, and HTTP host those
+--     agents hold; otherwise drawing the line would let a lead reach
+--     something it was never granted, which fn_canvas_grant refuses to do
+--     for the same reason. Nothing changes when the line is refused.
 CREATE OR REPLACE FUNCTION allgres_public.fn_canvas_add_delegation(p_from_agent_id uuid, p_to_agent_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -438,12 +448,66 @@ AS $fn$
 DECLARE
   f allgres_private.agents%ROWTYPE;
   t allgres_private.agents%ROWTYPE;
+  v_gaps text;
 BEGIN
   f := allgres_private.canvas_require_agent(p_from_agent_id);
   t := allgres_private.canvas_require_agent(p_to_agent_id);
   IF f.agent_id = t.agent_id THEN
     RAISE EXCEPTION 'an agent cannot delegate to itself' USING ERRCODE = 'P0001';
   END IF;
+  IF f.is_system THEN
+    RAISE EXCEPTION 'a system agent cannot delegate from Canvas' USING ERRCODE = 'P0001';
+  END IF;
+  IF t.is_system THEN
+    RAISE EXCEPTION 'a system agent cannot be delegated to from Canvas' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- below: p_to plus every regular agent it can delegate to. above: p_from
+  -- plus every agent that can already delegate to it. System agents are not
+  -- walked into: an operator-made line to one (permissions.grant) is the
+  -- operator's call and must not make every line above it unbuildable.
+  WITH RECURSIVE below(agent_id) AS (
+    SELECT p_to_agent_id
+    UNION
+    SELECT a.agent_id
+    FROM below b
+    JOIN allgres_private.permissions p ON p.agent_id = b.agent_id AND p.resource_type = 'agent'
+    JOIN allgres_private.agents a ON lower(a.name) = lower(p.resource_ref)
+    WHERE NOT a.is_system
+  ),
+  above(agent_id) AS (
+    SELECT p_from_agent_id
+    UNION
+    SELECT s.agent_id FROM allgres_private.canvas_superiors(p_from_agent_id) s
+  ),
+  gaps AS (
+    SELECT DISTINCT ab.agent_id AS above_id, g.resource_type, g.ref
+    FROM above ab
+    CROSS JOIN below be
+    CROSS JOIN LATERAL (
+      SELECT ty AS resource_type, r AS ref
+      FROM unnest(ARRAY['view', 'function', 'procedure', 'http_host']) ty,
+           LATERAL unnest(allgres_private.agent_permission_refs(be.agent_id, ty)) r
+    ) g
+    WHERE NOT allgres_private.agent_has_permission(ab.agent_id, g.resource_type, g.ref)
+  )
+  SELECT string_agg(x.line, '; ' ORDER BY x.nm)
+  INTO v_gaps
+  FROM (
+    SELECT ag.name AS nm,
+           format('%s lacks %s', ag.name,
+                  string_agg(g.resource_type || ' ' || g.ref, ', ' ORDER BY g.resource_type, g.ref)) AS line
+    FROM gaps g
+    JOIN allgres_private.agents ag ON ag.agent_id = g.above_id
+    GROUP BY ag.name
+  ) x;
+
+  IF v_gaps IS NOT NULL THEN
+    RAISE EXCEPTION 'cannot let % delegate to %: an agent above would reach something it was never granted (%). Grant it to them first, or take it away from % or the agents below it.',
+      f.name, t.name, left(v_gaps, 400), t.name
+      USING ERRCODE = 'P0001';
+  END IF;
+
   PERFORM allgres_public.fn_grant_permission(f.agent_id, 'agent', t.name);
   RETURN jsonb_build_object('ok', true, 'from', f.name, 'to', t.name);
 END;
