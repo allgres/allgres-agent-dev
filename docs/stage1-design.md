@@ -1,6 +1,6 @@
 # 1단계 설계: 사람 조직, 결재, 판단 지점, 판단 기록
 
-> 상태: **초안, 구현 전.** [docs/improvement-plan.md](improvement-plan.md)의 1단계를 현재 코드에 맞춰 구체화한 설계입니다. 7장의 결정이 정해지면 구현을 시작합니다.
+> 상태: **1a 구현됨** (조직, 결재 규칙, 대리, 기한 올리기: [approvals-and-roles.md](approvals-and-roles.md)). 1b, 1c는 아직입니다. 7장의 결정은 모두 권장안으로 진행했습니다. [docs/improvement-plan.md](improvement-plan.md)의 1단계를 현재 코드에 맞춰 구체화한 설계입니다.
 
 ## 1. 목표와 범위
 
@@ -94,7 +94,7 @@
 
 ### 3.6 기한 올리기
 
-새 워커를 만들지 않습니다. 이미 도는 `fn_watchdog`가 `escalate_at`이 지난 요청에 감사 기록(`approvals.escalate`)만 남기고 상태를 바꾸지 않습니다. 권한 판정(3.4의 3번)이 시각을 직접 보기 때문에 별도 갱신이 필요 없습니다.
+새 워커를 만들지 않습니다. 권한 판정(3.4의 3번)이 `escalate_at`을 직접 비교하므로 별도 갱신이 필요 없습니다. 구현에서는 `fn_watchdog`의 감사 기록(`approvals.escalate`)을 넣지 않았습니다. 올라간 요청은 목록의 `escalate_at`으로 알 수 있습니다.
 
 ## 4. 판단 지점과 판단 기록 (1b)
 

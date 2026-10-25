@@ -140,7 +140,11 @@ extension_sql_file!(
 // Not one of the original sections: Canvas's groups, positions, and saved
 // configurations (docs/canvas.md), after the seed data it lays out.
 extension_sql_file!("../sql/canvas.sql", name = "canvas", requires = ["seed_data"]);
-extension_sql_file!("../sql/selftest.sql", requires = ["canvas"]);
+// Not one of the original sections either: org units, roles, and approval
+// routing (docs/approvals-and-roles.md), after Canvas (a rule can match a
+// Canvas group) and before the self-test that exercises it.
+extension_sql_file!("../sql/org_routing.sql", name = "org_routing", requires = ["canvas"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["org_routing"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]
