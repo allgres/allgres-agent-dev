@@ -102,7 +102,15 @@ host the lead was never granted. When agents above are missing it, Canvas
 lists them and offers to grant all of them in the same transaction
 (`fn_canvas_grant`). If one of them is a system agent, it refuses.
 
-This is the Canvas grant path's own rule. `permissions.grant` (Agents page,
+A delegation line obeys the same rule from the other side. Drawing a line from
+A to B puts A, and every agent above A, above B and everything B can delegate
+to, so each of them must already hold every view, function, procedure, and
+host those agents hold. Otherwise the line is refused, nothing is stored, and
+the message names who lacks what; grant it to them first (or take it away
+from B and the agents below it) and draw the line again. System agents are
+never the receiving end of a line.
+
+This is the Canvas path's own rule. `permissions.grant` (Agents page,
 SQL) is the operator's unrestricted tool and does not apply it.
 
 ## A model per task
