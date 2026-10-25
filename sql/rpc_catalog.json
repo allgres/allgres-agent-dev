@@ -120,6 +120,7 @@
     ],
     "params": [
       "agent_id",
+      "mine",
       "session_token",
       "status"
     ]
@@ -1045,6 +1046,7 @@
     ],
     "params": [
       "limit",
+      "mine",
       "session_token"
     ]
   },
@@ -1057,6 +1059,124 @@
       "accept",
       "approval_id",
       "reply",
+      "session_token"
+    ]
+  },
+  {
+    "action": "org.state",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "org.units.save",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "name",
+      "parent_unit_id",
+      "session_token",
+      "unit_id"
+    ]
+  },
+  {
+    "action": "org.units.delete",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token",
+      "unit_id"
+    ]
+  },
+  {
+    "action": "org.roles.save",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "description",
+      "name",
+      "role_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "org.roles.delete",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "role_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "org.memberships.add",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "role_id",
+      "session_token",
+      "unit_id",
+      "user_id"
+    ]
+  },
+  {
+    "action": "org.memberships.remove",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "membership_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "approval_rules.save",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "rule",
+      "session_token"
+    ]
+  },
+  {
+    "action": "approval_rules.delete",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "rule_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "approval_delegations.add",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "from_user_id",
+      "session_token",
+      "to_user_id",
+      "valid_from",
+      "valid_until"
+    ]
+  },
+  {
+    "action": "approval_delegations.remove",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "delegation_id",
       "session_token"
     ]
   },

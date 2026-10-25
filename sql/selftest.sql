@@ -5310,7 +5310,10 @@ BEGIN
     'canvas.state', 'canvas.layout.save', 'canvas.groups.create', 'canvas.groups.update', 'canvas.groups.delete',
     'canvas.groups.merge', 'canvas.groups.set_member', 'canvas.delegation.add', 'canvas.delegation.remove',
     'canvas.grant', 'canvas.templates.save', 'canvas.templates.delete', 'canvas.templates.instantiate',
-    'canvas.run', 'agents.set_task_model'
+    'canvas.run', 'agents.set_task_model',
+    'org.state', 'org.units.save', 'org.units.delete', 'org.roles.save', 'org.roles.delete',
+    'org.memberships.add', 'org.memberships.remove', 'approval_rules.save', 'approval_rules.delete',
+    'approval_delegations.add', 'approval_delegations.remove'
   ]::text[]) a
   WHERE a <> ALL(COALESCE(v_live_rpc_actions, ARRAY[]::text[]));
   SELECT array_agg(a ORDER BY a) INTO v_extra_rpc_actions
@@ -5337,7 +5340,10 @@ BEGIN
     'canvas.state', 'canvas.layout.save', 'canvas.groups.create', 'canvas.groups.update', 'canvas.groups.delete',
     'canvas.groups.merge', 'canvas.groups.set_member', 'canvas.delegation.add', 'canvas.delegation.remove',
     'canvas.grant', 'canvas.templates.save', 'canvas.templates.delete', 'canvas.templates.instantiate',
-    'canvas.run', 'agents.set_task_model'
+    'canvas.run', 'agents.set_task_model',
+    'org.state', 'org.units.save', 'org.units.delete', 'org.roles.save', 'org.roles.delete',
+    'org.memberships.add', 'org.memberships.remove', 'approval_rules.save', 'approval_rules.delete',
+    'approval_delegations.add', 'approval_delegations.remove'
   ]::text[]);
   ok := v_missing_rpc_actions IS NULL AND v_extra_rpc_actions IS NULL;
   v := v || jsonb_build_array(jsonb_build_object(
@@ -5346,6 +5352,7 @@ BEGIN
   ));
 
   v := v || allgres_private.canvas_selftest_cases();
+  v := v || allgres_private.org_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -5520,6 +5527,184 @@ BEGIN
   r := allgres_public.fn_canvas_run(v_worker, 'selftest canvas run', NULL, 'some-model');
   ok := ok AND (SELECT llm_override->>'model' FROM allgres_private.tasks WHERE task_id = (r->>'task_id')::uuid) = 'some-model';
   v := v || jsonb_build_array(jsonb_build_object('name', 'canvas_task_model_needs_opt_in', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- ---------------------------------------------------------------------------
+-- People, roles, and approval routing (sql/org_routing.sql). Called from
+-- fn_selftest, so the fixtures below roll back with everything else.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION allgres_private.org_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  v_agent uuid; v_sid uuid; v_tid uuid;
+  a_plain uuid; a_routed uuid; a_prio uuid;
+  v_prop uuid;
+  u_admin uuid; u_owner uuid; u_head uuid; u_aide uuid; u_ceo uuid; u_other uuid;
+  r_head uuid; r_ceo uuid; un_mkt uuid; un_sales uuid; un_child uuid;
+  v_group uuid; v_rule uuid; v_rule_kind uuid; v_rule_prop uuid; v_deleg uuid;
+  v_err text;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_org_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_org_owner', 'x', 'user') RETURNING user_id INTO u_owner;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_org_head', 'x', 'user') RETURNING user_id INTO u_head;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_org_aide', 'x', 'user') RETURNING user_id INTO u_aide;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_org_ceo', 'x', 'user') RETURNING user_id INTO u_ceo;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_org_other', 'x', 'user') RETURNING user_id INTO u_other;
+
+  v_agent := (allgres_public.fn_create_agent('selftest_org_agent', 'org fixture')->>'agent_id')::uuid;
+  INSERT INTO allgres_private.user_agent_assignments (user_id, agent_id) VALUES (u_owner, v_agent);
+  v_sid := gen_random_uuid();
+  INSERT INTO allgres_private.sessions (session_id, agent_id, goal, status) VALUES (v_sid, v_agent, 'selftest org fixture', 'open');
+  INSERT INTO allgres_private.tasks (session_id, agent_id, status, policy_generation)
+    VALUES (v_sid, v_agent, 'waiting_human', 1) RETURNING task_id INTO v_tid;
+
+  -- No rule: the original access, unchanged.
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at)
+    VALUES (v_tid, 'pending', jsonb_build_object('reason', 'plain'), now() + interval '1 hour')
+    RETURNING approval_id INTO a_plain;
+  ok := decision_access(u_owner, 'approval', a_plain) = 'self'
+    AND decision_access(u_other, 'approval', a_plain) IS NULL
+    AND decision_access(u_admin, 'approval', a_plain) = 'admin'
+    AND (SELECT routed_role_id FROM allgres_private.human_approvals WHERE approval_id = a_plain) IS NULL;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_no_rule_keeps_original_access', 'ok', ok));
+
+  -- Units, roles, people.
+  un_mkt := (fn_org_save_unit(NULL, 'selftest_mkt')->>'unit_id')::uuid;
+  un_sales := (fn_org_save_unit(NULL, 'selftest_sales')->>'unit_id')::uuid;
+  un_child := (fn_org_save_unit(NULL, 'selftest_mkt_child', un_mkt)->>'unit_id')::uuid;
+  r_head := (fn_org_save_role(NULL, 'selftest_head', 'decides')->>'role_id')::uuid;
+  r_ceo := (fn_org_save_role(NULL, 'selftest_ceo')->>'role_id')::uuid;
+  PERFORM fn_org_add_membership(u_head, r_head, un_mkt);
+  PERFORM fn_org_add_membership(u_ceo, r_ceo, NULL);
+  PERFORM fn_org_add_membership(u_other, r_head, un_sales);
+
+  BEGIN
+    PERFORM fn_org_save_unit(un_mkt, 'selftest_mkt', un_child);
+    ok := false;
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%cannot sit under itself%';
+  END;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_unit_refuses_cycle', 'ok', ok));
+
+  -- A rule for the agent's group routes to the head role in the marketing unit.
+  v_group := (fn_canvas_create_group('selftest org team')->>'group_id')::uuid;
+  PERFORM fn_canvas_set_group_member(v_agent, v_group);
+  v_rule := (fn_org_save_rule(jsonb_build_object(
+    'name', 'selftest rule', 'applies_to', 'approval', 'match_agent_group_id', v_group,
+    'decider_role_id', r_head, 'decider_unit_id', un_mkt,
+    'escalate_after_seconds', 3600, 'escalate_role_id', r_ceo))->>'rule_id')::uuid;
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at)
+    VALUES (v_tid, 'pending', jsonb_build_object('reason', 'routed'), now() + interval '1 hour')
+    RETURNING approval_id INTO a_routed;
+  ok := (SELECT routed_role_id = r_head AND routed_unit_id = un_mkt AND routed_rule_id = v_rule
+                AND escalate_role_id = r_ceo AND escalate_at > now()
+         FROM allgres_private.human_approvals WHERE approval_id = a_routed);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_rule_routes_approval_to_role', 'ok', ok));
+
+  ok := decision_access(u_head, 'approval', a_routed) = 'self'
+    AND decision_access(u_owner, 'approval', a_routed) = 'viewer'
+    AND decision_access(u_other, 'approval', a_routed) IS NULL
+    AND decision_access(u_ceo, 'approval', a_routed) IS NULL
+    AND decision_access(u_admin, 'approval', a_routed) = 'admin';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_routed_approval_decided_only_by_routed_role', 'ok', ok,
+    'detail', jsonb_build_object('head', decision_access(u_head, 'approval', a_routed),
+      'owner', decision_access(u_owner, 'approval', a_routed), 'other', decision_access(u_other, 'approval', a_routed))));
+
+  -- Through the dashboard API: the owner may not decide; the head may, and
+  -- the decision records who and how.
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES
+    ('selftest-org-owner-token', u_owner, now() + interval '1 hour'),
+    ('selftest-org-head-token', u_head, now() + interval '1 hour'),
+    ('selftest-org-aide-token', u_aide, now() + interval '1 hour');
+  -- dashboard_rpc reports a refusal as {"ok": false, "error": ...}, not as a raised error.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'approvals.decide', 'approval_id', a_routed,
+    'accept', true, 'session_token', 'selftest-org-owner-token'));
+  v_err := r->>'error';
+  ok := (r->>'ok')::boolean IS FALSE AND v_err LIKE '%routed to a role you do not hold%'
+    AND (SELECT status FROM allgres_private.human_approvals WHERE approval_id = a_routed) = 'pending';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_owner_cannot_decide_routed_approval', 'ok', ok, 'detail', v_err));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'approvals.list', 'mine', true, 'session_token', 'selftest-org-head-token'));
+  ok := EXISTS (SELECT 1 FROM jsonb_array_elements(r->'approvals') e
+                WHERE (e->>'approval_id')::uuid = a_routed AND (e->>'can_decide')::boolean AND e->>'routed_role' = 'selftest_head')
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r->'approvals') e WHERE (e->>'approval_id')::uuid = a_plain);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'approvals.list', 'mine', true, 'session_token', 'selftest-org-owner-token'));
+  ok := ok AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r->'approvals') e WHERE (e->>'approval_id')::uuid = a_routed)
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'approvals') e WHERE (e->>'approval_id')::uuid = a_plain);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'approvals.list', 'session_token', 'selftest-org-owner-token'));
+  ok := ok AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'approvals') e
+                       WHERE (e->>'approval_id')::uuid = a_routed AND NOT (e->>'can_decide')::boolean);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_approvals_list_mine_and_can_decide', 'ok', ok));
+
+  -- Escalation opens the request to the second role once the time has passed.
+  ok := decision_access(u_ceo, 'approval', a_routed) IS NULL;
+  UPDATE allgres_private.human_approvals SET escalate_at = now() - interval '1 minute' WHERE approval_id = a_routed;
+  ok := ok AND decision_access(u_ceo, 'approval', a_routed) = 'self';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_escalation_opens_to_second_role', 'ok', ok));
+
+  -- Delegation is time-boxed.
+  v_deleg := (fn_org_add_delegation(u_head, u_aide, now() + interval '1 hour')->>'delegation_id')::uuid;
+  ok := decision_access(u_aide, 'approval', a_routed) = 'delegate';
+  UPDATE allgres_private.approval_delegations SET valid_from = now() - interval '2 hours', valid_until = now() - interval '1 hour'
+    WHERE delegation_id = v_deleg;
+  ok := ok AND decision_access(u_aide, 'approval', a_routed) IS NULL;
+  UPDATE allgres_private.approval_delegations SET valid_from = now() - interval '1 hour', valid_until = now() + interval '1 hour'
+    WHERE delegation_id = v_deleg;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_delegation_is_time_boxed', 'ok', ok));
+
+  -- The head decides (here through the aide's delegation) and the row says who and how.
+  PERFORM allgres.dashboard_rpc(jsonb_build_object('action', 'approvals.decide', 'approval_id', a_routed,
+    'accept', true, 'reply', 'ok', 'session_token', 'selftest-org-aide-token'));
+  ok := (SELECT status = 'approved' AND decided_by_user_id = u_aide AND decided_via = 'delegate'
+         FROM allgres_private.human_approvals WHERE approval_id = a_routed);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_decision_records_who_and_how', 'ok', ok));
+
+  -- A lower priority number wins, so a rule for one kind beats the group rule.
+  v_rule_kind := (fn_org_save_rule(jsonb_build_object(
+    'applies_to', 'approval', 'match_kind', 'await_human', 'priority', 10, 'decider_role_id', r_ceo))->>'rule_id')::uuid;
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at)
+    VALUES (v_tid, 'pending', jsonb_build_object('reason', 'prio'), now() + interval '1 hour')
+    RETURNING approval_id INTO a_prio;
+  ok := (SELECT routed_role_id = r_ceo AND routed_rule_id = v_rule_kind FROM allgres_private.human_approvals WHERE approval_id = a_prio);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_rule_priority_orders_matches', 'ok', ok));
+
+  -- Proposals route the same way, by kind.
+  v_rule_prop := (fn_org_save_rule(jsonb_build_object(
+    'applies_to', 'proposal', 'match_kind', 'create_function', 'decider_role_id', r_head))->>'rule_id')::uuid;
+  INSERT INTO allgres_private.change_proposals (agent_id, kind, proposed_changes, base_generation)
+    VALUES (v_agent, 'create_function', '{}'::jsonb, 1) RETURNING proposal_id INTO v_prop;
+  ok := (SELECT routed_role_id = r_head FROM allgres_private.change_proposals WHERE proposal_id = v_prop)
+    AND decision_access(u_head, 'proposal', v_prop) = 'self'
+    AND decision_access(u_owner, 'proposal', v_prop) IS NULL
+    AND decision_access(u_admin, 'proposal', v_prop) = 'admin';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_rule_routes_proposal_by_kind', 'ok', ok));
+
+  -- Deleting a rule leaves an already-routed request where it was.
+  PERFORM fn_org_delete_rule(v_rule);
+  ok := (SELECT routed_role_id = r_head FROM allgres_private.human_approvals WHERE approval_id = a_routed)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.approval_rules WHERE rule_id = v_rule);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_deleting_rule_keeps_routed_request', 'ok', ok));
+
+  -- Deleting a role removes its memberships and rules; a request it was routed
+  -- to is then decided by admins only (the owner still sees it).
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload, expires_at, routed_role_id)
+    VALUES (v_tid, 'pending', jsonb_build_object('reason', 'dangling'), now() + interval '1 hour', r_head)
+    RETURNING approval_id INTO a_routed;
+  PERFORM fn_org_delete_role(r_head);
+  ok := decision_access(u_head, 'approval', a_routed) IS NULL
+    AND decision_access(u_owner, 'approval', a_routed) = 'viewer'
+    AND decision_access(u_admin, 'approval', a_routed) = 'admin'
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.approval_rules WHERE rule_id = v_rule_prop);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'org_deleted_role_leaves_only_admin', 'ok', ok));
 
   RETURN v;
 END;

@@ -546,6 +546,7 @@ DECLARE
   v_created jsonb;
   v_user allgres_private.users%ROWTYPE;
   v_scope uuid[];
+  v_via text;
 BEGIN
   -- Every consequential mutating function below now writes its own
   -- audit_log row itself (allgres_private.audit) the moment it actually
@@ -814,11 +815,17 @@ BEGIN
           'task_id', cp.task_id, 'proposed_changes', cp.proposed_changes,
           'reason', cp.reason, 'base_generation', cp.base_generation,
           'status', cp.status, 'created_at', cp.created_at,
-          'decided_at', cp.decided_at, 'decided_reply', cp.decided_reply
+          'decided_at', cp.decided_at, 'decided_reply', cp.decided_reply,
+          'routed_role_id', cp.routed_role_id, 'routed_role', rr.name,
+          'routed_unit_id', cp.routed_unit_id, 'escalate_at', cp.escalate_at,
+          'decided_by_user_id', cp.decided_by_user_id, 'decided_via', cp.decided_via,
+          'can_decide', (v_scope IS NULL AND v_user.user_id IS NULL)
+            OR allgres_private.decision_access(v_user.user_id, 'proposal', cp.proposal_id) IN ('admin', 'self', 'delegate')
         ) ORDER BY cp.created_at DESC)
         FROM allgres_private.change_proposals cp
         JOIN allgres_private.agents a ON a.agent_id = cp.agent_id
         LEFT JOIN allgres_private.agents ta ON ta.agent_id = cp.target_agent_id
+        LEFT JOIN allgres_private.org_roles rr ON rr.role_id = cp.routed_role_id
         WHERE (NOT (p_request ? 'agent_id') OR cp.agent_id = (p_request->>'agent_id')::uuid)
           AND (NOT (p_request ? 'status') OR cp.status = p_request->>'status')
           AND COALESCE(cp.reason, '') NOT LIKE 'selftest%'
@@ -832,24 +839,31 @@ BEGIN
           -- create_agent has no existing target to scope by, so it stays
           -- admin-only in this inbox; a policy_change is visible to whoever
           -- may reach its actual target (COALESCE(target_agent_id, agent_id)).
-          AND (v_scope IS NULL OR (cp.kind = 'policy_change' AND COALESCE(cp.target_agent_id, cp.agent_id) = ANY(v_scope)))
+          -- A proposal a rule routed to a role is also visible to that role,
+          -- and to anyone it was delegated to (decision_access).
+          AND (v_scope IS NULL OR allgres_private.decision_access(v_user.user_id, 'proposal', cp.proposal_id) IS NOT NULL)
+          AND (NOT COALESCE((p_request->>'mine')::boolean, false)
+               OR (v_scope IS NULL AND v_user.user_id IS NULL)
+               OR allgres_private.decision_access(v_user.user_id, 'proposal', cp.proposal_id) IN ('admin', 'self', 'delegate'))
       ), '[]'::jsonb));
 
     WHEN 'proposals.decide' THEN
       v_scope := allgres_private.visible_agent_ids(p_request->>'session_token');
-      IF v_scope IS NOT NULL AND NOT EXISTS (
-        SELECT 1 FROM allgres_private.change_proposals cp
-        WHERE cp.proposal_id = (p_request->>'proposal_id')::uuid
-          AND cp.kind = 'policy_change'
-          AND COALESCE(cp.target_agent_id, cp.agent_id) = ANY(v_scope)
-      ) THEN
-        RAISE EXCEPTION 'proposal not visible to this user' USING ERRCODE = 'P0001';
+      IF v_scope IS NOT NULL THEN
+        v_via := allgres_private.decision_access(v_user.user_id, 'proposal', (p_request->>'proposal_id')::uuid);
+        IF v_via IS NULL THEN
+          RAISE EXCEPTION 'proposal not visible to this user' USING ERRCODE = 'P0001';
+        ELSIF v_via = 'viewer' THEN
+          RAISE EXCEPTION 'this proposal is routed to a role you do not hold; only that role can decide it' USING ERRCODE = 'P0001';
+        END IF;
       END IF;
-      RETURN allgres_public.fn_decide_proposal(
+      v_created := allgres_public.fn_decide_proposal(
         (p_request->>'proposal_id')::uuid,
         (p_request->>'approve')::boolean,
         NULLIF(p_request->>'reply', '')
       );
+      PERFORM allgres_private.stamp_decider('proposal', (p_request->>'proposal_id')::uuid, v_user.user_id, COALESCE(v_via, 'admin'));
+      RETURN v_created;
 
     -- Read-only visibility into self_improve's model-optimizer canary
     -- experiments. Admin-only, the same as a 'create_agent' proposal in the
@@ -1994,13 +2008,24 @@ BEGIN
         FROM (
           SELECT h.approval_id, h.task_id, t.session_id, a.name AS agent,
                  s.goal, h.payload->>'reason' AS reason, h.payload,
-                 h.created_at, h.expires_at
+                 h.created_at, h.expires_at,
+                 h.routed_role_id, rr.name AS routed_role, h.routed_unit_id, h.escalate_at,
+                 (v_scope IS NULL AND v_user.user_id IS NULL)
+                   OR allgres_private.decision_access(v_user.user_id, 'approval', h.approval_id) IN ('admin', 'self', 'delegate') AS can_decide
           FROM allgres_private.human_approvals h
           JOIN allgres_private.tasks t USING (task_id)
           JOIN allgres_private.agents a USING (agent_id)
           JOIN allgres_private.sessions s USING (session_id)
+          LEFT JOIN allgres_private.org_roles rr ON rr.role_id = h.routed_role_id
           WHERE h.status = 'pending'
-            AND (v_scope IS NULL OR t.agent_id = ANY(v_scope))
+            -- Assigned users see their agents' approvals; a request a rule
+            -- routed to a role is also visible to that role and to anyone it
+            -- was delegated to (decision_access). mine=true narrows to what
+            -- this user may decide.
+            AND (v_scope IS NULL OR allgres_private.decision_access(v_user.user_id, 'approval', h.approval_id) IS NOT NULL)
+            AND (NOT COALESCE((p_request->>'mine')::boolean, false)
+                 OR (v_scope IS NULL AND v_user.user_id IS NULL)
+                 OR allgres_private.decision_access(v_user.user_id, 'approval', h.approval_id) IN ('admin', 'self', 'delegate'))
           ORDER BY h.created_at
           LIMIT LEAST(GREATEST(COALESCE((p_request->>'limit')::int, 100), 1), 500)
         ) q
@@ -2008,18 +2033,75 @@ BEGIN
 
     WHEN 'approvals.decide' THEN
       v_scope := allgres_private.visible_agent_ids(p_request->>'session_token');
-      IF v_scope IS NOT NULL AND NOT EXISTS (
-        SELECT 1 FROM allgres_private.human_approvals h
-        JOIN allgres_private.tasks t USING (task_id)
-        WHERE h.approval_id = (p_request->>'approval_id')::uuid AND t.agent_id = ANY(v_scope)
-      ) THEN
-        RAISE EXCEPTION 'approval not visible to this user' USING ERRCODE = 'P0001';
+      IF v_scope IS NOT NULL THEN
+        v_via := allgres_private.decision_access(v_user.user_id, 'approval', (p_request->>'approval_id')::uuid);
+        IF v_via IS NULL THEN
+          RAISE EXCEPTION 'approval not visible to this user' USING ERRCODE = 'P0001';
+        ELSIF v_via = 'viewer' THEN
+          RAISE EXCEPTION 'this approval is routed to a role you do not hold; only that role can decide it' USING ERRCODE = 'P0001';
+        END IF;
       END IF;
-      RETURN allgres_public.fn_decide_approval(
+      v_created := allgres_public.fn_decide_approval(
         (p_request->>'approval_id')::uuid,
         (p_request->>'accept')::boolean,
         NULLIF(p_request->>'reply', '')
       );
+      PERFORM allgres_private.stamp_decider('approval', (p_request->>'approval_id')::uuid, v_user.user_id, COALESCE(v_via, 'admin'));
+      RETURN v_created;
+
+    -- ---------------------------------------------------------------------
+    -- People, roles, and approval routing (sql/org_routing.sql,
+    -- docs/approvals-and-roles.md). Admin-only; every branch calls one
+    -- fn_org_* function that writes its own audit row.
+    -- ---------------------------------------------------------------------
+    WHEN 'org.state' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_state();
+
+    WHEN 'org.units.save' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_save_unit(
+        NULLIF(p_request->>'unit_id', '')::uuid, p_request->>'name', NULLIF(p_request->>'parent_unit_id', '')::uuid);
+
+    WHEN 'org.units.delete' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_delete_unit((p_request->>'unit_id')::uuid);
+
+    WHEN 'org.roles.save' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_save_role(
+        NULLIF(p_request->>'role_id', '')::uuid, p_request->>'name', COALESCE(p_request->>'description', ''));
+
+    WHEN 'org.roles.delete' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_delete_role((p_request->>'role_id')::uuid);
+
+    WHEN 'org.memberships.add' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_add_membership(
+        (p_request->>'user_id')::uuid, (p_request->>'role_id')::uuid, NULLIF(p_request->>'unit_id', '')::uuid);
+
+    WHEN 'org.memberships.remove' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_remove_membership((p_request->>'membership_id')::uuid);
+
+    WHEN 'approval_rules.save' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_save_rule(p_request->'rule');
+
+    WHEN 'approval_rules.delete' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_delete_rule((p_request->>'rule_id')::uuid);
+
+    WHEN 'approval_delegations.add' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_add_delegation(
+        (p_request->>'from_user_id')::uuid, (p_request->>'to_user_id')::uuid,
+        (p_request->>'valid_until')::timestamptz, NULLIF(p_request->>'valid_from', '')::timestamptz);
+
+    WHEN 'approval_delegations.remove' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_org_remove_delegation((p_request->>'delegation_id')::uuid);
 
     WHEN 'selftest' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
