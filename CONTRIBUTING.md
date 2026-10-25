@@ -22,3 +22,22 @@ use the narrowest possible owner and privilege set; do not broaden
 
 Keep comments focused on non-obvious constraints and invariants. Update the
 relevant document under `docs/` whenever behavior changes.
+
+## Claude Code sessions
+
+`.claude/settings.json` sets up three tools that cut the tokens a Claude Code
+session spends while developing:
+
+- **rtk** (Apache-2.0 `rtk-oss` edition) condenses Bash command output such
+  as `git`, `cargo`, `ls`, and `grep`. Run `rtk bypass <cmd>` when the full
+  output is needed.
+- **graphify** builds a code knowledge graph in `graphify-out/` (ignored by
+  Git, AST only, no model calls). Ask it with `graphify query "<question>"`
+  before reading raw source, and refresh it with `graphify update .`.
+- **caveman** (vendored skill in `.claude/skills/caveman/`, MIT) keeps replies
+  terse. Say "stop caveman" or "normal mode" to turn it off for a session.
+
+In cloud sessions `.claude/hooks/session-start.sh` installs pinned versions of
+rtk and graphify and builds the graph. On a local machine the hooks do nothing
+until you install `rtk` and `graphifyy[sql]` yourself; the caveman skill works
+either way.

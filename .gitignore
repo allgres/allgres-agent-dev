@@ -15,3 +15,6 @@
 pgdata/
 /web/canvas/node_modules/
 /web/canvas/dist/
+
+# Code graph built by graphify at session start (.claude/hooks/session-start.sh).
+graphify-out/
