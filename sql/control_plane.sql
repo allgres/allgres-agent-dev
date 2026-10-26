@@ -7633,6 +7633,7 @@ BEGIN
     n := n + 1;
   END LOOP;
   PERFORM allgres_private.mcp_oauth_refresh_due();
+  PERFORM allgres_private.connection_checks_due();
 
   -- And for an MCP discovery the worker never came back from; the server's
   -- health stays at its last real result, same tolerance as the probes above.

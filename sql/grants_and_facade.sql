@@ -587,6 +587,13 @@ BEGIN
         'ok', true,
         'server_time', now(),
         'version', allgres.native_version(),
+        'connections_attention', COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('connection_id', c.connection_id, 'name', c.name, 'kind', c.kind,
+                 'health', c.health, 'detail', c.health_detail) ORDER BY c.name)
+          FROM allgres_private.api_connections c
+          WHERE c.is_enabled AND c.health IN ('auth_needed', 'unreachable', 'changed') AND c.name NOT LIKE 'selftest%'
+        ), '[]'::jsonb),
+        'held_events', (SELECT count(*) FROM allgres_private.inbound_events WHERE status = 'held'),
         'agents', (SELECT count(*) FROM allgres_private.agents WHERE name NOT LIKE 'selftest%'),
         'active_agents', (SELECT count(*) FROM allgres_private.agents WHERE is_active AND name NOT LIKE 'selftest%'),
         'running_tasks', (
@@ -1793,6 +1800,63 @@ BEGIN
       RETURN allgres_public.fn_decision_model_connect(
         p_request->>'name', p_request->>'base_url', NULLIF(p_request->>'api_key', ''),
         COALESCE((p_request->>'allow_private_network')::boolean, false));
+
+    -- Inbound events (sql/inbound_events.sql). inbound.receive carries no
+    -- dashboard session: a valid signature made with the source's secret is
+    -- what authorizes it, and every refusal answers alike.
+    WHEN 'inbound.receive' THEN
+      RETURN allgres_public.fn_inbound_receive(
+        p_request->>'source', p_request->>'timestamp', p_request->>'signature',
+        p_request->>'body', p_request->>'sender_id');
+
+    WHEN 'inbound.sources' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'sources', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'source_id', i.source_id, 'name', i.name, 'agent', a.name, 'agent_id', i.agent_id,
+          'goal_template', i.goal_template, 'mode', i.mode, 'max_per_minute', i.max_per_minute,
+          'is_enabled', i.is_enabled, 'last_event_at', i.last_event_at, 'path', '/inbound/' || i.name,
+          'held', (SELECT count(*) FROM allgres_private.inbound_events e WHERE e.source_id = i.source_id AND e.status = 'held')
+        ) ORDER BY i.name)
+        FROM allgres_private.inbound_sources i JOIN allgres_private.agents a USING (agent_id)
+      ), '[]'::jsonb));
+
+    WHEN 'inbound.source_create' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_inbound_source_create(
+        p_request->>'name', (p_request->>'agent_id')::uuid, p_request->>'goal_template',
+        COALESCE(NULLIF(p_request->>'mode', ''), 'hold'),
+        COALESCE(NULLIF(p_request->>'max_per_minute', '')::int, 30));
+
+    WHEN 'inbound.source_rotate' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_inbound_source_rotate((p_request->>'source_id')::uuid);
+
+    WHEN 'inbound.source_set' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_inbound_source_set((p_request->>'source_id')::uuid,
+        CASE WHEN p_request ? 'is_enabled' THEN (p_request->>'is_enabled')::boolean END, p_request->>'mode');
+
+    WHEN 'inbound.source_delete' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      DELETE FROM allgres_private.inbound_sources WHERE source_id = (p_request->>'source_id')::uuid;
+      PERFORM allgres_private.audit('inbound.source_delete', jsonb_build_object('source_id', p_request->>'source_id'));
+      RETURN jsonb_build_object('ok', true);
+
+    WHEN 'inbound.events' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'events', COALESCE((
+        SELECT jsonb_agg(x ORDER BY (x->>'received_at') DESC) FROM (
+          SELECT jsonb_build_object('event_id', e.event_id, 'source', i.name, 'status', e.status,
+                 'received_at', e.received_at, 'body', left(e.body, 600), 'session_id', e.session_id) AS x
+          FROM allgres_private.inbound_events e JOIN allgres_private.inbound_sources i USING (source_id)
+          ORDER BY e.received_at DESC LIMIT 50) t
+      ), '[]'::jsonb));
+
+    WHEN 'inbound.event_start' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_inbound_event_start((p_request->>'event_id')::uuid,
+        COALESCE((p_request->>'dismiss')::boolean, false));
 
     WHEN 'mcp.oauth_start' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');

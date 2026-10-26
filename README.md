@@ -128,7 +128,7 @@ The [RPM guide](docs/deployment/rpm.md) finds the newest published Fedora 43/Pos
 
 ## Next work
 
-The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-plan.md) (Korean). It records the discussion so far, the principles that bind it, and the order of work. Stages 0 to 2 are done; the rest has not been started. Each stage must pass the plan's validation scenarios before the next one begins:
+The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-plan.md) (Korean). It records the discussion so far, the principles that bind it, and the order of work. Stages 0 to 3 are done; the rest has not been started. Each stage must pass the plan's validation scenarios before the next one begins:
 
 0. **Safety fixes (done).**
    - Apply the delegation ceiling when a delegation line is drawn.
@@ -140,7 +140,7 @@ The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-pl
    - Register decision points as data.
    - Record every decision in PostgreSQL in Laya's official training format, whether or not Laya is connected.
 2. **Dashboard UX (done).** Restructure the menus, add first-run guidance, and use one vocabulary.
-3. **Connections** ([design](docs/stage3-design.md); MCP server discovery, risk levels, OAuth sign-in, connection tests, model prices, and the decision model connection are in, see [MCP servers](docs/mcp-servers.md)).
+3. **Connections (done)** ([design](docs/stage3-design.md); MCP server discovery, risk levels, OAuth sign-in, connection tests, model prices, the decision model connection, inbound events, and scheduled checks are in, see [MCP servers](docs/mcp-servers.md)).
    - One-step model, MCP (including OAuth), API, and decision-model connections.
    - Per-tool risk levels.
    - Inbound events.

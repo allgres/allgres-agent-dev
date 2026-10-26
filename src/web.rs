@@ -553,6 +553,53 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
+    // Inbound events (sql/inbound_events.sql): a signed POST from an outside
+    // system. No dashboard session; the signature is the only credential, and
+    // the SQL side answers every refusal the same way.
+    if let Some(name) = path.strip_prefix("/inbound/") {
+        if r.method != "POST" || name.is_empty() || name.contains('/') {
+            respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+            return;
+        }
+        if let Some(ip) = peer_ip {
+            if auth_failures_exceeded(ip) {
+                respond(&mut s, "429 Too Many Requests", "application/json",
+                        "{\"ok\":false,\"error\":\"rate_limited\"}", "Retry-After: 300\r\n");
+                return;
+            }
+        }
+        let reply = rpc(cfg, &json!({
+            "action": "inbound.receive",
+            "source": name,
+            "timestamp": r.header("x-allgres-timestamp").unwrap_or(""),
+            "signature": r.header("x-allgres-signature").unwrap_or(""),
+            "sender_id": r.header("x-allgres-event-id").unwrap_or(""),
+            "body": r.body,
+        }));
+        let status = reply.get("status").and_then(Value::as_i64).unwrap_or(500);
+        if status == 401 {
+            if let Some(ip) = peer_ip {
+                record_auth_failure(ip);
+            }
+        }
+        let line = match status {
+            200 => "200 OK",
+            202 => "202 Accepted",
+            401 => "401 Unauthorized",
+            413 => "413 Payload Too Large",
+            429 => "429 Too Many Requests",
+            _ => "500 Internal Server Error",
+        };
+        let ok = reply.get("ok").and_then(Value::as_bool).unwrap_or(false);
+        let body = if ok {
+            json!({"ok": true, "duplicate": reply.get("duplicate").cloned().unwrap_or(json!(false))})
+        } else {
+            json!({"ok": false, "error": reply.get("error").cloned().unwrap_or(json!("failed"))})
+        };
+        respond_json(&mut s, line, &body.to_string());
+        return;
+    }
+
     // The Client ID Metadata Document: the client id itself is this address,
     // so an authorization server that supports it can read who is asking
     // without registering. Only meaningful when Allgres is reached over https.

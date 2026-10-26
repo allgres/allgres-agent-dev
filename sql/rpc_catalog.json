@@ -756,6 +756,92 @@
     ]
   },
   {
+    "action": "inbound.receive",
+    "guards": [],
+    "params": [
+      "body",
+      "sender_id",
+      "signature",
+      "source",
+      "timestamp"
+    ]
+  },
+  {
+    "action": "inbound.sources",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "inbound.source_create",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "agent_id",
+      "goal_template",
+      "max_per_minute",
+      "mode",
+      "name",
+      "session_token"
+    ]
+  },
+  {
+    "action": "inbound.source_rotate",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token",
+      "source_id"
+    ]
+  },
+  {
+    "action": "inbound.source_set",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "is_enabled",
+      "mode",
+      "session_token",
+      "source_id"
+    ]
+  },
+  {
+    "action": "inbound.source_delete",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token",
+      "source_id"
+    ]
+  },
+  {
+    "action": "inbound.events",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "inbound.event_start",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "dismiss",
+      "event_id",
+      "session_token"
+    ]
+  },
+  {
     "action": "mcp.oauth_start",
     "guards": [
       "require_admin_if_accounts_exist"

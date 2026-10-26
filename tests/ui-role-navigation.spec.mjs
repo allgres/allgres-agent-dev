@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createHmac } from 'node:crypto';
 
 const baseURL = process.env.ALLGRES_UI_URL || 'http://127.0.0.1:8088';
 test.describe.configure({ mode: 'serial' });
@@ -15,7 +16,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Access & appearance','Audit log'];
+  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Access & appearance','Audit log'];
   for (const label of labels) {
     const button = page.locator('#nav button', { hasText: label }).first();
     await expect(button).toBeVisible();
@@ -254,6 +255,41 @@ test('admin connects a decision model and sees its checkpoints', async ({ page }
   // It is a decision model, not an API connection or an MCP server.
   await page.locator('#nav button', { hasText: 'APIs' }).click();
   await expect(page.locator('#view')).not.toContainText('ui_laya');
+});
+
+test('admin receives a signed inbound event and starts a task from it', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.evaluate(async () => {
+    const r = await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ action: 'agents.create', name: 'ui_inbound_agent', system_prompt: 'Handles alerts.', session_token: sessionStorage.getItem('allgres_session_token') }) });
+    const j = await r.json(); if (j.ok === false && !/already|duplicate key/i.test(String(j.error))) throw new Error(j.error);
+  });
+  await page.locator('#nav button', { hasText: 'Inbound events' }).click();
+  await page.locator('#inName').fill('ui-alerts');
+  await page.locator('#inAgent').selectOption({ label: 'ui_inbound_agent' });
+  await page.locator('#inAdd').click();
+  const secret = (await page.locator('#inSecretText').innerText()).trim();
+  expect(secret.length).toBeGreaterThanOrEqual(40);
+  const body = JSON.stringify({ sensor: 'pump-3', temp: 91 });
+  const ts = String(Math.floor(Date.now() / 1000));
+  const sign = (s, t, b) => 'sha256=' + createHmac('sha256', s).update(`${t}.${b}`).digest('hex');
+  const post = (sig, id) => page.request.post(baseURL + '/inbound/ui-alerts', {
+    data: body, headers: { 'content-type': 'application/json', 'x-allgres-timestamp': ts, 'x-allgres-signature': sig, 'x-allgres-event-id': id } });
+  expect((await post('sha256=' + '0'.repeat(64), 'e0')).status()).toBe(401);
+  expect((await post(sign(secret, ts, body), 'e1')).status()).toBe(202);
+  const again = await post(sign(secret, ts, body), 'e1');
+  expect(again.status()).toBe(200);
+  expect((await again.json()).duplicate).toBe(true);
+  // It waits for a person, and shows on Home.
+  await page.locator('#nav button', { hasText: 'Home' }).click();
+  await expect(page.getByText('1 inbound event')).toBeVisible({ timeout: 20000 });
+  await page.locator('#nav button', { hasText: 'Inbound events' }).click();
+  const row = page.locator('#view tbody tr', { hasText: 'pump-3' });
+  await expect(row.getByText('waiting')).toBeVisible();
+  await row.getByRole('button', { name: 'Start a task' }).click();
+  await expect(page.locator('#view tbody tr', { hasText: 'pump-3' }).getByText('task started')).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('#view')).not.toContainText(secret);
 });
 
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
