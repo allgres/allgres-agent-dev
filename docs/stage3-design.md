@@ -1,6 +1,6 @@
 # 3단계 설계: 연결 (모델, MCP, API, 판단 모델)
 
-> 상태: **3a, 3b 구현됨** (OAuth: [mcp-servers.md](mcp-servers.md)의 "Sign in with OAuth") (사용법: [mcp-servers.md](mcp-servers.md)). 3c부터는 아직입니다. 3b에서 바뀐 점: 토큰 교환과 갱신은 워커가 하고, 갱신은 `fn_watchdog`가 만료 5분 전에 큐에 넣습니다. 클라이언트 등록 순서는 사람이 입력한 id, CIMD(https일 때만), DCR입니다. 구현하며 바뀐 점: 새 무상태 방식을 먼저 시도하지 않고 **옛 `initialize` 핸드셰이크를 먼저** 보내며, 서버가 거절하면 무상태 형식(`_meta`와 `Mcp-Method` 헤더)으로 되돌아갑니다(배포된 서버가 대부분 옛 방식이라 더 안전합니다). `mcp_call` 함수는 절차(procedure)에 묶여야만 실행되므로 도구를 등록하면 **같은 이름의 절차도 함께 만들어** 묶고, 에이전트에게는 그 절차를 줍니다. [improvement-plan.md](improvement-plan.md)의 3단계를 현재 코드와 최신 MCP 규격에 맞춰 구체화했습니다. 7장의 결정을 확인한 뒤 3a부터 구현합니다.
+> 상태: **3a, 3b, 3c 구현됨** (OAuth: [mcp-servers.md](mcp-servers.md)의 "Sign in with OAuth") (사용법: [mcp-servers.md](mcp-servers.md)). 3d부터는 아직입니다. 3c에서 바뀐 점: 가격은 제공사가 모델 목록에 직접 싣는 경우(OpenRouter, LiteLLM)에만 자동으로 알 수 있고, 내장 가격표는 두지 않습니다(가격이 바뀌면 틀린 예산을 만들기 때문). 알려준 가격은 사람이 누를 때만 적용됩니다. 3b에서 바뀐 점: 토큰 교환과 갱신은 워커가 하고, 갱신은 `fn_watchdog`가 만료 5분 전에 큐에 넣습니다. 클라이언트 등록 순서는 사람이 입력한 id, CIMD(https일 때만), DCR입니다. 구현하며 바뀐 점: 새 무상태 방식을 먼저 시도하지 않고 **옛 `initialize` 핸드셰이크를 먼저** 보내며, 서버가 거절하면 무상태 형식(`_meta`와 `Mcp-Method` 헤더)으로 되돌아갑니다(배포된 서버가 대부분 옛 방식이라 더 안전합니다). `mcp_call` 함수는 절차(procedure)에 묶여야만 실행되므로 도구를 등록하면 **같은 이름의 절차도 함께 만들어** 묶고, 에이전트에게는 그 절차를 줍니다. [improvement-plan.md](improvement-plan.md)의 3단계를 현재 코드와 최신 MCP 규격에 맞춰 구체화했습니다. 7장의 결정을 확인한 뒤 3a부터 구현합니다.
 
 ## 1. 목표와 범위
 

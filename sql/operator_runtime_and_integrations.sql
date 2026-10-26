@@ -1813,6 +1813,7 @@ DECLARE
   c allgres_private.provider_probes%ROWTYPE;
   v_parsed jsonb;
   v_models jsonb;
+  v_prices jsonb;
   v_err text;
 BEGIN
   PERFORM set_config('statement_timeout', '2000', true);
@@ -1853,8 +1854,21 @@ BEGIN
     INTO v_models
     FROM jsonb_array_elements(COALESCE(v_parsed->'data', '[]'::jsonb)) AS x
     WHERE x->>'id' IS NOT NULL;
+    -- Some providers (OpenRouter's pricing.prompt / pricing.completion, a
+    -- LiteLLM proxy's input_cost_per_token / output_cost_per_token) say what
+    -- a token costs in USD. Kept as the provider's own claim, per 1000
+    -- tokens, for a person to accept; nothing is priced from it on its own.
+    SELECT jsonb_object_agg(x->>'id', jsonb_build_object(
+             'input_per_1k', (COALESCE(x#>>'{pricing,prompt}', x->>'input_cost_per_token'))::numeric * 1000,
+             'output_per_1k', (COALESCE(x#>>'{pricing,completion}', x->>'output_cost_per_token'))::numeric * 1000))
+    INTO v_prices
+    FROM jsonb_array_elements(COALESCE(v_parsed->'data', '[]'::jsonb)) AS x
+    WHERE x->>'id' IS NOT NULL
+      AND COALESCE(x#>>'{pricing,prompt}', x->>'input_cost_per_token') ~ '^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$'
+      AND COALESCE(x#>>'{pricing,completion}', x->>'output_cost_per_token') ~ '^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$';
   EXCEPTION WHEN others THEN
     v_models := NULL;
+    v_prices := NULL;
   END;
 
   UPDATE allgres_private.provider_probes
@@ -1863,7 +1877,8 @@ BEGIN
 
   UPDATE allgres_private.llm_providers
   SET last_probe_status = 'ok', last_probe_at = now(), last_probe_error = NULL,
-      available_models = COALESCE(v_models, available_models)
+      available_models = COALESCE(v_models, available_models),
+      reported_prices = CASE WHEN v_models IS NULL THEN reported_prices ELSE COALESCE(v_prices, '{}'::jsonb) END
   WHERE provider_id = c.provider_id;
 
   RETURN jsonb_build_object(

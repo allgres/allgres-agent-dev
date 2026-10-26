@@ -451,7 +451,8 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         let body = json!({
             "object": "list",
             "data": [
-                { "id": "allgres-mock", "object": "model" },
+                { "id": "allgres-mock", "object": "model",
+                  "pricing": { "prompt": "0.000001", "completion": "0.000002" } },
                 { "id": "allgres-mock-embed", "object": "model" }
             ]
         })

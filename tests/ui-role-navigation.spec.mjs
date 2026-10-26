@@ -201,6 +201,36 @@ test('admin signs in to an MCP server with OAuth', async ({ page }) => {
   await expect(server().getByText('Not signed in yet.')).toBeVisible({ timeout: 20000 });
 });
 
+test('admin tests an API connection and accepts a reported model price', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  // A provider on the built-in mock, probed through the worker, and a plain
+  // API connection to the mock's own address.
+  await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const p = await call({ action: 'provider.create', name: 'ui_price_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    const probe = await call({ action: 'providers.probe_start', provider_id: p.provider_id });
+    if (probe.ok === false) throw new Error(probe.error);
+    const c = await call({ action: 'connections.create', name: 'ui_ping_mock', base_url: base + '/healthz', auth_kind: 'none', allow_private_network: true });
+    if (c.ok === false) throw new Error(c.error);
+  }, baseURL);
+  await page.locator('#nav button', { hasText: 'APIs' }).click();
+  const row = page.locator('#view tbody tr', { hasText: 'ui_ping_mock' });
+  await expect(row.getByText('not tested')).toBeVisible();
+  await row.getByRole('button', { name: 'Test' }).click();
+  await expect(row.getByText('reachable', { exact: true })).toBeVisible({ timeout: 20000 });
+  await page.locator('#nav button', { hasText: 'Models & prices' }).click();
+  const block = page.locator('#unpricedBlock');
+  await expect(block).toContainText('no price', { timeout: 20000 });
+  const model = block.locator('tbody tr', { hasText: 'allgres-mock' }).filter({ hasText: 'ui_price_mock' }).filter({ hasNotText: 'embed' });
+  await expect(model).toContainText('0.001 in / 0.002 out');
+  await model.getByRole('button', { name: 'Use this price' }).click();
+  const priced = page.locator('#view tbody tr', { hasText: 'ui_price_mock' }).filter({ hasText: '0.001' });
+  await expect(priced.first()).toBeVisible({ timeout: 20000 });
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(4);
