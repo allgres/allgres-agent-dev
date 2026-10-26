@@ -150,7 +150,8 @@ extension_sql_file!("../sql/decision_records.sql", name = "decision_records", re
 // And MCP servers as connections (docs/stage3-design.md): discovery, risk
 // levels, registration. Before the self-test that exercises them.
 extension_sql_file!("../sql/mcp_connections.sql", name = "mcp_connections", requires = ["decision_records"]);
-extension_sql_file!("../sql/selftest.sql", requires = ["mcp_connections"]);
+extension_sql_file!("../sql/mcp_oauth.sql", name = "mcp_oauth", requires = ["mcp_connections"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["mcp_oauth"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]

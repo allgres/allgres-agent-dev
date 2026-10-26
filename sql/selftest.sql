@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'mcp.servers', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'mcp.servers', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5363,6 +5363,7 @@ BEGIN
   v := v || allgres_private.org_selftest_cases();
   v := v || allgres_private.decision_selftest_cases();
   v := v || allgres_private.mcp_selftest_cases();
+  v := v || allgres_private.mcp_oauth_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -6106,6 +6107,204 @@ BEGIN
       'detail', jsonb_build_object('read', v_ok1, 'physical', v_ok2,
         'task', (SELECT jsonb_build_object('status', status, 'error', error) FROM allgres_private.tasks WHERE task_id = t))));
   END;
+
+  RETURN v;
+END;
+$fn$;
+
+-- Signing in to an MCP server (sql/mcp_oauth.sql). The worker is not running
+-- inside the self-test, so each of its answers is fed in by hand.
+CREATE OR REPLACE FUNCTION allgres_private.mcp_oauth_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb; j jsonb;
+  u_admin uuid;
+  v_conn uuid; v_call uuid; v_flow uuid;
+  v_state text; v_verifier text; v_url text; v_err text;
+  v_base text := 'https://allgres.example.com';
+  v_meta text := '{"resource":"https://mcp.example.com/mcp","issuer":"https://auth.example.com","authorization_endpoint":"https://auth.example.com/authorize","token_endpoint":"https://auth.example.com/token","registration_endpoint":"https://auth.example.com/register","cimd_supported":false,"iss_supported":true,"scopes_supported":["tools","read files"]}';
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_oauth_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES ('selftest-oauth-admin-token', u_admin, now() + interval '1 hour');
+
+  ok := allgres_private.conn_header_kind('oauth') = 'authorization' AND allgres_private.conn_header_kind('none') IS NULL
+    AND allgres_private.conn_header_kind('x-api-key') = 'x-api-key'
+    AND allgres_private.url_encode('a b/c:d~é') = 'a%20b%2Fc%3Ad~%C3%A9'
+    AND allgres_private.mcp_oauth_base_ok('https://allgres.example.com')
+    AND allgres_private.mcp_oauth_base_ok('http://localhost:8088')
+    AND NOT allgres_private.mcp_oauth_base_ok('http://allgres.example.com')
+    AND NOT allgres_private.mcp_oauth_base_ok('https://allgres.example.com/path');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_helpers', 'ok', ok));
+
+  v_conn := (allgres_public.fn_mcp_connect('selftest_oauth', 'https://mcp.example.com/mcp', 'oauth', 'ignored-key', false)->>'connection_id')::uuid;
+  ok := (SELECT auth_kind = 'oauth' AND kind = 'mcp' FROM allgres_private.api_connections WHERE connection_id = v_conn)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.api_connection_secrets WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_connection_keeps_no_static_key', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'mcp.oauth_start', 'connection_id', v_conn, 'redirect_base', v_base));
+  ok := r->>'error' IS NOT NULL AND COALESCE((r->>'ok')::boolean, false) IS FALSE;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_start_needs_an_admin', 'ok', ok, 'detail', r));
+
+  v_err := NULL;
+  BEGIN
+    PERFORM allgres_public.fn_mcp_oauth_start(v_conn, 'http://allgres.example.com');
+  EXCEPTION WHEN others THEN v_err := SQLERRM;
+  END;
+  ok := v_err LIKE '%https%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_refuses_a_plain_http_return_address', 'ok', ok, 'detail', v_err));
+
+  -- Nothing is known about the server yet: one discovery is queued, once.
+  r := allgres_public.fn_mcp_oauth_start(v_conn, v_base);
+  j := allgres_public.fn_mcp_oauth_start(v_conn, v_base);
+  ok := r->>'status' = 'discovering' AND j->>'status' = 'discovering'
+    AND (SELECT count(*) = 1 FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'discover');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_start_queues_one_discovery', 'ok', ok));
+
+  r := allgres_public.fn_claim_mcp_oauth(8);
+  SELECT call_id INTO v_call FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'discover';
+  ok := EXISTS (SELECT 1 FROM jsonb_array_elements(r->'calls') c
+                WHERE c->>'call_id' = v_call::text AND c->>'kind' = 'mcp_oauth_discover' AND c->>'url' = 'https://mcp.example.com/mcp');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_claim_asks_the_worker_to_discover', 'ok', ok));
+
+  -- A server that names a private token address is refused.
+  r := allgres_public.fn_complete_mcp_oauth(v_call, 200, replace(v_meta, 'https://auth.example.com/token', 'http://127.0.0.1/token'));
+  ok := r->>'action' = 'error' AND (SELECT health_detail LIKE '%rejected%' FROM allgres_private.api_connections WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_rejects_a_private_token_address', 'ok', ok, 'detail', r));
+
+  r := allgres_public.fn_mcp_oauth_start(v_conn, v_base);
+  SELECT call_id INTO v_call FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'discover' AND status = 'queued';
+  PERFORM allgres_public.fn_claim_mcp_oauth(8);
+  r := allgres_public.fn_complete_mcp_oauth(v_call, 200, v_meta);
+  ok := r->>'action' = 'ok'
+    AND (SELECT token_endpoint = 'https://auth.example.com/token' AND iss_supported AND jsonb_array_length(scopes_supported) = 2
+         FROM allgres_private.mcp_oauth_config WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_discovery_is_stored', 'ok', ok, 'detail', r));
+
+  -- No Client ID Metadata Document support: register a client, then sign in.
+  r := allgres_public.fn_mcp_oauth_start(v_conn, v_base);
+  ok := r->>'status' = 'registering';
+  PERFORM allgres_public.fn_claim_mcp_oauth(8);
+  SELECT call_id INTO v_call FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'register' AND status = 'in_flight';
+  ok := ok AND v_call IS NOT NULL;
+  r := allgres_public.fn_complete_mcp_oauth(v_call, 201, '{"client_id":"registered-client"}');
+  ok := ok AND r->>'action' = 'ok' AND (SELECT client_id = 'registered-client' AND client_source = 'dcr' FROM allgres_private.mcp_oauth_config WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_registers_a_client', 'ok', ok));
+
+  r := allgres_public.fn_mcp_oauth_start(v_conn, v_base);
+  v_url := r->>'authorize_url';
+  SELECT flow_id, state, allgres_private.decrypt_secret(code_verifier) INTO v_flow, v_state, v_verifier
+  FROM allgres_private.mcp_oauth_flows WHERE connection_id = v_conn AND status = 'pending';
+  ok := r->>'status' = 'ready'
+    AND v_url LIKE 'https://auth.example.com/authorize?%'
+    AND v_url LIKE '%response_type=code%' AND v_url LIKE '%client_id=registered-client%'
+    AND v_url LIKE '%redirect_uri=https%3A%2F%2Fallgres.example.com%2Foauth%2Fcallback%'
+    AND v_url LIKE '%state=' || v_state || '%'
+    AND v_url LIKE '%code_challenge_method=S256%'
+    AND v_url LIKE '%code_challenge=' || translate(encode(sha256(convert_to(v_verifier, 'UTF8')), 'base64'), '+/=', '-_') || '%'
+    AND v_url LIKE '%resource=https%3A%2F%2Fmcp.example.com%2Fmcp%'
+    AND v_url LIKE '%scope=tools%20read%20files%'
+    AND length(v_verifier) >= 43;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_authorize_address_uses_pkce_and_resource', 'ok', ok, 'detail', v_url));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'oauth.callback', 'state', 'not-a-state', 'code', 'x'));
+  ok := (r->>'ok')::boolean IS FALSE AND r->>'error' IS NOT NULL;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_callback_ignores_an_unknown_state', 'ok', ok));
+
+  -- The answer must come from the server that was asked.
+  r := allgres_public.fn_mcp_oauth_callback(v_state, 'code1', 'https://evil.example.com', NULL);
+  ok := (r->>'ok')::boolean IS FALSE AND r->>'error' LIKE '%issuer mismatch%'
+    AND (SELECT status = 'failed' FROM allgres_private.mcp_oauth_flows WHERE flow_id = v_flow)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'exchange');
+  r := allgres_public.fn_mcp_oauth_callback(v_state, 'code1', 'https://auth.example.com', NULL);
+  ok := ok AND (r->>'ok')::boolean IS FALSE;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_callback_checks_the_issuer_and_state_is_single_use', 'ok', ok));
+
+  r := allgres_public.fn_mcp_oauth_start(v_conn, v_base);
+  SELECT flow_id, state, allgres_private.decrypt_secret(code_verifier) INTO v_flow, v_state, v_verifier
+  FROM allgres_private.mcp_oauth_flows WHERE connection_id = v_conn AND status = 'pending';
+  r := allgres_public.fn_mcp_oauth_callback(v_state, 'code2', NULL, NULL);
+  ok := (r->>'ok')::boolean IS FALSE AND r->>'error' LIKE '%missing issuer%';
+  r := allgres_public.fn_mcp_oauth_start(v_conn, v_base);
+  SELECT flow_id, state, allgres_private.decrypt_secret(code_verifier) INTO v_flow, v_state, v_verifier
+  FROM allgres_private.mcp_oauth_flows WHERE connection_id = v_conn AND status = 'pending';
+  r := allgres_public.fn_mcp_oauth_callback(v_state, 'code3', 'https://auth.example.com', NULL);
+  ok := ok AND (r->>'ok')::boolean;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_callback_requires_the_issuer_when_the_server_sends_it', 'ok', ok));
+
+  r := allgres_public.fn_claim_mcp_oauth(8);
+  SELECT call_id INTO v_call FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'exchange' AND status = 'in_flight';
+  ok := EXISTS (SELECT 1 FROM jsonb_array_elements(r->'calls') c
+                WHERE c->>'call_id' = v_call::text AND c->>'kind' = 'oauth'
+                  AND c->>'url' = 'https://auth.example.com/token'
+                  AND c->'body'->>'grant_type' = 'authorization_code' AND c->'body'->>'code' = 'code3'
+                  AND c->'body'->>'code_verifier' = v_verifier
+                  AND c->'body'->>'redirect_uri' = 'https://allgres.example.com/oauth/callback'
+                  AND c->'body'->>'client_id' = 'registered-client'
+                  AND c->'body'->>'resource' = 'https://mcp.example.com/mcp');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_exchange_sends_the_verifier_and_resource', 'ok', ok));
+
+  r := allgres_public.fn_complete_mcp_oauth(v_call, 400, '{"error":"invalid_grant","error_description":"code expired"}');
+  ok := r->>'action' = 'error'
+    AND (SELECT health = 'auth_needed' AND health_detail LIKE '%code expired%' FROM allgres_private.api_connections WHERE connection_id = v_conn)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.mcp_oauth_tokens WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_failed_exchange_reports_the_reason', 'ok', ok));
+
+  -- A good exchange stores the token and looks for tools with it.
+  r := allgres_public.fn_mcp_oauth_start(v_conn, v_base);
+  SELECT state INTO v_state FROM allgres_private.mcp_oauth_flows WHERE connection_id = v_conn AND status = 'pending';
+  PERFORM allgres_public.fn_mcp_oauth_callback(v_state, 'code4', 'https://auth.example.com', NULL);
+  PERFORM allgres_public.fn_claim_mcp_oauth(8);
+  SELECT call_id INTO v_call FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'exchange' AND status = 'in_flight';
+  r := allgres_public.fn_complete_mcp_oauth(v_call, 200, '{"access_token":"at-1","refresh_token":"rt-1","expires_in":3600,"token_type":"Bearer"}');
+  ok := r->>'action' = 'ok'
+    AND allgres_private.connection_secret(v_conn) = 'at-1'
+    AND (SELECT expires_at > now() + interval '50 minutes' FROM allgres_private.mcp_oauth_tokens WHERE connection_id = v_conn)
+    AND EXISTS (SELECT 1 FROM allgres_private.mcp_probes WHERE connection_id = v_conn AND status = 'queued');
+  j := allgres_public.fn_claim_mcp_probe(8);
+  ok := ok AND EXISTS (SELECT 1 FROM jsonb_array_elements(j->'calls') c
+                       WHERE c->'headers'->>'authorization' = 'Bearer at-1' AND c->>'url' = 'https://mcp.example.com/mcp');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_token_is_stored_and_used_for_tools', 'ok', ok, 'detail', r));
+
+  -- Renewal: only a token that runs out soon, once, keeping the refresh token.
+  ok := allgres_private.mcp_oauth_refresh_due() = 0;
+  UPDATE allgres_private.mcp_oauth_tokens SET expires_at = now() + interval '1 minute' WHERE connection_id = v_conn;
+  ok := ok AND allgres_private.mcp_oauth_refresh_due() = 1 AND allgres_private.mcp_oauth_refresh_due() = 0;
+  r := allgres_public.fn_claim_mcp_oauth(8);
+  SELECT call_id INTO v_call FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'refresh' AND status = 'in_flight';
+  ok := ok AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'calls') c
+                       WHERE c->>'call_id' = v_call::text AND c->'body'->>'grant_type' = 'refresh_token'
+                         AND c->'body'->>'refresh_token' = 'rt-1');
+  r := allgres_public.fn_complete_mcp_oauth(v_call, 200, '{"access_token":"at-2","expires_in":3600}');
+  ok := ok AND r->>'action' = 'ok' AND allgres_private.connection_secret(v_conn) = 'at-2'
+    AND (SELECT allgres_private.decrypt_secret(refresh_token) = 'rt-1' FROM allgres_private.mcp_oauth_tokens WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_token_is_renewed_before_it_runs_out', 'ok', ok));
+
+  -- A refresh the server refuses leaves the server needing a sign-in.
+  UPDATE allgres_private.mcp_oauth_tokens SET expires_at = now() + interval '1 minute' WHERE connection_id = v_conn;
+  UPDATE allgres_private.mcp_oauth_jobs SET updated_at = now() - interval '1 hour' WHERE connection_id = v_conn AND kind = 'refresh';
+  PERFORM allgres_private.mcp_oauth_refresh_due();
+  PERFORM allgres_public.fn_claim_mcp_oauth(8);
+  SELECT call_id INTO v_call FROM allgres_private.mcp_oauth_jobs WHERE connection_id = v_conn AND kind = 'refresh' AND status = 'in_flight';
+  PERFORM allgres_public.fn_complete_mcp_oauth(v_call, 400, '{"error":"invalid_grant"}');
+  ok := (SELECT health = 'auth_needed' AND health_detail LIKE '%expired%' FROM allgres_private.api_connections WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_refused_refresh_needs_a_new_sign_in', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'mcp.servers', 'session_token', 'selftest-oauth-admin-token'));
+  ok := EXISTS (SELECT 1 FROM jsonb_array_elements(r->'servers') e
+                WHERE e->>'name' = 'selftest_oauth' AND (e->'oauth'->>'signed_in')::boolean AND e->'oauth'->>'client_source' = 'dcr')
+    AND r::text NOT LIKE '%at-2%' AND r::text NOT LIKE '%rt-1%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_listing_never_shows_tokens', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'mcp.oauth_forget', 'connection_id', v_conn, 'session_token', 'selftest-oauth-admin-token'));
+  ok := (r->>'ok')::boolean AND NOT EXISTS (SELECT 1 FROM allgres_private.mcp_oauth_tokens WHERE connection_id = v_conn)
+    AND (SELECT client_id IS NULL FROM allgres_private.mcp_oauth_config WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_forget_removes_the_sign_in', 'ok', ok));
 
   RETURN v;
 END;

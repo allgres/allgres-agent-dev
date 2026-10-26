@@ -255,7 +255,7 @@ BEGIN
       SELECT * INTO conn FROM allgres_private.api_connections WHERE connection_id = (q->>'connection_id')::uuid;
       IF NOT COALESCE(conn.is_enabled, false)
          OR NOT (q->>'url' = conn.base_url OR starts_with(q->>'url', rtrim(conn.base_url, '/') || '/'))
-         OR (q->>'auth_kind') IS DISTINCT FROM NULLIF(conn.auth_kind, 'none')
+         OR (q->>'auth_kind') IS DISTINCT FROM allgres_private.conn_header_kind(conn.auth_kind)
          OR ((q->>'allow_private')::boolean AND NOT conn.allow_private_network) THEN
         v_reason := 'connection_changed_or_disabled';
       END IF;

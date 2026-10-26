@@ -252,9 +252,12 @@ BEGIN
       'content-type', 'application/json');
     IF r.auth_kind <> 'none' THEN
       v_key := COALESCE(allgres_private.connection_secret(r.connection_id), '');
-      v_headers := v_headers || jsonb_build_object(
-        r.auth_kind,
-        CASE WHEN r.auth_kind = 'x-api-key' THEN v_key ELSE 'Bearer ' || v_key END);
+      -- An OAuth connection with no token yet sends nothing and gets a 401.
+      IF v_key <> '' OR r.auth_kind <> 'oauth' THEN
+        v_headers := v_headers || jsonb_build_object(
+          allgres_private.conn_header_kind(r.auth_kind),
+          CASE WHEN r.auth_kind = 'x-api-key' THEN v_key ELSE 'Bearer ' || v_key END);
+      END IF;
     END IF;
     v_out := v_out || jsonb_build_array(jsonb_build_object(
       'call_id', r.call_id,
@@ -426,9 +429,12 @@ DECLARE
   v_probe jsonb;
 BEGIN
   v_conn := allgres_public.fn_create_connection(
-    p_name, p_base_url, p_auth_kind, p_api_key, p_allow_private_network, 0);
+    p_name, p_base_url, CASE WHEN p_auth_kind = 'oauth' THEN 'none' ELSE p_auth_kind END,
+    CASE WHEN p_auth_kind = 'oauth' THEN NULL ELSE p_api_key END, p_allow_private_network, 0);
   v_id := (v_conn->>'connection_id')::uuid;
-  UPDATE allgres_private.api_connections SET kind = 'mcp' WHERE connection_id = v_id;
+  UPDATE allgres_private.api_connections
+  SET kind = 'mcp', auth_kind = CASE WHEN p_auth_kind = 'oauth' THEN 'oauth' ELSE auth_kind END
+  WHERE connection_id = v_id;
   v_probe := allgres_public.fn_mcp_discover_start(v_id);
   PERFORM allgres_private.audit('mcp.connect', jsonb_build_object('connection_id', v_id, 'name', trim(p_name)));
   RETURN jsonb_build_object('ok', true, 'connection_id', v_id, 'call_id', v_probe->'call_id');

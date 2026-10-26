@@ -273,6 +273,10 @@ fn respond(s: &mut TcpStream, status: &str, content_type: &str, body: &str, extr
     let _ = s.flush();
 }
 
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+}
+
 fn respond_json(s: &mut TcpStream, status: &str, body: &str) {
     respond(s, status, "application/json", body, "");
 }
@@ -517,6 +521,151 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         })
         .to_string();
         respond_json(&mut s, "200 OK", &body);
+        return;
+    }
+
+    // --- Signing in to an MCP server (sql/mcp_oauth.sql) ---------------------
+    // The browser returns here from the authorization server. There is no
+    // dashboard session on this request; the one-time `state` is what the SQL
+    // side checks. The page only reports the outcome.
+    if path == "/oauth/callback" && r.method == "GET" {
+        let q = parse_form_body(r.query());
+        let get = |k: &str| q.get(k).cloned().unwrap_or_default();
+        let reply = rpc(cfg, &json!({
+            "action": "oauth.callback",
+            "state": get("state"), "code": get("code"), "iss": get("iss"),
+            "error": get("error"),
+        }));
+        let ok = reply.get("ok").and_then(Value::as_bool).unwrap_or(false);
+        let message = if ok {
+            "Signed in. You can close this tab and go back to Allgres.".to_string()
+        } else {
+            html_escape(reply.get("error").and_then(Value::as_str).unwrap_or("Sign-in failed."))
+        };
+        let page = format!(
+            "<!doctype html><meta charset=\"utf-8\"><title>Allgres sign-in</title>\
+             <body style=\"font-family:system-ui;margin:3rem;max-width:40rem\"><h2>{}</h2>\
+             <p>{message}</p><p><a href=\"/\">Open Allgres</a></p></body>",
+            if ok { "Signed in" } else { "Sign-in did not finish" }
+        );
+        respond(&mut s, if ok { "200 OK" } else { "400 Bad Request" }, "text/html; charset=utf-8", &page, "");
+        return;
+    }
+
+    // The Client ID Metadata Document: the client id itself is this address,
+    // so an authorization server that supports it can read who is asking
+    // without registering. Only meaningful when Allgres is reached over https.
+    if path == "/oauth/client.json" && r.method == "GET" {
+        let host = r.header("host").unwrap_or("localhost");
+        let base = format!("https://{host}");
+        let doc = json!({
+            "client_id": format!("{base}/oauth/client.json"),
+            "client_name": "Allgres",
+            "redirect_uris": [format!("{base}/oauth/callback")],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+            "application_type": "web"
+        });
+        respond_json(&mut s, "200 OK", &doc.to_string());
+        return;
+    }
+
+    // Mock sign-in for tests: a protected MCP endpoint, its resource
+    // metadata, an authorization server (metadata, registration, authorize,
+    // token). Gated like the other /mock/* doubles. It does not verify PKCE;
+    // the SQL tests check the challenge itself.
+    if path == "/mock/mcp-oauth" || path.starts_with("/mock/as/") || path == "/mock/oauth-prm"
+        || path.starts_with("/.well-known/oauth-authorization-server/mock")
+    {
+        if !cfg.mock_enabled {
+            respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+            return;
+        }
+        let host = r.header("host").unwrap_or("127.0.0.1:8088").to_string();
+        let base = format!("http://{host}");
+        let issuer = format!("{base}/mock/as");
+        if path == "/mock/mcp-oauth" {
+            let token = r.header("authorization").unwrap_or("");
+            if !token.starts_with("Bearer mock-access-token") {
+                let extra = format!(
+                    "WWW-Authenticate: Bearer resource_metadata=\"{base}/mock/oauth-prm\"\r\n"
+                );
+                respond(&mut s, "401 Unauthorized", "application/json", "{\"error\":\"unauthorized\"}", &extra);
+                return;
+            }
+            let req = body_json(&r);
+            let id = req.get("id").cloned().unwrap_or(Value::Null);
+            let reply = match req.get("method").and_then(Value::as_str).unwrap_or("") {
+                "initialize" => json!({"jsonrpc": "2.0", "id": id, "result": {
+                    "protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "allgres-mock-oauth-mcp", "version": "1"}}}),
+                "notifications/initialized" => {
+                    respond(&mut s, "202 Accepted", "application/json", "", "");
+                    return;
+                }
+                "tools/list" => json!({"jsonrpc": "2.0", "id": id, "result": {"tools": [
+                    {"name": "get_status", "description": "Read the machine status",
+                     "inputSchema": {"type": "object", "properties": {}}, "annotations": {"readOnlyHint": true}}]}}),
+                _ => json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found"}}),
+            };
+            respond_json(&mut s, "200 OK", &reply.to_string());
+            return;
+        }
+        if path == "/mock/oauth-prm" {
+            let doc = json!({"resource": format!("{base}/mock/mcp-oauth"),
+                             "authorization_servers": [issuer], "scopes_supported": ["tools"]});
+            respond_json(&mut s, "200 OK", &doc.to_string());
+            return;
+        }
+        if path == "/.well-known/oauth-authorization-server/mock/as" {
+            let doc = json!({
+                "issuer": issuer,
+                "authorization_endpoint": format!("{issuer}/authorize"),
+                "token_endpoint": format!("{issuer}/token"),
+                "registration_endpoint": format!("{issuer}/register"),
+                "code_challenge_methods_supported": ["S256"],
+                "authorization_response_iss_parameter_supported": true
+            });
+            respond_json(&mut s, "200 OK", &doc.to_string());
+            return;
+        }
+        if path == "/mock/as/register" {
+            let req = body_json(&r);
+            let doc = json!({"client_id": "mock-client", "redirect_uris": req.get("redirect_uris")});
+            respond(&mut s, "201 Created", "application/json", &doc.to_string(), "");
+            return;
+        }
+        if path == "/mock/as/authorize" {
+            let q = parse_form_body(r.query());
+            let back = q.get("redirect_uri").cloned().unwrap_or_default();
+            let state = q.get("state").cloned().unwrap_or_default();
+            let iss: String = issuer
+                .bytes()
+                .map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+                .collect();
+            let extra = format!("Location: {back}?code=mockcode&state={state}&iss={iss}\r\n");
+            respond(&mut s, "302 Found", "text/plain", "", &extra);
+            return;
+        }
+        if path == "/mock/as/token" {
+            let form = parse_form_body(&r.body);
+            let grant = form.get("grant_type").cloned().unwrap_or_default();
+            let ok = (grant == "authorization_code" && form.get("code").map(String::as_str) == Some("mockcode")
+                && form.get("code_verifier").is_some_and(|v| v.len() >= 43)
+                && form.get("client_id").is_some())
+                || (grant == "refresh_token" && form.get("refresh_token").map(String::as_str) == Some("mock-refresh-token"));
+            if !ok {
+                respond_json(&mut s, "400 Bad Request", "{\"error\":\"invalid_grant\"}");
+                return;
+            }
+            let token = if grant == "refresh_token" { "mock-access-token-renewed" } else { "mock-access-token" };
+            let doc = json!({"access_token": token, "refresh_token": "mock-refresh-token",
+                             "expires_in": 3600, "token_type": "Bearer"});
+            respond_json(&mut s, "200 OK", &doc.to_string());
+            return;
+        }
+        respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
         return;
     }
 

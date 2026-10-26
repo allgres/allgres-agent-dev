@@ -704,6 +704,39 @@
     ]
   },
   {
+    "action": "mcp.oauth_start",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "client_id",
+      "connection_id",
+      "redirect_base",
+      "scope",
+      "session_token"
+    ]
+  },
+  {
+    "action": "mcp.oauth_forget",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "connection_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "oauth.callback",
+    "guards": [],
+    "params": [
+      "code",
+      "error",
+      "iss",
+      "state"
+    ]
+  },
+  {
     "action": "mcp.connect",
     "guards": [
       "require_admin_if_accounts_exist"

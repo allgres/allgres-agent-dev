@@ -176,6 +176,31 @@ test('admin connects an MCP server, confirms tool risk, and registers a tool', a
   await expect(page.locator('#view')).not.toContainText('/mock/mcp');
 });
 
+test('admin signs in to an MCP server with OAuth', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.locator('#nav button', { hasText: 'MCP servers' }).click();
+  await page.locator('#mcName').fill('ui_mock_oauth');
+  await page.locator('#mcUrl').fill(baseURL + '/mock/mcp-oauth');
+  await page.locator('#mcAuth').selectOption('oauth');
+  await page.locator('#mcPrivate').check();
+  await page.locator('#mcGo').click();
+  const server = () => page.locator('#view .panel', { hasText: 'ui_mock_oauth' });
+  await expect(server().getByText('needs a login or key')).toBeVisible({ timeout: 20000 });
+  await expect(server().getByText('Not signed in yet.')).toBeVisible();
+  // The mock authorization server sends the browser straight back with a code.
+  await server().getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Signed in' })).toBeVisible({ timeout: 30000 });
+  await page.getByRole('link', { name: 'Open Allgres' }).click();
+  await page.locator('#nav button', { hasText: 'MCP servers' }).click();
+  await expect(server().getByText('Signed in until')).toBeVisible({ timeout: 20000 });
+  await expect(server().getByText('connected', { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(server().locator('tbody tr', { hasText: 'get_status' })).toBeVisible();
+  await expect(page.locator('#view')).not.toContainText('mock-access-token');
+  page.once('dialog', d => d.accept());
+  await server().getByRole('button', { name: 'Sign out' }).click();
+  await expect(server().getByText('Not signed in yet.')).toBeVisible({ timeout: 20000 });
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(4);

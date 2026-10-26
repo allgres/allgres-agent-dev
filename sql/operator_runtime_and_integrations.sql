@@ -625,7 +625,7 @@ BEGIN
   IF NULLIF(trim(p_name), '') IS NULL THEN
     RAISE EXCEPTION 'connection name is required' USING ERRCODE = 'P0001';
   END IF;
-  IF v_auth NOT IN ('none', 'authorization', 'x-api-key') THEN
+  IF v_auth NOT IN ('none', 'authorization', 'x-api-key', 'oauth') THEN
     RAISE EXCEPTION 'invalid connection auth_kind: %', v_auth USING ERRCODE = 'P0001';
   END IF;
 
@@ -687,7 +687,7 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'connection not found' USING ERRCODE = 'P0001';
   END IF;
-  IF v_auth NOT IN ('none', 'authorization', 'x-api-key') THEN
+  IF v_auth NOT IN ('none', 'authorization', 'x-api-key', 'oauth') THEN
     RAISE EXCEPTION 'invalid connection auth_kind: %', v_auth USING ERRCODE = 'P0001';
   END IF;
 

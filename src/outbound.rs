@@ -28,6 +28,7 @@ pub(crate) enum OutboundQueue {
     AgentEmbedding,
     ProviderProbe,
     McpProbe,
+    McpOauth,
 }
 
 pub(crate) struct OutboundJob {
@@ -379,6 +380,172 @@ pub(crate) fn guarded_post_json(
     }
 }
 
+
+/// scheme, authority, and path of an http(s) URL; no query or fragment.
+fn split_url(u: &str) -> Option<(&str, &str, &str)> {
+    let (scheme, rest) = u.split_once("://")?;
+    let rest = rest.split(['?', '#']).next()?;
+    let (authority, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, ""),
+    };
+    if authority.is_empty() {
+        return None;
+    }
+    Some((scheme, authority, path))
+}
+
+/// `param="value"` inside a WWW-Authenticate challenge.
+fn challenge_param(header: &str, name: &str) -> Option<String> {
+    let key = format!("{name}=\"");
+    let i = header.find(&key)? + key.len();
+    let rest = &header[i..];
+    Some(rest[..rest.find('"')?].to_string())
+}
+
+/// Finds how an MCP server wants a client to sign in (RFC 9728 protected
+/// resource metadata, then RFC 8414 / OpenID metadata of the authorization
+/// server it names) and returns what Allgres needs as one JSON object. Every
+/// request goes through the same SSRF-guarded resolver as any other outbound
+/// call. Status 200 with the object, or -1 with a message a person can read.
+fn mcp_oauth_discover(url: &str, allow_private: bool) -> (i32, String) {
+    let fail = |m: &str| (-1, m.to_string());
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(HTTP_TIMEOUT))
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .build();
+    let agent = ureq::Agent::with_parts(
+        config,
+        ureq::unversioned::transport::DefaultConnector::default(),
+        GuardedResolver { allow_private },
+    );
+    let https_ok = |u: &str| u.to_ascii_lowercase().starts_with("https://") || allow_private;
+    let get_json = |u: &str| -> Option<Value> {
+        if !https_ok(u) {
+            return None;
+        }
+        match agent.get(u).header("accept", "application/json").call() {
+            Ok(r) => {
+                let (status, text) = read_response(r);
+                if status == 200 { serde_json::from_str::<Value>(&text).ok() } else { None }
+            }
+            Err(_) => None,
+        }
+    };
+
+    // 1. Ask without credentials. A server that wants a sign-in answers 401.
+    let probe = json!({
+        "jsonrpc": "2.0", "id": "allgres-oauth", "method": "tools/list",
+        "params": {"_meta": {"protocolVersion": "2026-07-28", "clientInfo": {"name": "allgres"}, "capabilities": {}}}
+    });
+    let resp = match agent
+        .post(url)
+        .header("accept", "application/json, text/event-stream")
+        .header("mcp-method", "tools/list")
+        .send_json(&probe)
+    {
+        Ok(r) => r,
+        Err(e) => return (0, e.to_string()),
+    };
+    let status = resp.status().as_u16();
+    if status != 401 {
+        return fail(&format!("the server did not ask for a sign-in (it answered HTTP {status})"));
+    }
+    let challenge = resp
+        .headers()
+        .get("www-authenticate")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let Some((scheme, authority, path)) = split_url(url) else {
+        return fail("the server address is not a valid URL");
+    };
+    let origin = format!("{scheme}://{authority}");
+
+    // 2. Protected resource metadata.
+    let mut prm_urls = Vec::new();
+    if let Some(h) = challenge_param(&challenge, "resource_metadata") {
+        prm_urls.push(h);
+    } else {
+        if !path.is_empty() && path != "/" {
+            prm_urls.push(format!("{origin}/.well-known/oauth-protected-resource{path}"));
+        }
+        prm_urls.push(format!("{origin}/.well-known/oauth-protected-resource"));
+    }
+    let Some(prm) = prm_urls.iter().find_map(|u| get_json(u)) else {
+        return fail("the server asked for a sign-in but did not say where (no protected resource metadata)");
+    };
+    let resource = prm.get("resource").and_then(Value::as_str).unwrap_or(url).to_string();
+    if resource.trim_end_matches('/') != url.trim_end_matches('/') {
+        return fail("the sign-in information is for a different resource than this server address");
+    }
+    let Some(issuer) = prm
+        .get("authorization_servers")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return fail("the server did not name an authorization server");
+    };
+
+    // 3. Authorization server metadata, in the order RFC 8414 and OpenID
+    // Connect Discovery define for an issuer with and without a path.
+    let Some((i_scheme, i_auth, i_path)) = split_url(&issuer) else {
+        return fail("the authorization server address is not a valid URL");
+    };
+    let i_origin = format!("{i_scheme}://{i_auth}");
+    let i_path = i_path.trim_end_matches('/');
+    let mut as_urls = Vec::new();
+    if i_path.is_empty() {
+        as_urls.push(format!("{i_origin}/.well-known/oauth-authorization-server"));
+        as_urls.push(format!("{i_origin}/.well-known/openid-configuration"));
+    } else {
+        as_urls.push(format!("{i_origin}/.well-known/oauth-authorization-server{i_path}"));
+        as_urls.push(format!("{i_origin}/.well-known/openid-configuration{i_path}"));
+        as_urls.push(format!("{i_origin}{i_path}/.well-known/openid-configuration"));
+    }
+    let Some(meta) = as_urls.iter().find_map(|u| get_json(u)) else {
+        return fail("could not read the authorization server's metadata");
+    };
+    if meta.get("issuer").and_then(Value::as_str).map(|s| s.trim_end_matches('/'))
+        != Some(issuer.trim_end_matches('/'))
+    {
+        return fail("the authorization server's metadata names a different issuer");
+    }
+    let text = |k: &str| meta.get(k).and_then(Value::as_str).map(str::to_string);
+    let (Some(authorization_endpoint), Some(token_endpoint)) = (text("authorization_endpoint"), text("token_endpoint"))
+    else {
+        return fail("the authorization server did not list its authorization and token addresses");
+    };
+    if !https_ok(&authorization_endpoint) || !https_ok(&token_endpoint) {
+        return fail("the authorization server's addresses are not https");
+    }
+    let s256 = meta
+        .get("code_challenge_methods_supported")
+        .and_then(Value::as_array)
+        .is_some_and(|a| a.iter().any(|m| m.as_str() == Some("S256")));
+    if !s256 {
+        return fail("the authorization server does not support PKCE with S256, which sign-in requires");
+    }
+    let scopes = match challenge_param(&challenge, "scope") {
+        Some(sc) => json!(sc.split_whitespace().collect::<Vec<_>>()),
+        None => prm.get("scopes_supported").cloned().unwrap_or_else(|| json!([])),
+    };
+    let out = json!({
+        "resource": resource,
+        "issuer": issuer,
+        "authorization_endpoint": authorization_endpoint,
+        "token_endpoint": token_endpoint,
+        "registration_endpoint": text("registration_endpoint"),
+        "cimd_supported": meta.get("client_id_metadata_document_supported").and_then(Value::as_bool).unwrap_or(false),
+        "iss_supported": meta.get("authorization_response_iss_parameter_supported").and_then(Value::as_bool).unwrap_or(false),
+        "scopes_supported": scopes,
+    });
+    (200, out.to_string())
+}
+
 pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
     let cancel_guard = CancelGuard::register(call_id);
     let cancel_flag = cancel_guard.flag.clone();
@@ -393,6 +560,10 @@ pub(crate) fn perform_http(call_id: &str, call: &Value) -> (i32, String) {
     }
 
     let kind = call.get("kind").and_then(Value::as_str).unwrap_or("llm");
+    if kind == "mcp_oauth_discover" {
+        let allow_private = call.get("allow_private").and_then(Value::as_bool).unwrap_or(false);
+        return mcp_oauth_discover(url, allow_private);
+    }
     let headers = call.get("headers").and_then(Value::as_object);
     let body = call.get("body").cloned().unwrap_or_else(|| json!({}));
     // Only an LLM provider can ever carry this, and only when the operator
