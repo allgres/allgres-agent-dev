@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5364,6 +5364,7 @@ BEGIN
   v := v || allgres_private.decision_selftest_cases();
   v := v || allgres_private.mcp_selftest_cases();
   v := v || allgres_private.mcp_oauth_selftest_cases();
+  v := v || allgres_private.connection_check_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -6305,6 +6306,99 @@ BEGIN
   ok := (r->>'ok')::boolean AND NOT EXISTS (SELECT 1 FROM allgres_private.mcp_oauth_tokens WHERE connection_id = v_conn)
     AND (SELECT client_id IS NULL FROM allgres_private.mcp_oauth_config WHERE connection_id = v_conn);
   v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_oauth_forget_removes_the_sign_in', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- Connection tests and provider-reported prices (sql/mcp_connections.sql).
+CREATE OR REPLACE FUNCTION allgres_private.connection_check_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid;
+  v_prov uuid; v_call uuid; v_agent uuid; v_conn uuid;
+  v_err text;
+  rec record;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_check_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES ('selftest-check-admin-token', u_admin, now() + interval '1 hour');
+
+  INSERT INTO allgres_private.llm_providers (name, kind, base_url)
+  VALUES ('selftest_price_provider', 'openai_compat', 'https://llm.example.com/v1') RETURNING provider_id INTO v_prov;
+  INSERT INTO allgres_private.provider_probes (provider_id, url, status)
+  VALUES (v_prov, 'https://llm.example.com/v1/models', 'in_flight') RETURNING call_id INTO v_call;
+  PERFORM allgres_public.fn_complete_provider_probe(v_call, 200,
+    '{"data":[{"id":"model-a","pricing":{"prompt":"0.000003","completion":"0.000015"}},'
+    || '{"id":"model-b","input_cost_per_token":1e-7,"output_cost_per_token":0.0000004},'
+    || '{"id":"model-c"},{"id":"model-d","pricing":{"prompt":"free","completion":"free"}}]}');
+  ok := (SELECT available_models = '["model-a","model-b","model-c","model-d"]'::jsonb
+                AND (reported_prices->'model-a'->>'input_per_1k')::numeric = 0.003
+                AND (reported_prices->'model-a'->>'output_per_1k')::numeric = 0.015
+                AND (reported_prices->'model-b'->>'input_per_1k')::numeric = 0.0001
+                AND NOT reported_prices ? 'model-c' AND NOT reported_prices ? 'model-d'
+        FROM allgres_private.llm_providers WHERE provider_id = v_prov);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'provider_probe_keeps_prices_the_provider_reports', 'ok', ok));
+
+  v_agent := (allgres_public.fn_create_agent('pricecheck_agent', 'price fixture')->>'agent_id')::uuid;
+  UPDATE allgres_private.policies
+  SET llm_config = jsonb_build_object('provider', 'selftest_price_provider', 'model', 'model-a') WHERE agent_id = v_agent;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'model_prices.unpriced', 'session_token', 'selftest-check-admin-token'));
+  ok := (r->>'ok')::boolean
+    AND (SELECT count(*) = 4 FROM jsonb_array_elements(r->'models') e WHERE e->>'provider' = 'selftest_price_provider')
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'models') e
+                WHERE e->>'model' = 'model-a' AND e->'agents' = '["pricecheck_agent"]'::jsonb
+                  AND (e->'reported'->>'input_per_1k')::numeric = 0.003)
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'models') e WHERE e->>'model' = 'model-c' AND jsonb_typeof(e->'reported') = 'null');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'unpriced_models_list_who_uses_them_and_the_reported_price', 'ok', ok, 'detail', r));
+
+  v_err := NULL;
+  BEGIN
+    PERFORM allgres_public.fn_apply_reported_prices(v_prov, 'model-c');
+  EXCEPTION WHEN others THEN v_err := SQLERRM;
+  END;
+  ok := v_err LIKE '%did not report%';
+  r := allgres_public.fn_apply_reported_prices(v_prov, 'model-a');
+  ok := ok AND (r->>'applied')::int = 1
+    AND (SELECT input_price_per_1k = 0.003 AND output_price_per_1k = 0.015 FROM allgres_private.llm_model_prices
+         WHERE provider_id = v_prov AND model = 'model-a');
+  r := allgres_public.fn_apply_reported_prices(v_prov);
+  ok := ok AND (r->>'applied')::int = 2
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(allgres_public.fn_unpriced_models()) e
+                    WHERE e->>'provider' = 'selftest_price_provider' AND e->>'model' IN ('model-a', 'model-b'))
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(allgres_public.fn_unpriced_models()) e
+                WHERE e->>'provider' = 'selftest_price_provider' AND e->>'model' = 'model-c');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'reported_prices_are_applied_only_when_a_person_asks', 'ok', ok));
+
+  -- A plain API connection test: one GET with its credential.
+  v_conn := (allgres_public.fn_create_connection('selftest_ping', 'https://api.example.com/v1', 'authorization', 'k-1', false, 0)->>'connection_id')::uuid;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'connections.test', 'connection_id', v_conn));
+  ok := r->>'error' IS NOT NULL;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'connections.test', 'connection_id', v_conn, 'session_token', 'selftest-check-admin-token'));
+  v_call := (r->>'call_id')::uuid;
+  r := allgres_public.fn_claim_mcp_probe(8);
+  ok := ok AND v_call IS NOT NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'calls') c
+         WHERE c->>'call_id' = v_call::text AND c->>'kind' = 'function' AND c->>'method' = 'GET'
+           AND c->>'url' = 'https://api.example.com/v1' AND c->'headers'->>'authorization' = 'Bearer k-1'
+           AND NOT c->'headers' ? 'content-type' AND NOT c ? 'body');
+  PERFORM allgres_public.fn_complete_mcp_probe(v_call, 404, 'not found');
+  ok := ok AND (SELECT health = 'ok' AND health_detail = 'answered HTTP 404' FROM allgres_private.api_connections WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'api_connection_test_sends_one_get_with_the_credential', 'ok', ok));
+
+  ok := true;
+  FOR rec IN SELECT * FROM (VALUES (401, 'auth_needed'), (403, 'auth_needed'), (503, 'unreachable'), (0, 'unreachable'), (204, 'ok')) AS x(s, h) LOOP
+    v_call := (allgres_public.fn_connection_test_start(v_conn)->>'call_id')::uuid;
+    PERFORM allgres_public.fn_claim_mcp_probe(8);
+    PERFORM allgres_public.fn_complete_mcp_probe(v_call, rec.s, CASE WHEN rec.s = 0 THEN 'connection refused' END);
+    ok := ok AND (SELECT health = rec.h FROM allgres_private.api_connections WHERE connection_id = v_conn);
+  END LOOP;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'api_connection_test_reads_the_answer_as_health', 'ok', ok));
 
   RETURN v;
 END;

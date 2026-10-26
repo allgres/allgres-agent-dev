@@ -1685,6 +1685,18 @@ BEGIN
         JOIN allgres_private.llm_providers p USING (provider_id)
       ), '[]'::jsonb));
 
+    WHEN 'model_prices.unpriced' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'models', allgres_public.fn_unpriced_models());
+
+    WHEN 'model_prices.apply_reported' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_apply_reported_prices((p_request->>'provider_id')::uuid, NULLIF(p_request->>'model', ''));
+
+    WHEN 'connections.test' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_connection_test_start((p_request->>'connection_id')::uuid);
+
     WHEN 'model_prices.set' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_public.fn_set_model_price(
@@ -1713,7 +1725,10 @@ BEGIN
           'is_enabled', c.is_enabled,
           'allow_private_network', c.allow_private_network,
           'cost_per_call_usd',c.cost_per_call_usd,
-          'kind', c.kind, 'health', c.health,
+          'kind', c.kind, 'health', c.health, 'health_checked_at', c.health_checked_at,
+          'health_detail', c.health_detail,
+          'testing', EXISTS (SELECT 1 FROM allgres_private.mcp_probes mp
+                             WHERE mp.connection_id = c.connection_id AND mp.status IN ('queued', 'in_flight')),
           'has_secret', EXISTS (
             SELECT 1 FROM allgres_private.api_connection_secrets s
             WHERE s.connection_id = c.connection_id AND NULLIF(s.api_key, '') IS NOT NULL

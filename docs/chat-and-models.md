@@ -104,3 +104,9 @@ session per (user, project) pair (`user_project_chat_sessions`,
 `fn_project_chat_send`/`fn_project_chat_history`) — deliberately separate
 from that same agent's direct conversation, so a project's preset
 context never leaks into a plain chat with the same agent or vice versa.
+
+## Prices and connection tests
+
+Models & prices lists every model a provider reports, or an agent is set to use, that has no price, because spend on an unpriced model is not counted toward any budget. If the provider reports a price in its model list (OpenRouter and LiteLLM proxies do; OpenAI and Anthropic do not), the page shows it and a button accepts it; otherwise enter one by hand. Reported prices are kept per provider each time you test its connection and are never applied on their own.
+
+On APIs, **Test** sends one GET to the connection's base address with its credential and shows whether it is reachable, whether the key was not accepted (HTTP 401 or 403), or whether it cannot be reached. Any other answer below HTTP 500, including 404, counts as reachable.

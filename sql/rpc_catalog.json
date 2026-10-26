@@ -664,6 +664,36 @@
     ]
   },
   {
+    "action": "model_prices.unpriced",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "model_prices.apply_reported",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "model",
+      "provider_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "connections.test",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "connection_id",
+      "session_token"
+    ]
+  },
+  {
     "action": "model_prices.set",
     "guards": [
       "require_admin_if_accounts_exist"

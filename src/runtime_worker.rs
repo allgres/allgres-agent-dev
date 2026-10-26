@@ -578,7 +578,7 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
                     }
                     let mut call = call.clone();
                     if let Some(obj) = call.as_object_mut() {
-                        obj.insert("kind".to_string(), json!("mcp"));
+                        obj.entry("kind".to_string()).or_insert_with(|| json!("mcp"));
                     }
                     let job = OutboundJob { call_id: id.to_string(), queue: OutboundQueue::McpProbe, call };
                     if jobs.send(job).is_err() {

@@ -25,6 +25,12 @@ ALTER TABLE allgres_private.api_connections
   ADD COLUMN IF NOT EXISTS health_checked_at timestamptz,
   ADD COLUMN IF NOT EXISTS health_detail text;
 
+-- What a provider says its models cost, read from its model list when a
+-- connection test succeeds: {"model": {"input_per_1k": n, "output_per_1k": n}}.
+-- A claim by the provider, not a price: a person accepts it.
+ALTER TABLE allgres_private.llm_providers
+  ADD COLUMN IF NOT EXISTS reported_prices jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 -- A Function that must be approved by a person every time it runs, whatever
 -- the calling agent's own execution rules say.
 ALTER TABLE allgres_private.functions
@@ -76,6 +82,9 @@ CREATE TABLE IF NOT EXISTS allgres_private.mcp_probes (
   call_id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   connection_id    uuid NOT NULL REFERENCES allgres_private.api_connections(connection_id) ON DELETE CASCADE,
   scan_id          uuid NOT NULL,
+  -- 'discover' asks an MCP server for its tools; 'ping' is the plain "can
+  -- this connection be reached with its credential" test (a GET).
+  purpose          text NOT NULL DEFAULT 'discover' CHECK (purpose IN ('discover', 'ping')),
   cursor           text,
   url              text NOT NULL,
   allow_private    boolean NOT NULL DEFAULT false,
@@ -229,7 +238,7 @@ DECLARE
 BEGIN
   PERFORM set_config('statement_timeout', '2000', true);
   FOR r IN
-    SELECT mp.call_id, mp.connection_id, mp.url, mp.cursor, mp.allow_private, c.auth_kind, c.is_enabled
+    SELECT mp.call_id, mp.connection_id, mp.url, mp.cursor, mp.allow_private, mp.purpose, c.auth_kind, c.is_enabled
     FROM allgres_private.mcp_probes mp
     JOIN allgres_private.api_connections c ON c.connection_id = mp.connection_id
     WHERE mp.status = 'queued'
@@ -259,14 +268,20 @@ BEGIN
           CASE WHEN r.auth_kind = 'x-api-key' THEN v_key ELSE 'Bearer ' || v_key END);
       END IF;
     END IF;
-    v_out := v_out || jsonb_build_array(jsonb_build_object(
-      'call_id', r.call_id,
-      'method', 'POST',
-      'url', r.url,
-      'headers', v_headers,
-      'body', allgres_private.mcp_list_request(r.cursor),
-      'allow_private', r.allow_private
-    ));
+    IF r.purpose = 'ping' THEN
+      v_out := v_out || jsonb_build_array(jsonb_build_object(
+        'call_id', r.call_id, 'kind', 'function', 'method', 'GET', 'url', r.url,
+        'headers', v_headers - 'content-type', 'allow_private', r.allow_private));
+    ELSE
+      v_out := v_out || jsonb_build_array(jsonb_build_object(
+        'call_id', r.call_id,
+        'method', 'POST',
+        'url', r.url,
+        'headers', v_headers,
+        'body', allgres_private.mcp_list_request(r.cursor),
+        'allow_private', r.allow_private
+      ));
+    END IF;
     v_n := v_n + 1;
   END LOOP;
   RETURN jsonb_build_object('count', v_n, 'calls', v_out);
@@ -305,6 +320,26 @@ BEGIN
   END IF;
   IF c.status <> 'in_flight' THEN
     RETURN jsonb_build_object('action', 'stale', 'reason', 'call_not_in_flight', 'status', c.status);
+  END IF;
+
+  IF c.purpose = 'ping' THEN
+    v_health := CASE
+      WHEN p_status IN (401, 403) THEN 'auth_needed'
+      WHEN p_status IS NULL OR p_status < 100 OR p_status >= 500 THEN 'unreachable'
+      ELSE 'ok' END;
+    v_err := CASE
+      WHEN p_status IS NULL OR p_status < 100 THEN left(COALESCE(NULLIF(p_body, ''), 'could not connect'), 500)
+      WHEN p_status IN (401, 403) THEN format('the server answered HTTP %s: the key was missing or not accepted', p_status)
+      WHEN p_status >= 500 THEN format('the server answered HTTP %s', p_status)
+      ELSE format('answered HTTP %s', p_status) END;
+    UPDATE allgres_private.mcp_probes
+    SET status = 'harvested', response_status = p_status,
+        error = CASE WHEN v_health = 'ok' THEN NULL ELSE v_err END, updated_at = now()
+    WHERE call_id = p_call_id;
+    UPDATE allgres_private.api_connections
+    SET health = v_health, health_checked_at = now(), health_detail = v_err
+    WHERE connection_id = c.connection_id;
+    RETURN jsonb_build_object('action', CASE WHEN v_health = 'ok' THEN 'ok' ELSE 'error' END, 'health', v_health);
   END IF;
 
   IF p_status IS NULL OR p_status < 200 OR p_status >= 300 THEN
@@ -559,5 +594,105 @@ BEGIN
   PERFORM allgres_private.audit('mcp.tool_register', jsonb_build_object(
     'connection_id', p_connection_id, 'tool', p_tool, 'function_id', v_id, 'risk', t.risk));
   RETURN jsonb_build_object('ok', true, 'function_id', v_id, 'procedure_id', v_proc);
+END;
+$fn$;
+
+-- The "Test connection" button of a plain HTTP API connection: one GET to its
+-- base address with its credential. Any answer below 500 other than 401/403
+-- counts as reachable (many APIs answer 404 at their root). An MCP server
+-- gets a full discovery instead.
+CREATE OR REPLACE FUNCTION allgres_public.fn_connection_test_start(p_connection_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  c allgres_private.api_connections%ROWTYPE;
+  v_reason text;
+  v_call uuid;
+BEGIN
+  SELECT * INTO c FROM allgres_private.api_connections WHERE connection_id = p_connection_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'connection not found' USING ERRCODE = 'P0001';
+  END IF;
+  IF c.kind = 'mcp' THEN
+    RETURN allgres_public.fn_mcp_discover_start(p_connection_id);
+  END IF;
+  v_reason := allgres_private.check_outbound_url(c.base_url, c.allow_private_network);
+  IF v_reason IS NOT NULL THEN
+    RAISE EXCEPTION 'connection endpoint rejected: %', v_reason USING ERRCODE = 'P0001';
+  END IF;
+  UPDATE allgres_private.mcp_probes
+  SET status = 'lost', error = 'superseded by a newer test', updated_at = now()
+  WHERE connection_id = p_connection_id AND status IN ('queued', 'in_flight');
+  INSERT INTO allgres_private.mcp_probes (connection_id, scan_id, purpose, url, allow_private, status)
+  VALUES (p_connection_id, gen_random_uuid(), 'ping', c.base_url, c.allow_private_network, 'queued')
+  RETURNING call_id INTO v_call;
+  RETURN jsonb_build_object('ok', true, 'call_id', v_call, 'connection_id', p_connection_id);
+END;
+$fn$;
+
+-- Models a provider lists that have no price yet, who uses them, and what the
+-- provider itself says they cost. A model nobody priced cannot count toward
+-- a budget, so the dashboard keeps asking.
+CREATE OR REPLACE FUNCTION allgres_public.fn_unpriced_models()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT COALESCE(jsonb_agg(row ORDER BY (jsonb_array_length(row->'agents') = 0), row->>'provider', row->>'model'), '[]'::jsonb)
+  FROM (
+    SELECT jsonb_build_object(
+      'provider_id', p.provider_id, 'provider', p.name, 'model', m.model,
+      'reported', p.reported_prices -> m.model,
+      'agents', COALESCE((
+        SELECT jsonb_agg(a.name ORDER BY a.name)
+        FROM allgres_private.policies po JOIN allgres_private.agents a USING (agent_id)
+        WHERE a.is_active AND NOT a.is_system AND a.name NOT LIKE 'selftest%'
+          AND po.llm_config->>'provider' = p.name AND po.llm_config->>'model' = m.model), '[]'::jsonb)) AS row
+    FROM allgres_private.llm_providers p
+    CROSS JOIN LATERAL (
+      SELECT DISTINCT model FROM (
+        SELECT jsonb_array_elements_text(COALESCE(p.available_models, '[]'::jsonb)) AS model
+        UNION
+        SELECT po.llm_config->>'model' FROM allgres_private.policies po
+        WHERE po.llm_config->>'provider' = p.name AND NULLIF(po.llm_config->>'model', '') IS NOT NULL) u
+    ) m
+    WHERE p.is_enabled AND p.purpose = 'chat'
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.llm_model_prices mp
+                      WHERE mp.provider_id = p.provider_id AND mp.model = m.model)
+  ) t
+$fn$;
+
+-- Takes the price a provider reported for one model, or for every model it
+-- reported when p_model is NULL, as the price to count spend with.
+CREATE OR REPLACE FUNCTION allgres_public.fn_apply_reported_prices(p_provider_id uuid, p_model text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  p allgres_private.llm_providers%ROWTYPE;
+  r record;
+  n int := 0;
+BEGIN
+  SELECT * INTO p FROM allgres_private.llm_providers WHERE provider_id = p_provider_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'provider not found' USING ERRCODE = 'P0001';
+  END IF;
+  FOR r IN SELECT key AS model, value FROM jsonb_each(p.reported_prices)
+           WHERE p_model IS NULL OR key = p_model LOOP
+    PERFORM allgres_public.fn_set_model_price(p_provider_id, r.model,
+      (r.value->>'input_per_1k')::numeric, (r.value->>'output_per_1k')::numeric);
+    n := n + 1;
+  END LOOP;
+  IF p_model IS NOT NULL AND n = 0 THEN
+    RAISE EXCEPTION 'this provider did not report a price for that model' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN jsonb_build_object('ok', true, 'applied', n);
 END;
 $fn$;
