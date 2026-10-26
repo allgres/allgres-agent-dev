@@ -1769,6 +1769,31 @@ BEGIN
         FROM allgres_private.api_connections c WHERE c.kind = 'mcp'
       ), '[]'::jsonb));
 
+    -- Decision model servers (the official laya-serve). Connect, list, test
+    -- (connections.test) and remove (connections.delete) like any connection.
+    WHEN 'decision_models.list' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'models', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'connection_id', c.connection_id, 'name', c.name, 'base_url', c.base_url,
+          'auth_kind', c.auth_kind, 'is_enabled', c.is_enabled,
+          'allow_private_network', c.allow_private_network,
+          'has_key', EXISTS (SELECT 1 FROM allgres_private.api_connection_secrets s
+                             WHERE s.connection_id = c.connection_id AND NULLIF(s.api_key, '') IS NOT NULL),
+          'health', c.health, 'health_checked_at', c.health_checked_at, 'health_detail', c.health_detail,
+          'status', c.status_detail,
+          'checking', EXISTS (SELECT 1 FROM allgres_private.mcp_probes mp
+                              WHERE mp.connection_id = c.connection_id AND mp.status IN ('queued', 'in_flight'))
+        ) ORDER BY c.name)
+        FROM allgres_private.api_connections c WHERE c.kind = 'decision'
+      ), '[]'::jsonb));
+
+    WHEN 'decision_models.connect' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_model_connect(
+        p_request->>'name', p_request->>'base_url', NULLIF(p_request->>'api_key', ''),
+        COALESCE((p_request->>'allow_private_network')::boolean, false));
+
     WHEN 'mcp.oauth_start' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_public.fn_mcp_oauth_start(

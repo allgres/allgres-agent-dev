@@ -670,6 +670,26 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
+    // Mock decision model server (laya-serve's GET /health): with the right
+    // key it lists loaded checkpoints; without it, only {"status":"ok"}, as
+    // the real server does when LAYA_API_KEY is set.
+    if path == "/mock/laya/health" {
+        if !cfg.mock_enabled {
+            respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+            return;
+        }
+        let doc = if r.header("authorization") == Some("Bearer laya-mock-key") {
+            json!({"status": "ok", "loaded": ["support-triage"],
+                   "revisions": {"support-triage": "0123456789abcdef0123456789abcdef01234567"},
+                   "device": "cpu", "device_is_preference": false,
+                   "checkpoint_devices": {"support-triage": "cpu"}, "cpu_fallbacks": {}})
+        } else {
+            json!({"status": "ok"})
+        };
+        respond_json(&mut s, "200 OK", &doc.to_string());
+        return;
+    }
+
     // Mock MCP servers for tests, gated like the other /mock/* doubles. They
     // let a test drive discovery and tool calls through the real worker
     // without an external server. Variants: /mock/mcp (initialize

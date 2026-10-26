@@ -734,6 +734,28 @@
     ]
   },
   {
+    "action": "decision_models.list",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "decision_models.connect",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "allow_private_network",
+      "api_key",
+      "base_url",
+      "name",
+      "session_token"
+    ]
+  },
+  {
     "action": "mcp.oauth_start",
     "guards": [
       "require_admin_if_accounts_exist"
