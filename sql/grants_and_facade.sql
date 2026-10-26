@@ -332,6 +332,8 @@ REVOKE ALL ON FUNCTION allgres_public.fn_claim_sql(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_sql(uuid, boolean, jsonb, int, boolean, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_oauth(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_mcp_probe(int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_claim_mcp_oauth(int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_complete_mcp_oauth(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_mcp_probe(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_oauth(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_watchdog(int) FROM PUBLIC;
@@ -367,6 +369,8 @@ GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_agent_embedding(uuid, int, 
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_provider_probe(int) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_provider_probe(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_mcp_probe(int) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_mcp_oauth(int) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_mcp_oauth(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_mcp_probe(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_watchdog(int) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_run_schedules() TO worker;
@@ -1730,6 +1734,13 @@ BEGIN
           'allow_private_network', c.allow_private_network,
           'health', c.health, 'health_checked_at', c.health_checked_at,
           'health_detail', c.health_detail,
+          'oauth', CASE WHEN c.auth_kind = 'oauth' THEN jsonb_build_object(
+            'signed_in', EXISTS (SELECT 1 FROM allgres_private.mcp_oauth_tokens t WHERE t.connection_id = c.connection_id),
+            'expires_at', (SELECT t.expires_at FROM allgres_private.mcp_oauth_tokens t WHERE t.connection_id = c.connection_id),
+            'client_source', (SELECT k.client_source FROM allgres_private.mcp_oauth_config k WHERE k.connection_id = c.connection_id),
+            'busy', EXISTS (SELECT 1 FROM allgres_private.mcp_oauth_jobs j
+                            WHERE j.connection_id = c.connection_id AND j.status IN ('queued', 'in_flight'))
+          ) END,
           'discovering', EXISTS (
             SELECT 1 FROM allgres_private.mcp_probes mp
             WHERE mp.connection_id = c.connection_id AND mp.status IN ('queued', 'in_flight')),
@@ -1742,6 +1753,22 @@ BEGIN
         ) ORDER BY c.name)
         FROM allgres_private.api_connections c WHERE c.kind = 'mcp'
       ), '[]'::jsonb));
+
+    WHEN 'mcp.oauth_start' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_mcp_oauth_start(
+        (p_request->>'connection_id')::uuid, p_request->>'redirect_base',
+        NULLIF(p_request->>'client_id', ''), p_request->>'scope');
+
+    WHEN 'mcp.oauth_forget' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_mcp_oauth_forget((p_request->>'connection_id')::uuid);
+
+    -- The browser's return from an authorization server. It carries no
+    -- dashboard session; the one-time state is what authorizes it.
+    WHEN 'oauth.callback' THEN
+      RETURN allgres_public.fn_mcp_oauth_callback(
+        p_request->>'state', p_request->>'code', p_request->>'iss', p_request->>'error');
 
     WHEN 'mcp.connect' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');

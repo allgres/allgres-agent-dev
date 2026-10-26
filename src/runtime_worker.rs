@@ -314,6 +314,44 @@ fn submit_provider_probe_result(call_id: &str, status: i32, body: &str) {
     });
 }
 
+fn claim_mcp_oauth_jobs(limit: i32) -> Value {
+    BackgroundWorker::transaction(|| {
+        if !drop_privileges() {
+            return json!({ "count": 0, "calls": [] });
+        }
+        Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_claim_mcp_oauth($1)",
+            &[limit.into()],
+        )
+        .ok()
+        .flatten()
+        .map(|j| j.0)
+        .unwrap_or_else(|| json!({ "count": 0, "calls": [] }))
+    })
+}
+
+/// Completion for an MCP sign-in request (finding the sign-in, registering a
+/// client, exchanging a code, refreshing). No task_id; a failed privilege
+/// drop leaves the row in_flight for fn_watchdog to reclaim.
+fn submit_mcp_oauth_result(call_id: &str, status: i32, body: &str) {
+    let body = truncate_utf8(&body.replace('\0', ""), MAX_RESPONSE_BYTES).to_string();
+    BackgroundWorker::transaction(|| {
+        if !drop_privileges() {
+            pgrx::warning!(
+                "Allgres: skipping fn_complete_mcp_oauth for call {} -- privilege drop failed",
+                call_id
+            );
+            return;
+        }
+        if let Err(e) = Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_complete_mcp_oauth($1::uuid, $2, $3)",
+            &[call_id.into(), status.into(), body.as_str().into()],
+        ) {
+            pgrx::warning!("Allgres: fn_complete_mcp_oauth failed for call {}: {}", call_id, e);
+        }
+    });
+}
+
 /// Completion for an MCP discovery/health probe. No task_id, so a failed
 /// privilege drop leaves the row 'in_flight' for fn_watchdog to reclaim.
 fn submit_mcp_probe_result(call_id: &str, status: i32, body: &str) {
@@ -404,6 +442,7 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
                             submit_provider_probe_result(&r.call_id, r.status, &r.body)
                         }
                         OutboundQueue::McpProbe => submit_mcp_probe_result(&r.call_id, r.status, &r.body),
+                        OutboundQueue::McpOauth => submit_mcp_oauth_result(&r.call_id, r.status, &r.body),
                     }
                 }
                 Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
@@ -542,6 +581,25 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
                         obj.insert("kind".to_string(), json!("mcp"));
                     }
                     let job = OutboundJob { call_id: id.to_string(), queue: OutboundQueue::McpProbe, call };
+                    if jobs.send(job).is_err() {
+                        break;
+                    }
+                    in_flight += 1;
+                    queued += 1;
+                }
+            }
+        }
+
+        // 3f. MCP sign-in requests; each claimed call carries its own kind.
+        if ready && in_flight < capacity {
+            let claimed = claim_mcp_oauth_jobs((capacity - in_flight) as i32);
+            if let Some(calls) = claimed.get("calls").and_then(Value::as_array) {
+                for call in calls {
+                    let Some(id) = call.get("call_id").and_then(Value::as_str) else { continue };
+                    if !valid_uuid(id) {
+                        continue;
+                    }
+                    let job = OutboundJob { call_id: id.to_string(), queue: OutboundQueue::McpOauth, call: call.clone() };
                     if jobs.send(job).is_err() {
                         break;
                     }

@@ -4810,7 +4810,7 @@ BEGIN
       v_call_kind := 'mcp';
       v_method := 'POST';
       v_url := v_conn.base_url;
-      v_conn_auth := NULLIF(v_conn.auth_kind, 'none');
+      v_conn_auth := allgres_private.conn_header_kind(v_conn.auth_kind);
       -- v_args is already the Function's own fixed args_template
       -- ({"tool":"..."}) by this point (the same overwrite http_get's
       -- args_template substitution relies on); v_orig_args is what the
@@ -4871,7 +4871,7 @@ BEGIN
           RETURN jsonb_build_object('action', 'continue');
         END IF;
         v_url := rtrim(v_conn.base_url, '/') || '/' || ltrim(v_path, '/');
-        v_conn_auth := NULLIF(v_conn.auth_kind, 'none');
+        v_conn_auth := allgres_private.conn_header_kind(v_conn.auth_kind);
       ELSE
         v_url := v_args->>'url';
       END IF;
@@ -7616,6 +7616,23 @@ BEGIN
     WHERE call_id = r.call_id;
     n := n + 1;
   END LOOP;
+
+  -- Sign-in requests (finding the server's sign-in, registering, exchanging a
+  -- code, refreshing) the worker never came back from, and tokens that run
+  -- out soon. A lost refresh simply leaves the old token to run out.
+  FOR r IN
+    SELECT call_id
+    FROM allgres_private.mcp_oauth_jobs
+    WHERE status = 'in_flight'
+      AND updated_at < now() - make_interval(secs => GREATEST(15, COALESCE(p_timeout_seconds, 90)))
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    UPDATE allgres_private.mcp_oauth_jobs
+    SET status = 'lost', error = 'timeout', updated_at = now()
+    WHERE call_id = r.call_id;
+    n := n + 1;
+  END LOOP;
+  PERFORM allgres_private.mcp_oauth_refresh_due();
 
   -- And for an MCP discovery the worker never came back from; the server's
   -- health stays at its last real result, same tolerance as the probes above.
