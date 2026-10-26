@@ -15,7 +15,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Access & appearance','Audit log'];
+  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Access & appearance','Audit log'];
   for (const label of labels) {
     const button = page.locator('#nav button', { hasText: label }).first();
     await expect(button).toBeVisible();
@@ -229,6 +229,31 @@ test('admin tests an API connection and accepts a reported model price', async (
   await model.getByRole('button', { name: 'Use this price' }).click();
   const priced = page.locator('#view tbody tr', { hasText: 'ui_price_mock' }).filter({ hasText: '0.001' });
   await expect(priced.first()).toBeVisible({ timeout: 20000 });
+});
+
+test('admin connects a decision model and sees its checkpoints', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.locator('#nav button', { hasText: 'Decision model' }).click();
+  await expect(page.getByText('No decision is handed to it')).toBeVisible();
+  // Without the key the server shows only its status: that is "key needed".
+  await page.locator('#dmName').fill('ui_laya_nokey');
+  await page.locator('#dmUrl').fill(baseURL + '/mock/laya');
+  await page.locator('#dmPrivate').check();
+  await page.locator('#dmGo').click();
+  const card = name => page.locator('#view .panel', { hasText: name });
+  await expect(card('ui_laya_nokey').getByText('key needed')).toBeVisible({ timeout: 20000 });
+  await page.locator('#dmName').fill('ui_laya');
+  await page.locator('#dmUrl').fill(baseURL + '/mock/laya');
+  await page.locator('#dmKey').fill('laya-mock-key');
+  await page.locator('#dmPrivate').check();
+  await page.locator('#dmGo').click();
+  await expect(card('ui_laya').getByText('connected', { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(card('ui_laya').getByRole('cell', { name: 'support-triage' })).toBeVisible();
+  await expect(card('ui_laya').getByText('key stored')).toBeVisible();
+  await expect(page.locator('#view')).not.toContainText('laya-mock-key');
+  // It is a decision model, not an API connection or an MCP server.
+  await page.locator('#nav button', { hasText: 'APIs' }).click();
+  await expect(page.locator('#view')).not.toContainText('ui_laya');
 });
 
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {

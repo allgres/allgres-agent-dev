@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5365,6 +5365,7 @@ BEGIN
   v := v || allgres_private.mcp_selftest_cases();
   v := v || allgres_private.mcp_oauth_selftest_cases();
   v := v || allgres_private.connection_check_selftest_cases();
+  v := v || allgres_private.decision_model_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -6399,6 +6400,86 @@ BEGIN
     ok := ok AND (SELECT health = rec.h FROM allgres_private.api_connections WHERE connection_id = v_conn);
   END LOOP;
   v := v || jsonb_build_array(jsonb_build_object('name', 'api_connection_test_reads_the_answer_as_health', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- Decision model servers (sql/mcp_connections.sql): connecting and checking
+-- only; nothing here hands a decision to a model.
+CREATE OR REPLACE FUNCTION allgres_private.decision_model_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid;
+  v_conn uuid; v_call uuid;
+  v_full text := '{"status":"ok","loaded":["support-triage"],"revisions":{"support-triage":"0123456789abcdef"},"device":"cpu","device_is_preference":false,"checkpoint_devices":{"support-triage":"cpu"},"cpu_fallbacks":{}}';
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_dm_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES ('selftest-dm-admin-token', u_admin, now() + interval '1 hour');
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'decision_models.connect', 'name', 'selftest_laya',
+    'base_url', 'https://laya.example.com', 'api_key', 'laya-key'));
+  ok := r->>'error' IS NOT NULL;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_model_connect_needs_an_admin', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'decision_models.connect', 'name', 'selftest_laya',
+    'base_url', 'https://laya.example.com/', 'api_key', 'laya-key', 'session_token', 'selftest-dm-admin-token'));
+  v_conn := (r->>'connection_id')::uuid;
+  v_call := (r->>'call_id')::uuid;
+  ok := (r->>'ok')::boolean AND v_call IS NOT NULL
+    AND (SELECT kind = 'decision' AND auth_kind = 'authorization' FROM allgres_private.api_connections WHERE connection_id = v_conn)
+    AND (SELECT url = 'https://laya.example.com/health' AND purpose = 'health' FROM allgres_private.mcp_probes WHERE call_id = v_call);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_model_connect_queues_a_health_check', 'ok', ok, 'detail', r));
+
+  r := allgres_public.fn_claim_mcp_probe(8);
+  ok := EXISTS (SELECT 1 FROM jsonb_array_elements(r->'calls') c
+                WHERE c->>'call_id' = v_call::text AND c->>'method' = 'GET' AND c->>'kind' = 'function'
+                  AND c->>'url' = 'https://laya.example.com/health' AND c->'headers'->>'authorization' = 'Bearer laya-key');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_model_check_sends_the_key_as_a_bearer', 'ok', ok));
+
+  r := allgres_public.fn_complete_mcp_probe(v_call, 200, v_full);
+  ok := r->>'health' = 'ok'
+    AND (SELECT health = 'ok' AND status_detail->'loaded' = '["support-triage"]'::jsonb
+                AND status_detail->'revisions'->>'support-triage' = '0123456789abcdef' AND status_detail->>'device' = 'cpu'
+         FROM allgres_private.api_connections WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_model_check_keeps_loaded_checkpoints', 'ok', ok, 'detail', r));
+
+  -- A server with a key set shows only its status to a caller without the
+  -- right key: that is "key needed", not "connected".
+  v_call := (allgres_public.fn_decision_model_check(v_conn)->>'call_id')::uuid;
+  PERFORM allgres_public.fn_claim_mcp_probe(8);
+  r := allgres_public.fn_complete_mcp_probe(v_call, 200, '{"status":"ok"}');
+  ok := r->>'health' = 'auth_needed'
+    AND (SELECT health = 'auth_needed' AND status_detail->'loaded' = '["support-triage"]'::jsonb
+         FROM allgres_private.api_connections WHERE connection_id = v_conn);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_model_status_only_means_key_needed', 'ok', ok));
+
+  ok := true;
+  FOR r IN SELECT jsonb_build_object('s', s, 'b', b, 'h', h) FROM (VALUES
+      (401, 'x', 'auth_needed'), (503, 'x', 'unreachable'), (0, 'connection refused', 'unreachable'),
+      (200, '<html>welcome</html>', 'unreachable'), (200, '{"status":"degraded"}', 'unreachable')) AS t(s, b, h) LOOP
+    v_call := (allgres_public.fn_decision_model_check(v_conn)->>'call_id')::uuid;
+    PERFORM allgres_public.fn_claim_mcp_probe(8);
+    PERFORM allgres_public.fn_complete_mcp_probe(v_call, (r->>'s')::int, r->>'b');
+    ok := ok AND (SELECT health = r->>'h' FROM allgres_private.api_connections WHERE connection_id = v_conn);
+  END LOOP;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_model_check_reads_other_answers', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'decision_models.list', 'session_token', 'selftest-dm-admin-token'));
+  ok := EXISTS (SELECT 1 FROM jsonb_array_elements(r->'models') e WHERE e->>'name' = 'selftest_laya' AND (e->>'has_key')::boolean)
+    AND r::text NOT LIKE '%laya-key%'
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'mcp.servers', 'session_token', 'selftest-dm-admin-token'))->'servers') e
+                    WHERE e->>'name' = 'selftest_laya')
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'connections.list', 'session_token', 'selftest-dm-admin-token'))->'connections') e
+                    WHERE e->>'name' = 'selftest_laya' AND e->>'kind' <> 'decision');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_model_listing_never_shows_the_key', 'ok', ok));
 
   RETURN v;
 END;

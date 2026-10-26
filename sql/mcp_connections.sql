@@ -19,11 +19,14 @@
 -- sql/grants_and_facade.sql covers these objects like any other.
 
 ALTER TABLE allgres_private.api_connections
-  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'http' CHECK (kind IN ('http', 'mcp')),
+  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'http' CHECK (kind IN ('http', 'mcp', 'decision')),
   ADD COLUMN IF NOT EXISTS health text NOT NULL DEFAULT 'unknown'
     CHECK (health IN ('unknown', 'ok', 'auth_needed', 'unreachable', 'changed')),
   ADD COLUMN IF NOT EXISTS health_checked_at timestamptz,
-  ADD COLUMN IF NOT EXISTS health_detail text;
+  ADD COLUMN IF NOT EXISTS health_detail text,
+  -- What a server reported about itself the last time it was checked (a
+  -- decision model's loaded checkpoints and their revisions). Never a secret.
+  ADD COLUMN IF NOT EXISTS status_detail jsonb;
 
 -- What a provider says its models cost, read from its model list when a
 -- connection test succeeds: {"model": {"input_per_1k": n, "output_per_1k": n}}.
@@ -83,8 +86,9 @@ CREATE TABLE IF NOT EXISTS allgres_private.mcp_probes (
   connection_id    uuid NOT NULL REFERENCES allgres_private.api_connections(connection_id) ON DELETE CASCADE,
   scan_id          uuid NOT NULL,
   -- 'discover' asks an MCP server for its tools; 'ping' is the plain "can
-  -- this connection be reached with its credential" test (a GET).
-  purpose          text NOT NULL DEFAULT 'discover' CHECK (purpose IN ('discover', 'ping')),
+  -- this connection be reached with its credential" test (a GET); 'health' is
+  -- the same GET against a decision model's /health, whose answer is kept.
+  purpose          text NOT NULL DEFAULT 'discover' CHECK (purpose IN ('discover', 'ping', 'health')),
   cursor           text,
   url              text NOT NULL,
   allow_private    boolean NOT NULL DEFAULT false,
@@ -268,7 +272,7 @@ BEGIN
           CASE WHEN r.auth_kind = 'x-api-key' THEN v_key ELSE 'Bearer ' || v_key END);
       END IF;
     END IF;
-    IF r.purpose = 'ping' THEN
+    IF r.purpose IN ('ping', 'health') THEN
       v_out := v_out || jsonb_build_array(jsonb_build_object(
         'call_id', r.call_id, 'kind', 'function', 'method', 'GET', 'url', r.url,
         'headers', v_headers - 'content-type', 'allow_private', r.allow_private));
@@ -320,6 +324,37 @@ BEGIN
   END IF;
   IF c.status <> 'in_flight' THEN
     RETURN jsonb_build_object('action', 'stale', 'reason', 'call_not_in_flight', 'status', c.status);
+  END IF;
+
+  IF c.purpose = 'health' THEN
+    v_parsed := CASE WHEN p_status BETWEEN 200 AND 299 THEN allgres_private.mcp_json_body(p_body) END;
+    IF p_status IN (401, 403) THEN
+      v_health := 'auth_needed'; v_err := 'the server did not accept the key';
+    ELSIF p_status IS NULL OR p_status < 100 OR p_status >= 500 THEN
+      v_health := 'unreachable';
+      v_err := CASE WHEN p_status IS NULL OR p_status < 100 THEN left(COALESCE(NULLIF(p_body, ''), 'could not connect'), 500)
+                    ELSE format('the server answered HTTP %s', p_status) END;
+    ELSIF v_parsed IS NULL OR v_parsed->>'status' IS DISTINCT FROM 'ok' THEN
+      v_health := 'unreachable'; v_err := 'the address answered, but not like a decision model server (GET /health did not return status ok)';
+    ELSIF jsonb_typeof(v_parsed->'loaded') IS DISTINCT FROM 'array' THEN
+      -- A server with a key set answers a caller without the right key with
+      -- only {"status":"ok"}; it never lists its checkpoints to them.
+      v_health := 'auth_needed';
+      v_err := 'the server answered but did not accept the key, or no key was given (it shows only its status to callers without the key)';
+    ELSE
+      v_health := 'ok'; v_err := NULL;
+    END IF;
+    UPDATE allgres_private.mcp_probes
+    SET status = 'harvested', response_status = p_status, error = v_err, updated_at = now()
+    WHERE call_id = p_call_id;
+    UPDATE allgres_private.api_connections
+    SET health = v_health, health_checked_at = now(), health_detail = v_err,
+        status_detail = CASE WHEN v_health = 'ok' THEN jsonb_strip_nulls(jsonb_build_object(
+          'loaded', v_parsed->'loaded', 'revisions', v_parsed->'revisions', 'device', v_parsed->'device',
+          'checkpoint_devices', v_parsed->'checkpoint_devices', 'cpu_fallbacks', v_parsed->'cpu_fallbacks'))
+          ELSE status_detail END
+    WHERE connection_id = c.connection_id;
+    RETURN jsonb_build_object('action', CASE WHEN v_health = 'ok' THEN 'ok' ELSE 'error' END, 'health', v_health);
   END IF;
 
   IF c.purpose = 'ping' THEN
@@ -619,6 +654,9 @@ BEGIN
   IF c.kind = 'mcp' THEN
     RETURN allgres_public.fn_mcp_discover_start(p_connection_id);
   END IF;
+  IF c.kind = 'decision' THEN
+    RETURN allgres_public.fn_decision_model_check(p_connection_id);
+  END IF;
   v_reason := allgres_private.check_outbound_url(c.base_url, c.allow_private_network);
   IF v_reason IS NOT NULL THEN
     RAISE EXCEPTION 'connection endpoint rejected: %', v_reason USING ERRCODE = 'P0001';
@@ -694,5 +732,60 @@ BEGIN
     RAISE EXCEPTION 'this provider did not report a price for that model' USING ERRCODE = 'P0001';
   END IF;
   RETURN jsonb_build_object('ok', true, 'applied', n);
+END;
+$fn$;
+
+-- A decision model server (the official laya-serve). Allgres only connects to
+-- it and shows what it reports: nothing is handed to it here. Which decision
+-- points may use it is a separate choice for each point, off by default.
+CREATE OR REPLACE FUNCTION allgres_public.fn_decision_model_check(p_connection_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  c allgres_private.api_connections%ROWTYPE;
+  v_reason text;
+  v_call uuid;
+  v_url text;
+BEGIN
+  SELECT * INTO c FROM allgres_private.api_connections WHERE connection_id = p_connection_id;
+  IF NOT FOUND OR c.kind <> 'decision' THEN
+    RAISE EXCEPTION 'decision model not found' USING ERRCODE = 'P0001';
+  END IF;
+  v_url := rtrim(c.base_url, '/') || '/health';
+  v_reason := allgres_private.check_outbound_url(v_url, c.allow_private_network);
+  IF v_reason IS NOT NULL THEN
+    RAISE EXCEPTION 'decision model endpoint rejected: %', v_reason USING ERRCODE = 'P0001';
+  END IF;
+  UPDATE allgres_private.mcp_probes
+  SET status = 'lost', error = 'superseded by a newer check', updated_at = now()
+  WHERE connection_id = p_connection_id AND status IN ('queued', 'in_flight');
+  INSERT INTO allgres_private.mcp_probes (connection_id, scan_id, purpose, url, allow_private, status)
+  VALUES (p_connection_id, gen_random_uuid(), 'health', v_url, c.allow_private_network, 'queued')
+  RETURNING call_id INTO v_call;
+  RETURN jsonb_build_object('ok', true, 'call_id', v_call, 'connection_id', p_connection_id);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_public.fn_decision_model_connect(
+  p_name text, p_base_url text, p_api_key text DEFAULT NULL, p_allow_private_network boolean DEFAULT false
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v_conn jsonb;
+  v_id uuid;
+BEGIN
+  v_conn := allgres_public.fn_create_connection(
+    p_name, p_base_url, CASE WHEN NULLIF(p_api_key, '') IS NULL THEN 'none' ELSE 'authorization' END,
+    NULLIF(p_api_key, ''), p_allow_private_network, 0);
+  v_id := (v_conn->>'connection_id')::uuid;
+  UPDATE allgres_private.api_connections SET kind = 'decision' WHERE connection_id = v_id;
+  PERFORM allgres_private.audit('decision_models.connect', jsonb_build_object('connection_id', v_id, 'name', trim(p_name)));
+  RETURN allgres_public.fn_decision_model_check(v_id) || jsonb_build_object('connection_id', v_id);
 END;
 $fn$;
