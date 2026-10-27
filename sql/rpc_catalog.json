@@ -880,6 +880,7 @@
       "clear_lead",
       "lead_agent_id",
       "max_cost_usd",
+      "max_depth",
       "max_turns",
       "mode",
       "name",
@@ -940,6 +941,15 @@
       "room_id",
       "session_token",
       "text"
+    ]
+  },
+  {
+    "action": "rooms.proposal_decide",
+    "guards": [],
+    "params": [
+      "accept",
+      "proposal_id",
+      "session_token"
     ]
   },
   {
