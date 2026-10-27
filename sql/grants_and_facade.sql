@@ -1858,6 +1858,100 @@ BEGIN
       RETURN allgres_public.fn_inbound_event_start((p_request->>'event_id')::uuid,
         COALESCE((p_request->>'dismiss')::boolean, false));
 
+    -- Rooms (sql/rooms.sql). Reading and posting need membership (admins see
+    -- every room); creating a room, its members, its limits and the roles
+    -- are admin-only.
+    WHEN 'rooms.list' THEN
+      v_user := allgres_private.session_user(p_request->>'session_token');
+      IF v_user.user_id IS NULL THEN
+        RAISE EXCEPTION 'not logged in' USING ERRCODE = 'P0001';
+      END IF;
+      RETURN jsonb_build_object('ok', true, 'rooms', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'room_id', r.room_id, 'name', r.name, 'purpose', r.purpose, 'mode', r.mode, 'status', r.status,
+          'members', (SELECT count(*) FROM allgres_private.room_members m WHERE m.room_id = r.room_id),
+          'last_message_at', (SELECT max(created_at) FROM allgres_private.room_messages x WHERE x.room_id = r.room_id)
+        ) ORDER BY r.name)
+        FROM allgres_private.rooms r
+        WHERE v_user.role = 'admin' OR EXISTS (
+          SELECT 1 FROM allgres_private.room_members m WHERE m.room_id = r.room_id AND m.user_id = v_user.user_id)
+      ), '[]'::jsonb));
+
+    WHEN 'rooms.get' THEN
+      PERFORM allgres_private.room_user(p_request->>'session_token', (p_request->>'room_id')::uuid);
+      RETURN jsonb_build_object('ok', true,
+        'room', (SELECT jsonb_build_object(
+            'room_id', r.room_id, 'name', r.name, 'purpose', r.purpose, 'mode', r.mode, 'status', r.status,
+            'lead_agent_id', r.lead_agent_id, 'max_turns', r.max_turns, 'max_cost_usd', r.max_cost_usd,
+            'turns', (SELECT count(*) FROM allgres_private.room_turns t WHERE t.room_id = r.room_id),
+            'cost_usd', allgres_private.room_cost(r.room_id),
+            'busy', EXISTS (SELECT 1 FROM allgres_private.room_turns t JOIN allgres_private.tasks k USING (task_id)
+                            WHERE t.room_id = r.room_id AND k.status NOT IN ('completed', 'failed', 'cancelled')))
+          FROM allgres_private.rooms r WHERE r.room_id = (p_request->>'room_id')::uuid),
+        'members', COALESCE((
+          SELECT jsonb_agg(jsonb_build_object(
+            'member_id', m.member_id, 'kind', CASE WHEN m.agent_id IS NULL THEN 'person' ELSE 'agent' END,
+            'name', COALESCE(a.name, u.username), 'agent_id', m.agent_id, 'user_id', m.user_id,
+            'role_id', m.role_id, 'role', ro.name) ORDER BY (m.agent_id IS NULL), COALESCE(a.name, u.username))
+          FROM allgres_private.room_members m
+          LEFT JOIN allgres_private.agents a ON a.agent_id = m.agent_id
+          LEFT JOIN allgres_private.users u ON u.user_id = m.user_id
+          LEFT JOIN allgres_private.room_roles ro ON ro.role_id = m.role_id
+          WHERE m.room_id = (p_request->>'room_id')::uuid), '[]'::jsonb),
+        'messages', COALESCE((
+          SELECT jsonb_agg(x ORDER BY x->>'created_at') FROM (
+            SELECT jsonb_build_object(
+              'message_id', m.message_id, 'kind', m.kind, 'content', m.content, 'created_at', m.created_at,
+              'author', COALESCE(a.name, u.username, 'room'), 'by_agent', m.author_agent_id IS NOT NULL,
+              'called', COALESCE((SELECT jsonb_agg(ca.name) FROM allgres_private.agents ca WHERE ca.agent_id = ANY (m.called_agent_ids)), '[]'::jsonb),
+              'session_id', m.session_id, 'task_id', m.task_id) AS x
+            FROM allgres_private.room_messages m
+            LEFT JOIN allgres_private.agents a ON a.agent_id = m.author_agent_id
+            LEFT JOIN allgres_private.users u ON u.user_id = m.author_user_id
+            WHERE m.room_id = (p_request->>'room_id')::uuid
+            ORDER BY m.created_at DESC LIMIT 100) q), '[]'::jsonb));
+
+    WHEN 'rooms.create' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_room_create(p_request->>'session_token', p_request->>'name', COALESCE(p_request->>'purpose', ''),
+        COALESCE(NULLIF(p_request->>'max_turns', '')::int, 12), COALESCE(NULLIF(p_request->>'max_cost_usd', '')::numeric, 1.00));
+
+    WHEN 'rooms.set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_room_set((p_request->>'room_id')::uuid, p_request->>'name', p_request->>'purpose',
+        NULLIF(p_request->>'lead_agent_id', '')::uuid, COALESCE((p_request->>'clear_lead')::boolean, false),
+        NULLIF(p_request->>'max_turns', '')::int, NULLIF(p_request->>'max_cost_usd', '')::numeric,
+        NULLIF(p_request->>'status', ''), NULLIF(p_request->>'mode', ''));
+
+    WHEN 'rooms.member_add' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_room_member_add((p_request->>'room_id')::uuid, NULLIF(p_request->>'user_id', '')::uuid,
+        NULLIF(p_request->>'agent_id', '')::uuid, NULLIF(p_request->>'role_id', '')::uuid);
+
+    WHEN 'rooms.member_remove' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_room_member_remove((p_request->>'member_id')::uuid);
+
+    WHEN 'rooms.roles' THEN
+      v_user := allgres_private.session_user(p_request->>'session_token');
+      IF v_user.user_id IS NULL THEN
+        RAISE EXCEPTION 'not logged in' USING ERRCODE = 'P0001';
+      END IF;
+      RETURN jsonb_build_object('ok', true, 'roles', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object('role_id', role_id, 'name', name, 'description', description, 'instruction', instruction) ORDER BY name)
+        FROM allgres_private.room_roles), '[]'::jsonb));
+
+    WHEN 'rooms.role_save' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_room_role_save(p_request->>'name', p_request->>'description', p_request->>'instruction');
+
+    WHEN 'rooms.post' THEN
+      RETURN allgres_public.fn_room_post(p_request->>'session_token', (p_request->>'room_id')::uuid, p_request->>'text');
+
+    WHEN 'rooms.make_task' THEN
+      RETURN allgres_public.fn_room_make_task(p_request->>'session_token', (p_request->>'room_id')::uuid,
+        (p_request->>'agent_id')::uuid, p_request->>'goal');
+
     WHEN 'mcp.oauth_start' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
       RETURN allgres_public.fn_mcp_oauth_start(

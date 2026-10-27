@@ -16,7 +16,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Access & appearance','Audit log'];
+  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Rooms','Access & appearance','Audit log'];
   for (const label of labels) {
     const button = page.locator('#nav button', { hasText: label }).first();
     await expect(button).toBeVisible();
@@ -292,15 +292,57 @@ test('admin receives a signed inbound event and starts a task from it', async ({
   await expect(page.locator('#view')).not.toContainText(secret);
 });
 
+test('admin makes a room, calls an agent with a role, and a person makes a task from it', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  // An agent on the built-in mock model, so its answer comes back through the real worker.
+  await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    let p = await call({ action: 'provider.create', name: 'ui_room_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false && !/already|duplicate key/i.test(String(p.error))) throw new Error(p.error);
+    const a = await call({ action: 'agents.create', name: 'ui_room_agent', system_prompt: 'Answers briefly.',
+      llm_config: { provider: 'ui_room_mock', model: 'allgres-mock' }, is_active: true });
+    if (a.ok === false && !/already|duplicate key/i.test(String(a.error))) throw new Error(a.error);
+  }, baseURL);
+  await page.locator('#nav button', { hasText: 'Rooms' }).click();
+  await page.locator('#rmName').fill('ui-audit-room');
+  await page.locator('#rmPurpose').fill('plan the audit');
+  await page.locator('#rmCreate').click();
+  await expect(page.getByRole('heading', { name: 'ui-audit-room' })).toBeVisible();
+  await page.locator('#rmAgent').selectOption({ label: 'ui_room_agent' });
+  await page.locator('#rmRole').selectOption({ label: 'reviewer' });
+  await page.locator('#rmAddAgent').click();
+  await expect(page.locator('#view').getByText('ui_room_agent')).toBeVisible();
+  await expect(page.locator('#view').getByText('A role tells the agent what it is asked to do here. It gives no permission.')).toBeVisible();
+  // An @mention calls the agent; its answer comes back to the room.
+  await page.locator('#rmText').fill('Please review the figures @ui_room_agent');
+  await page.locator('#rmSend').click();
+  await expect(page.locator('#rmThread .msg', { hasText: 'Allgres mock runtime OK' })).toBeVisible({ timeout: 45000 });
+  await expect(page.locator('#rmThread .msg', { hasText: 'Allgres mock runtime OK' }).getByText('agent', { exact: true })).toBeVisible();
+  // A person makes a task from a message.
+  await page.locator('#rmThread .msg', { hasText: 'Please review the figures' }).getByRole('button', { name: 'Make a task' }).click();
+  await page.locator('#rtGo').click();
+  await expect(page.locator('#rmThread .msg', { hasText: 'Task for ui_room_agent' })).toBeVisible({ timeout: 20000 });
+  // A closed room takes nothing new.
+  await page.locator('#rmToggle').click();
+  await expect(page.locator('#rmText')).toHaveCount(0);
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
-  await expect(page.locator('#nav button')).toHaveCount(4);
-  for (const label of ['General','Projects','Approvals','My agents']) {
+  await expect(page.locator('#nav button')).toHaveCount(5);
+  for (const label of ['General','Rooms','Projects','Approvals','My agents']) {
     const button=page.locator('#nav button',{hasText:label});
     await expect(button).toBeVisible();
     await button.click();
     await expect(button).toHaveClass(/active/);
   }
+  // A person who is in no room sees none, and cannot make one.
+  await page.locator('#nav button', { hasText: 'Rooms' }).click();
+  await expect(page.getByText('An admin adds you to a room.')).toBeVisible();
+  await expect(page.locator('#view')).not.toContainText('ui-audit-room');
+  await expect(page.locator('#rmCreate')).toHaveCount(0);
   await page.locator('#nav button', { hasText: 'General' }).click();
   await expect(page.locator('#generalChatThread')).toBeVisible();
   await expect(page.getByText('not assigned to your account')).toHaveCount(0);

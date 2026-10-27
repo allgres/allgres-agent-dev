@@ -72,7 +72,7 @@ The admin menu is grouped by what you are doing:
 |---|---|
 | (top) | **Home** |
 | **Organization** | **Canvas**, **Agents**, **People** (accounts, roles, units, approval rules, delegation) |
-| **Work** | **General**, **Projects**, **Approvals** (Approvals, Proposals, Fixes, and for admins Decisions; open to regular users too, see [System agents](system-agents.md)), **Activity** (Sessions, Tasks, Logs), **Schedules** |
+| **Work** | **General**, **Rooms** (open to regular users too), **Projects**, **Approvals** (Approvals, Proposals, Fixes, and for admins Decisions; open to regular users too, see [System agents](system-agents.md)), **Activity** (Sessions, Tasks, Logs), **Schedules** |
 | **Abilities** | **Functions & procedures**, **Memories**, **SQL** |
 | **Connections** | **Models & prices**, **APIs**, **MCP servers** |
 | **Settings** | **Access & appearance** (token, your name, SQL allowlist, theme), **Audit log** |

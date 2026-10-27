@@ -152,7 +152,9 @@ extension_sql_file!("../sql/decision_records.sql", name = "decision_records", re
 extension_sql_file!("../sql/mcp_connections.sql", name = "mcp_connections", requires = ["decision_records"]);
 extension_sql_file!("../sql/mcp_oauth.sql", name = "mcp_oauth", requires = ["mcp_connections"]);
 extension_sql_file!("../sql/inbound_events.sql", name = "inbound_events", requires = ["mcp_oauth"]);
-extension_sql_file!("../sql/selftest.sql", requires = ["inbound_events"]);
+// And rooms (docs/stage5-design.md): people and agents talking in one place.
+extension_sql_file!("../sql/rooms.sql", name = "rooms", requires = ["inbound_events"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["rooms"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]
