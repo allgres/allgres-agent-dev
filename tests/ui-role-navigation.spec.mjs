@@ -605,6 +605,16 @@ test('decision model: watch a point, compare with a person, and meet the gate be
   // The way back.
   await page.getByRole('button', { name: 'Turn everything off' }).click();
   await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: /^off$/ })).toBeVisible();
+  // The scripted agent asks again after every answer; leave nothing waiting for later tests.
+  await page.evaluate(async () => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const ag = (await call({ action: 'agents.list' })).agents.find(x => x.name === 'ui_dg_agent');
+    await call({ action: 'agents.update', agent_id: ag.agent_id, is_active: false }).catch(() => {});
+    const list = (await call({ action: 'approvals.list', limit: 200 })).approvals || [];
+    for (const ap of list.filter(x => x.agent === 'ui_dg_agent')) await call({ action: 'approvals.decide', approval_id: ap.approval_id, accept: false });
+  });
 });
 
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
