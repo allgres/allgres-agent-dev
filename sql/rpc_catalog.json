@@ -842,6 +842,117 @@
     ]
   },
   {
+    "action": "rooms.list",
+    "guards": [
+      "session_user"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "rooms.get",
+    "guards": [],
+    "params": [
+      "room_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "rooms.create",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "max_cost_usd",
+      "max_turns",
+      "name",
+      "purpose",
+      "session_token"
+    ]
+  },
+  {
+    "action": "rooms.set",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "clear_lead",
+      "lead_agent_id",
+      "max_cost_usd",
+      "max_turns",
+      "mode",
+      "name",
+      "purpose",
+      "room_id",
+      "session_token",
+      "status"
+    ]
+  },
+  {
+    "action": "rooms.member_add",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "agent_id",
+      "role_id",
+      "room_id",
+      "session_token",
+      "user_id"
+    ]
+  },
+  {
+    "action": "rooms.member_remove",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "member_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "rooms.roles",
+    "guards": [
+      "session_user"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "rooms.role_save",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "description",
+      "instruction",
+      "name",
+      "session_token"
+    ]
+  },
+  {
+    "action": "rooms.post",
+    "guards": [],
+    "params": [
+      "room_id",
+      "session_token",
+      "text"
+    ]
+  },
+  {
+    "action": "rooms.make_task",
+    "guards": [],
+    "params": [
+      "agent_id",
+      "goal",
+      "room_id",
+      "session_token"
+    ]
+  },
+  {
     "action": "mcp.oauth_start",
     "guards": [
       "require_admin_if_accounts_exist"
