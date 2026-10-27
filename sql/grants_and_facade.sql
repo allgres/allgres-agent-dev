@@ -1882,7 +1882,7 @@ BEGIN
       RETURN jsonb_build_object('ok', true,
         'room', (SELECT jsonb_build_object(
             'room_id', r.room_id, 'name', r.name, 'purpose', r.purpose, 'mode', r.mode, 'status', r.status,
-            'lead_agent_id', r.lead_agent_id, 'max_turns', r.max_turns, 'max_cost_usd', r.max_cost_usd,
+            'lead_agent_id', r.lead_agent_id, 'max_turns', r.max_turns, 'max_cost_usd', r.max_cost_usd, 'max_depth', r.max_depth,
             'turns', (SELECT count(*) FROM allgres_private.room_turns t WHERE t.room_id = r.room_id),
             'cost_usd', allgres_private.room_cost(r.room_id),
             'busy', EXISTS (SELECT 1 FROM allgres_private.room_turns t JOIN allgres_private.tasks k USING (task_id)
@@ -1898,6 +1898,13 @@ BEGIN
           LEFT JOIN allgres_private.users u ON u.user_id = m.user_id
           LEFT JOIN allgres_private.room_roles ro ON ro.role_id = m.role_id
           WHERE m.room_id = (p_request->>'room_id')::uuid), '[]'::jsonb),
+        'proposals', COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('proposal_id', p.proposal_id, 'goal', p.goal, 'assignee', aa.name,
+            'proposed_by', pa.name, 'created_at', p.created_at) ORDER BY p.created_at)
+          FROM allgres_private.room_proposals p
+          JOIN allgres_private.agents aa ON aa.agent_id = p.assignee_agent_id
+          LEFT JOIN allgres_private.agents pa ON pa.agent_id = p.proposed_by_agent
+          WHERE p.room_id = (p_request->>'room_id')::uuid AND p.status = 'pending'), '[]'::jsonb),
         'messages', COALESCE((
           SELECT jsonb_agg(x ORDER BY x->>'created_at') FROM (
             SELECT jsonb_build_object(
@@ -1921,7 +1928,7 @@ BEGIN
       RETURN allgres_public.fn_room_set((p_request->>'room_id')::uuid, p_request->>'name', p_request->>'purpose',
         NULLIF(p_request->>'lead_agent_id', '')::uuid, COALESCE((p_request->>'clear_lead')::boolean, false),
         NULLIF(p_request->>'max_turns', '')::int, NULLIF(p_request->>'max_cost_usd', '')::numeric,
-        NULLIF(p_request->>'status', ''), NULLIF(p_request->>'mode', ''));
+        NULLIF(p_request->>'status', ''), NULLIF(p_request->>'mode', ''), NULLIF(p_request->>'max_depth', '')::int);
 
     WHEN 'rooms.member_add' THEN
       PERFORM allgres_private.require_admin(p_request->>'session_token');
@@ -1947,6 +1954,10 @@ BEGIN
 
     WHEN 'rooms.post' THEN
       RETURN allgres_public.fn_room_post(p_request->>'session_token', (p_request->>'room_id')::uuid, p_request->>'text');
+
+    WHEN 'rooms.proposal_decide' THEN
+      RETURN allgres_public.fn_room_proposal_decide(p_request->>'session_token', (p_request->>'proposal_id')::uuid,
+        COALESCE((p_request->>'accept')::boolean, false));
 
     WHEN 'rooms.make_task' THEN
       RETURN allgres_public.fn_room_make_task(p_request->>'session_token', (p_request->>'room_id')::uuid,

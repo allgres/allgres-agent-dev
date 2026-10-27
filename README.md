@@ -147,7 +147,7 @@ The agreed improvement plan is in [docs/improvement-plan.md](docs/improvement-pl
    - Connection health.
    - Local MCP servers also run outside PostgreSQL.
 4. **Capability creation.** A creator agent and its guide build PostgreSQL functions and procedures, or propose an MCP server when PostgreSQL cannot do the job.
-5. **Team collaboration** ([design](docs/stage5-design.md); [rooms](docs/rooms.md) with manual mode are in). Multiple group membership, team intake, and shared knowledge scopes.
+5. **Team collaboration** ([design](docs/stage5-design.md); [rooms](docs/rooms.md) with manual and assisted modes are in). Multiple group membership, team intake, and shared knowledge scopes.
 6. **Optional Laya delegation.** Turn delegation on or off per decision point, using official Laya components only.
 
 The principles stay fixed throughout:

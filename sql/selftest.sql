@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.proposal_decide', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.proposal_decide', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5368,6 +5368,7 @@ BEGIN
   v := v || allgres_private.decision_model_selftest_cases();
   v := v || allgres_private.inbound_selftest_cases();
   v := v || allgres_private.room_selftest_cases();
+  v := v || allgres_private.room_assisted_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -6701,12 +6702,12 @@ BEGIN
   v_err := NULL;
   BEGIN PERFORM allgres_public.fn_room_set(v_room, p_mode => 'auto');
   EXCEPTION WHEN others THEN v_err := SQLERRM; END;
-  ok := ok AND v_err LIKE '%only the manual mode%';
+  ok := ok AND v_err LIKE '%only the manual and assisted modes%';
   v_err := NULL;
   BEGIN PERFORM allgres_public.fn_room_set(v_room, p_lead_agent_id => a_out);
   EXCEPTION WHEN others THEN v_err := SQLERRM; END;
   ok := ok AND v_err LIKE '%must be an agent in the room%';
-  v := v || jsonb_build_array(jsonb_build_object('name', 'room_members_are_checked_and_only_manual_mode_exists', 'ok', ok));
+  v := v || jsonb_build_array(jsonb_build_object('name', 'room_members_are_checked_and_auto_mode_does_not_exist_yet', 'ok', ok));
 
   -- Only members read or post; an admin sees every room.
   r := allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.get', 'room_id', v_room, 'session_token', tn));
@@ -6803,6 +6804,170 @@ BEGIN
   ok := ok AND (r->>'ok')::boolean
     AND NOT EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = a_rev);
   v := v || jsonb_build_array(jsonb_build_object('name', 'room_roles_are_admin_made_and_grant_nothing', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- Rooms in assisted mode: agents calling agents, the lead's proposals, and a
+-- person's confirmation (sql/rooms.sql).
+CREATE OR REPLACE FUNCTION allgres_private.room_assisted_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_out uuid;
+  a_lead uuid; a_rev uuid; a_impl uuid; a_nope uuid;
+  v_room uuid; v_t uuid; v_t2 uuid; v_prop uuid; v_prop2 uuid; v_n int; v_goal text; v_rec uuid; v_state text;
+  tk text := 'selftest-asst-admin-token'; tn text := 'selftest-asst-out-token';
+  i int;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_asst_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_asst_out', 'x', 'user') RETURNING user_id INTO u_out;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (tk, u_admin, now() + interval '1 hour'), (tn, u_out, now() + interval '1 hour');
+  a_lead := (allgres_public.fn_create_agent('zz5_lead', 'lead fixture')->>'agent_id')::uuid;
+  a_rev := (allgres_public.fn_create_agent('zz5_rev', 'reviewer fixture')->>'agent_id')::uuid;
+  a_impl := (allgres_public.fn_create_agent('zz5_impl', 'implementer fixture')->>'agent_id')::uuid;
+  a_nope := (allgres_public.fn_create_agent('zz5_nope', 'no permission fixture')->>'agent_id')::uuid;
+  v_room := (allgres_public.fn_room_create(tk, 'zz5_room', 'reconcile the ledger', 50, 100)->>'room_id')::uuid;
+  PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_lead, (SELECT role_id FROM allgres_private.room_roles WHERE name = 'lead'));
+  PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_rev, (SELECT role_id FROM allgres_private.room_roles WHERE name = 'reviewer'));
+  PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_impl, (SELECT role_id FROM allgres_private.room_roles WHERE name = 'implementer'));
+  PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_nope, NULL);
+  PERFORM allgres_public.fn_room_set(v_room, p_lead_agent_id => a_lead);
+  -- The lead may hand work to the reviewer and the implementer, not to zz5_nope.
+  PERFORM allgres_public.fn_grant_permission(a_lead, 'agent', 'zz5_rev');
+  PERFORM allgres_public.fn_grant_permission(a_lead, 'agent', 'zz5_impl');
+  PERFORM allgres_public.fn_grant_permission(a_rev, 'agent', 'zz5_lead');
+  PERFORM allgres_public.fn_grant_permission(a_impl, 'agent', 'zz5_lead');
+
+  -- Manual: an agent's answer calls nobody.
+  r := allgres_public.fn_room_post(tk, v_room, 'SECRETWORD start @zz5_lead');
+  v_t := (r->'tasks'->>0)::uuid;
+  UPDATE allgres_private.tasks SET status = 'completed', output = jsonb_build_object('answer', 'I need @zz5_rev to look.') WHERE task_id = v_t;
+  SELECT count(*) INTO v_n FROM allgres_private.room_turns WHERE room_id = v_room;
+  ok := v_n = 1 AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND task_id = v_t AND kind = 'say');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'manual_room_agent_answer_calls_nobody', 'ok', ok));
+
+  -- Assisted: the same answer asks the reviewer for a turn.
+  PERFORM allgres_public.fn_room_set(v_room, p_mode => 'assisted');
+  r := allgres_public.fn_room_post(tk, v_room, 'again @zz5_lead');
+  v_t := (r->'tasks'->>0)::uuid;
+  SELECT s.goal INTO v_goal FROM allgres_private.tasks t JOIN allgres_private.sessions s USING (session_id) WHERE t.task_id = v_t;
+  ok := v_goal LIKE '%The agents in this room: zz5_impl (implementer), zz5_lead (lead), zz5_nope, zz5_rev (reviewer).%'
+    AND v_goal LIKE '%You are the lead:%PROPOSE @agent-name:%';
+  UPDATE allgres_private.tasks SET status = 'completed', output = jsonb_build_object('answer', 'I need @zz5_rev to look.') WHERE task_id = v_t;
+  SELECT t.task_id INTO v_t2 FROM allgres_private.room_turns t WHERE t.room_id = v_room AND t.agent_id = a_rev;
+  ok := ok AND v_t2 IS NOT NULL
+    AND (SELECT depth = 1 AND caller_agent_id = a_lead FROM allgres_private.room_turns WHERE task_id = v_t2)
+    AND (SELECT s.goal LIKE '%What is asked of you now: zz5_lead says: I need @zz5_rev to look.' AND s.goal LIKE '%Only the lead proposes tasks.%'
+         FROM allgres_private.tasks t JOIN allgres_private.sessions s USING (session_id) WHERE t.task_id = v_t2)
+    AND (SELECT called_agent_ids = ARRAY[a_rev] FROM allgres_private.room_messages WHERE task_id = v_t AND kind = 'say' AND author_agent_id = a_lead);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'assisted_room_agent_answer_asks_another_member_for_a_turn', 'ok', ok, 'detail', v_goal));
+
+  -- Calls are refused with a notice when the caller may not hand work over,
+  -- the callee is not a member, or a limit is reached.
+  r := allgres_public.fn_room_post(tk, v_room, 'next @zz5_lead');
+  v_t := (r->'tasks'->>0)::uuid;
+  SELECT count(*) INTO v_n FROM allgres_private.room_turns WHERE room_id = v_room;
+  UPDATE allgres_private.tasks SET status = 'completed', output = jsonb_build_object('answer', '@zz5_nope please help. @nobody_here too.') WHERE task_id = v_t;
+  ok := (SELECT count(*) FROM allgres_private.room_turns WHERE room_id = v_room) = v_n
+    AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'notice'
+                  AND content LIKE 'zz5_lead asked zz5_nope for a turn, but zz5_lead is not allowed to hand work to zz5_nope.%');
+  PERFORM allgres_public.fn_room_set(v_room, p_max_depth => 1);
+  UPDATE allgres_private.tasks SET status = 'completed', output = jsonb_build_object('answer', 'Looks fine. @zz5_impl continue.') WHERE task_id = v_t2;
+  ok := ok AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'notice'
+                         AND content LIKE '%asked zz5_impl for a turn, but the chain of agents calling agents is already 1 deep.%')
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.room_turns WHERE room_id = v_room AND agent_id = a_impl);
+  PERFORM allgres_public.fn_room_set(v_room, p_max_depth => 4);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'assisted_room_stops_a_call_that_is_not_allowed_or_too_deep', 'ok', ok));
+
+  -- Only the lead's PROPOSE lines count; they do not call the assignee.
+  r := allgres_public.fn_room_post(tk, v_room, 'wrap up @zz5_rev');
+  v_t := (r->'tasks'->>0)::uuid;
+  UPDATE allgres_private.tasks SET status = 'completed', output = jsonb_build_object('answer', E'PROPOSE @zz5_impl: do it myself') WHERE task_id = v_t;
+  ok := NOT EXISTS (SELECT 1 FROM allgres_private.room_proposals WHERE room_id = v_room);
+  r := allgres_public.fn_room_post(tk, v_room, 'wrap up @zz5_lead');
+  v_t := (r->'tasks'->>0)::uuid;
+  SELECT count(*) INTO v_n FROM allgres_private.room_turns WHERE room_id = v_room;
+  UPDATE allgres_private.tasks SET status = 'completed',
+    output = jsonb_build_object('answer', E'Settled.\nPROPOSE @zz5_impl: Reconcile the March ledger and report the difference\nPROPOSE @zz5_ghost: nothing') WHERE task_id = v_t;
+  SELECT proposal_id INTO v_prop FROM allgres_private.room_proposals WHERE room_id = v_room AND status = 'pending';
+  ok := ok AND v_prop IS NOT NULL
+    AND (SELECT count(*) = 1 FROM allgres_private.room_proposals WHERE room_id = v_room)
+    AND (SELECT goal = 'Reconcile the March ledger and report the difference' AND assignee_agent_id = a_impl AND proposed_by_agent = a_lead
+         FROM allgres_private.room_proposals WHERE proposal_id = v_prop)
+    AND (SELECT count(*) = v_n FROM allgres_private.room_turns WHERE room_id = v_room)
+    AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'task_proposal' AND content LIKE 'Proposed task for zz5_impl:%')
+    AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'notice' AND content LIKE '%zz5_ghost, who is not in this room%');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'assisted_room_lead_proposes_and_nothing_starts', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.get', 'room_id', v_room, 'session_token', tk));
+  ok := EXISTS (SELECT 1 FROM jsonb_array_elements(r->'proposals') e WHERE e->>'assignee' = 'zz5_impl' AND e->>'proposed_by' = 'zz5_lead');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'room_view_lists_pending_proposals', 'ok', ok));
+
+  -- A person outside the room cannot decide; a member can. Confirming starts
+  -- the task and keeps the person's choice as a gold decision record that
+  -- does not carry what people said in the room.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.proposal_decide', 'proposal_id', v_prop, 'accept', true, 'session_token', tn));
+  ok := r->>'error' LIKE '%not in this room%';
+  SELECT count(*) INTO v_n FROM allgres_private.room_turns WHERE room_id = v_room;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.proposal_decide', 'proposal_id', v_prop, 'accept', true, 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean AND r->>'task_id' IS NOT NULL
+    AND (SELECT count(*) = v_n + 1 FROM allgres_private.room_turns WHERE room_id = v_room)
+    AND (SELECT status = 'confirmed' AND decided_by_user = u_admin AND task_id = (r->>'task_id')::uuid FROM allgres_private.room_proposals WHERE proposal_id = v_prop)
+    AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'task_started' AND content LIKE 'Confirmed. Task for zz5_impl:%');
+  SELECT record_id, state INTO v_rec, v_state FROM allgres_private.decision_records WHERE source_kind = 'room_proposal' AND source_id = v_prop;
+  ok := ok AND v_rec IS NOT NULL
+    AND (SELECT answer = 'confirm' AND decided_by = 'human' AND decider_user_id = u_admin AND point_key = 'room_task_confirmation'
+         FROM allgres_private.decision_records WHERE record_id = v_rec)
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_labels WHERE record_id = v_rec AND tier = 'gold' AND expected = '{"room_task_confirmation": "confirm"}'::jsonb)
+    AND v_state LIKE 'Room: zz5_room%' AND v_state LIKE '%Assignee: zz5_impl (implementer)%' AND v_state LIKE '%Goal: Reconcile the March ledger%'
+    AND v_state LIKE '%Discussion: % messages from % participants' AND v_state NOT LIKE '%SECRETWORD%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.proposal_decide', 'proposal_id', v_prop, 'accept', true, 'session_token', tk));
+  ok := ok AND r->>'error' LIKE '%already been decided%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'person_confirms_a_proposal_and_it_is_kept_as_their_decision', 'ok', ok, 'detail', v_state));
+
+  -- Declining starts nothing and is kept too. At most three wait at once.
+  FOR i IN 1..4 LOOP
+    r := allgres_public.fn_room_post(tk, v_room, 'propose ' || i || ' @zz5_lead');
+    UPDATE allgres_private.tasks SET status = 'completed',
+      output = jsonb_build_object('answer', 'PROPOSE @zz5_impl: task number ' || i) WHERE task_id = (r->'tasks'->>0)::uuid;
+  END LOOP;
+  ok := (SELECT count(*) = 3 FROM allgres_private.room_proposals WHERE room_id = v_room AND status = 'pending')
+    AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'notice' AND content LIKE 'Three proposals are already waiting%');
+  SELECT proposal_id INTO v_prop2 FROM allgres_private.room_proposals WHERE room_id = v_room AND status = 'pending' ORDER BY created_at LIMIT 1;
+  SELECT count(*) INTO v_n FROM allgres_private.room_turns WHERE room_id = v_room;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.proposal_decide', 'proposal_id', v_prop2, 'accept', false, 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean AND r->>'task_id' IS NULL
+    AND (SELECT count(*) = v_n FROM allgres_private.room_turns WHERE room_id = v_room)
+    AND (SELECT status = 'declined' FROM allgres_private.room_proposals WHERE proposal_id = v_prop2)
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = v_prop2 AND answer = 'decline' AND decided_by = 'human')
+    AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'notice' AND content LIKE 'Declined the proposed task for zz5_impl:%');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'declined_proposal_starts_nothing_and_at_most_three_wait', 'ok', ok));
+
+  -- Two agents passing the discussion back and forth stop after six turns.
+  PERFORM allgres_public.fn_room_set(v_room, p_max_turns => 500, p_max_depth => 20);
+  UPDATE allgres_private.room_proposals SET status = 'declined' WHERE room_id = v_room AND status = 'pending';
+  r := allgres_public.fn_room_post(tk, v_room, 'discuss @zz5_lead');
+  v_t := (r->'tasks'->>0)::uuid;
+  FOR i IN 1..12 LOOP
+    UPDATE allgres_private.tasks SET status = 'completed',
+      output = jsonb_build_object('answer', CASE WHEN (SELECT agent_id FROM allgres_private.room_turns WHERE task_id = v_t) = a_lead
+                                                 THEN '@zz5_rev what do you think' ELSE '@zz5_lead I agree' END)
+    WHERE task_id = v_t;
+    SELECT task_id INTO v_t2 FROM allgres_private.room_turns WHERE room_id = v_room ORDER BY created_at DESC, task_id DESC LIMIT 1;
+    EXIT WHEN v_t2 = v_t;
+    v_t := v_t2;
+  END LOOP;
+  ok := EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'notice' AND content LIKE '%have been passing the discussion back and forth.%')
+    AND (SELECT count(*) FROM allgres_private.room_turns WHERE room_id = v_room AND created_at >= (SELECT created_at FROM allgres_private.room_messages WHERE room_id = v_room AND content = 'discuss @zz5_lead')) <= 7;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'assisted_room_stops_two_agents_passing_it_back_and_forth', 'ok', ok));
 
   RETURN v;
 END;

@@ -329,6 +329,69 @@ test('admin makes a room, calls an agent with a role, and a person makes a task 
   await expect(page.locator('#rmText')).toHaveCount(0);
 });
 
+test('assisted room: agents ask each other, the lead proposes, a person confirms', async ({ page }) => {
+  test.setTimeout(120000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  // Three scripted agents on the built-in mock model (MOCK_SCRIPT is its test-only script line).
+  await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const llm = { provider: 'ui_room_mock', model: 'allgres-mock' };
+    let p = await call({ action: 'provider.create', name: 'ui_room_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false && !/already|duplicate key/i.test(String(p.error))) throw new Error(p.error);
+    const make = async (name, script) => {
+      const a = await call({ action: 'agents.create', name, system_prompt: 'MOCK_SCRIPT: ' + script, llm_config: llm, is_active: true });
+      if (a.ok === false) throw new Error(a.error);
+      return a.agent_id;
+    };
+    const lead = await make('ui_as_lead', 'Plan ready. @ui_as_rev please check the figures.\\nPROPOSE @ui_as_impl: reconcile the March ledger');
+    await make('ui_as_rev', 'Checked, the figures are fine.');
+    await make('ui_as_impl', 'Ledger reconciled, no difference found.');
+    for (const ref of ['ui_as_rev', 'ui_as_impl']) {
+      const g = await call({ action: 'permissions.grant', agent_id: lead, type: 'agent', ref });
+      if (g.ok === false) throw new Error(g.error);
+    }
+  }, baseURL);
+  await page.locator('#nav button', { hasText: 'Rooms' }).click();
+  await page.locator('#rmName').fill('ui-assisted');
+  await page.locator('#rmCreate').click();
+  await expect(page.getByRole('heading', { name: 'ui-assisted' })).toBeVisible();
+  for (const [name, role] of [['ui_as_lead', 'lead'], ['ui_as_rev', 'reviewer'], ['ui_as_impl', 'implementer']]) {
+    await page.locator('#rmAgent').selectOption({ label: name });
+    await page.locator('#rmRole').selectOption({ label: role });
+    await page.locator('#rmAddAgent').click();
+    await expect(page.locator('#view .row', { hasText: name }).first()).toBeVisible();
+  }
+  await page.locator('#view .row', { hasText: 'ui_as_lead' }).getByRole('button', { name: 'Make lead' }).click();
+  // The lead badge joins the role badge of the same name once the lead is set.
+  await expect(page.locator('#view .status', { hasText: /^lead$/ })).toHaveCount(2);
+  await page.locator('#rmMode').selectOption('assisted');
+  await page.locator('#rmSaveLimits').click();
+  await expect(page.getByText('assisted', { exact: true }).first()).toBeVisible();
+  // One message to the lead: it asks the reviewer, who answers, and it proposes a task.
+  await page.locator('#rmText').fill('Kick off the audit @ui_as_lead');
+  await page.locator('#rmSend').click();
+  await expect(page.locator('#rmThread .msg', { hasText: 'Checked, the figures are fine.' })).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('#rmThread .msg', { hasText: 'Proposed task for ui_as_impl: reconcile the March ledger' })).toBeVisible();
+  // The proposal waits for a person: the implementer has not been called.
+  await expect(page.locator('#rmThread .msg', { hasText: 'Ledger reconciled' })).toHaveCount(0);
+  const waiting = page.locator('#view .panel', { hasText: 'Waiting for you' });
+  await expect(waiting).toContainText('reconcile the March ledger');
+  await waiting.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.locator('#rmThread .msg', { hasText: 'Ledger reconciled, no difference found.' })).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('#view .panel', { hasText: 'Waiting for you' })).toHaveCount(0);
+  // The person's confirmation is kept as a decision record.
+  const stats = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ action: 'decisions.stats', session_token: sessionStorage.getItem('allgres_session_token') }) });
+    return r.json();
+  });
+  const point = stats.points.find(x => x.point_key === 'room_task_confirmation');
+  expect(point).toMatchObject({ records: 1, human: 1, gold: 1 });
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(5);

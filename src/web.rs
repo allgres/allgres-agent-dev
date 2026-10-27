@@ -479,15 +479,30 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         if path == "/mock/slow/chat/completions" {
             std::thread::sleep(Duration::from_secs(15));
         }
+        // A test can script an agent: a line "MOCK_SCRIPT: <text>" in any
+        // message of the request (in practice the agent's system prompt) makes
+        // the mock answer with that text, \n standing for a line break. With
+        // no such line it keeps answering "Allgres mock runtime OK".
+        let request = serde_json::from_str::<Value>(&r.body).unwrap_or_else(|_| json!({}));
+        let scripted = request
+            .get("messages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|m| m.get("content").and_then(Value::as_str))
+            .find_map(|c| {
+                c.lines()
+                    .find_map(|l| l.trim_start().strip_prefix("MOCK_SCRIPT:"))
+                    .map(|t| t.trim().replace("\\n", "\n"))
+            })
+            .unwrap_or_else(|| "Allgres mock runtime OK".to_string());
+        let content = json!({"action": "final_answer", "answer": scripted}).to_string();
         let body = json!({
             "id": "allgres-mock",
             "object": "chat.completion",
             "choices": [{
                 "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "{\"action\":\"final_answer\",\"answer\":\"Allgres mock runtime OK\"}"
-                },
+                "message": {"role": "assistant", "content": content},
                 "finish_reason": "stop"
             }]
         })
