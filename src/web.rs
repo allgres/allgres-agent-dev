@@ -496,7 +496,34 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
                     .map(|t| t.trim().replace("\\n", "\n"))
             })
             .unwrap_or_else(|| "Allgres mock runtime OK".to_string());
-        let content = json!({"action": "final_answer", "answer": scripted}).to_string();
+        // "MOCK_ACTION: <json>" answers with that action instead, once: when
+        // the request already carries a proposal that action made (a message
+        // holding "proposal_id"), the mock finishes with a plain answer so the
+        // agent does not propose the same thing again.
+        let scripted_action = request
+            .get("messages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|m| m.get("content").and_then(Value::as_str))
+            .find_map(|c| {
+                c.lines()
+                    .find_map(|l| l.trim_start().strip_prefix("MOCK_ACTION:"))
+                    .map(|t| t.trim().to_string())
+            });
+        let already_proposed = request
+            .get("messages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|m| m.get("role").and_then(Value::as_str) != Some("system"))
+            .filter_map(|m| m.get("content").and_then(Value::as_str))
+            .any(|c| c.contains("proposal_id"));
+        let content = match scripted_action {
+            Some(action) if !already_proposed => action,
+            Some(_) => json!({"action": "final_answer", "answer": "Proposed for approval."}).to_string(),
+            None => json!({"action": "final_answer", "answer": scripted}).to_string(),
+        };
         let body = json!({
             "id": "allgres-mock",
             "object": "chat.completion",
@@ -729,6 +756,73 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
             return;
         }
         respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+        return;
+    }
+
+    // Mock decision model server (laya-serve's POST /v1/systemone). It picks
+    // a label from the question's criteria by a word in the state, so a test
+    // can steer it: LAYA_PICK:<label> chooses that label, LAYA_REJECT picks
+    // reject or decline, anything else picks approve or confirm (or the first
+    // label); LAYA_LOW answers with low confidence; LAYA_DOWN answers 503.
+    if path == "/mock/laya/v1/systemone" {
+        if !cfg.mock_enabled {
+            respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+            return;
+        }
+        if r.header("authorization").is_some_and(|h| h != "Bearer laya-mock-key") {
+            respond_json(&mut s, "401 Unauthorized", "{\"detail\":\"bad key\"}");
+            return;
+        }
+        let req = serde_json::from_str::<Value>(&r.body).unwrap_or_else(|_| json!({}));
+        let state = match req.get("state") {
+            Some(Value::String(t)) => t.clone(),
+            Some(other) => other.to_string(),
+            None => String::new(),
+        };
+        if state.contains("LAYA_DOWN") {
+            respond_json(&mut s, "503 Service Unavailable", "{\"detail\":\"unavailable\"}");
+            return;
+        }
+        let min_conf = req.get("min_confidence").and_then(Value::as_f64);
+        let mut answers = serde_json::Map::new();
+        if let Some(qs) = req.get("questions").and_then(Value::as_object) {
+            for (qid, q) in qs {
+                let labels: Vec<String> = q
+                    .get("criteria")
+                    .and_then(Value::as_object)
+                    .map(|o| o.keys().cloned().collect())
+                    .unwrap_or_default();
+                let picked = state
+                    .split("LAYA_PICK:")
+                    .nth(1)
+                    .and_then(|t| t.split_whitespace().next())
+                    .map(str::to_string)
+                    .filter(|l| labels.contains(l))
+                    .or_else(|| {
+                        if state.contains("LAYA_REJECT") {
+                            ["reject", "decline"].iter().find(|l| labels.iter().any(|x| x == *l)).map(|l| l.to_string())
+                        } else {
+                            ["approve", "confirm"].iter().find(|l| labels.iter().any(|x| x == *l)).map(|l| l.to_string())
+                        }
+                    })
+                    .or_else(|| labels.first().cloned())
+                    .unwrap_or_default();
+                let conf = if state.contains("LAYA_LOW") { 0.30 } else { 0.95 };
+                let mut node = json!({"choice": picked, "confidence": 0.5, "answer_confidence": conf,
+                                      "probabilities": {picked.clone(): conf}});
+                if let Some(m) = min_conf {
+                    let abstained = conf < m;
+                    node["abstention"] = json!(if abstained { "abstained" } else { "passed" });
+                    node["abstention_threshold"] = json!(m);
+                    if abstained {
+                        node["low_confidence"] = json!(true);
+                    }
+                }
+                answers.insert(qid.clone(), node);
+            }
+        }
+        let doc = json!({"answers": answers, "usage": {"input_tokens": 1, "output_tokens": 1}});
+        respond_json(&mut s, "200 OK", &doc.to_string());
         return;
     }
 

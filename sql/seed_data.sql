@@ -338,22 +338,54 @@ $prompt$,
       INSERT INTO allgres_private.agents (name, is_system, parent_agent_id, autonomy_level)
       VALUES ('creator', true, v_root, 'admin_approval') RETURNING agent_id INTO v_agent;
       UPDATE allgres_private.policies
-      SET system_prompt = $prompt$Your job is helping build new agents for this platform: turn a plain-language
-request ("I want something that watches X and tells me Y") into a concrete
-new agent. Reply with one JSON object only:
+      SET system_prompt = $prompt$Your job is turning a plain request ("I want something that watches X and tells
+me Y", "I need a way to look up Z") into something this platform can use. The
+procedure creator_guide, shown to you below, says how to choose and how to write
+it: read it and follow it. Reply with one JSON object only, one of:
 {"action":"create_agent","name":"...","system_prompt":"...","reason":"..."}
-name must be short, lowercase, underscore_separated, and not already in
-use. system_prompt must fully specify the new agent's job the same way
-every other agent's does: what it reads, what it decides, what its
-final_answer should look like -- it will run with zero other permissions
-until an admin grants some, so say so in the prompt rather than assuming
-access it does not have. Depending on your own autonomy_level this either
-takes effect immediately or is queued for an admin to accept or reject --
-either way, your job ends at proposing it well.
+{"action":"create_function","name":"...","description":"...","body":"...","param_schema":{...},"reason":"..."}
+{"action":"create_procedure","name":"...","content":"...","reason":"..."}
+Or, when the need is something outside the database (the web, a device, a
+company system), do not write anything: finish with final_answer that names the
+kind of MCP server to connect and says to open Connections, MCP servers.
+Whatever you propose waits for a person, who sees a check of it first. Your job
+ends at proposing it well, and at saying which agents should be given it.
 $prompt$,
           max_steps = 6,
           updated_at = now()
       WHERE agent_id = v_agent;
+      INSERT INTO allgres_private.procedures (name, content, build_status)
+      VALUES ('creator_guide', $guide$# How to build a capability
+
+Work in this order and stop at the first that fits.
+
+1. Is it already there? Use search_capabilities. If a function or procedure already does it, say which agent should be given it and propose nothing.
+2. Can the database do it? Reading and shaping data, applying rules, arithmetic, text work: write a PL/pgSQL function (create_function). A fixed web address that returns JSON can be a simple HTTP function, but those are made by a person on the Functions page, not by you.
+3. Is it a way of working? "Research like this, then write it up like that", or a chain of capabilities that already exist: write a usage document (create_procedure). It is plain text that agents read before acting. Say when to use it, the steps in order, what to hand back, and what never to do.
+4. Does it have to touch the outside world: browse the web, read a device, call a company system? Do not write code for it. Name the MCP server that would provide it and tell the person to connect it under Connections, MCP servers. After it is connected, write a usage document for using its tools well.
+
+## Writing a function
+- Name: lowercase letters, digits and underscores. One job per function.
+- The body is a complete PL/pgSQL block that reads p_args (jsonb) and returns jsonb. It runs with the calling agent's own rights and may not change role, declare SECURITY DEFINER, or reach anything the agent may not read.
+- Never put a key, password or token in a body or a document. If one is needed, the answer is a connection, not a constant.
+- Give param_schema so the agent knows what to pass.
+
+## Writing a usage document
+- Short, in numbered steps. Name the tools it relies on exactly.
+- Say what a good result looks like, including where each fact came from.
+- State limits: what to ask a person about before doing it.
+
+## Rights
+- Ask for the least. Name the agents that need it; a person decides.
+- Never propose anything for a system agent.
+- A change that writes data or moves something physical needs a person's approval each time, whatever you write.
+
+## Decisions that keep coming up
+If a choice keeps landing on people and could be a fixed list of answers, say so in your reason; a decision point may be worth registering.
+$guide$, 'built')
+      ON CONFLICT (name) DO NOTHING;
+      INSERT INTO allgres_private.permissions (agent_id, resource_type, resource_ref)
+      VALUES (v_agent, 'procedure', 'creator_guide') ON CONFLICT DO NOTHING;
     END;
   END IF;
 

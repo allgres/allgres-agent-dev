@@ -332,6 +332,8 @@ REVOKE ALL ON FUNCTION allgres_public.fn_claim_sql(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_sql(uuid, boolean, jsonb, int, boolean, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_oauth(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_mcp_probe(int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_claim_decision_asks(int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_complete_decision_ask(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_mcp_oauth(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_mcp_oauth(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_mcp_probe(uuid, int, text) FROM PUBLIC;
@@ -369,6 +371,8 @@ GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_agent_embedding(uuid, int, 
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_provider_probe(int) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_provider_probe(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_mcp_probe(int) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_decision_asks(int) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_decision_ask(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_mcp_oauth(int) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_mcp_oauth(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_mcp_probe(uuid, int, text) TO worker;
@@ -594,6 +598,7 @@ BEGIN
           WHERE c.is_enabled AND c.health IN ('auth_needed', 'unreachable', 'changed') AND c.name NOT LIKE 'selftest%'
         ), '[]'::jsonb),
         'held_events', (SELECT count(*) FROM allgres_private.inbound_events WHERE status = 'held'),
+        'team_handoffs_pending', (SELECT count(*) FROM allgres_private.team_handoffs WHERE status = 'pending'),
         'agents', (SELECT count(*) FROM allgres_private.agents WHERE name NOT LIKE 'selftest%'),
         'active_agents', (SELECT count(*) FROM allgres_private.agents WHERE is_active AND name NOT LIKE 'selftest%'),
         'running_tasks', (
@@ -849,6 +854,7 @@ BEGIN
           'routed_role_id', cp.routed_role_id, 'routed_role', rr.name,
           'routed_unit_id', cp.routed_unit_id, 'escalate_at', cp.escalate_at,
           'decided_by_user_id', cp.decided_by_user_id, 'decided_via', cp.decided_via,
+          'test_report', cp.test_report, 'result', cp.result,
           'can_decide', (v_scope IS NULL AND v_user.user_id IS NULL)
             OR allgres_private.decision_access(v_user.user_id, 'proposal', cp.proposal_id) IN ('admin', 'self', 'delegate')
         ) ORDER BY cp.created_at DESC)
@@ -876,6 +882,40 @@ BEGIN
                OR (v_scope IS NULL AND v_user.user_id IS NULL)
                OR allgres_private.decision_access(v_user.user_id, 'proposal', cp.proposal_id) IN ('admin', 'self', 'delegate'))
       ), '[]'::jsonb));
+
+    -- Stage 6: handing a decision point to the decision model, one at a time.
+    WHEN 'delegation.overview' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_delegation_overview() || jsonb_build_object('ok', true);
+
+    WHEN 'delegation.set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_delegation_set(
+        p_request->>'point_key', p_request->>'mode', NULLIF(p_request->>'connection_id', '')::uuid,
+        NULLIF(p_request->>'checkpoint', ''), NULLIF(p_request->>'min_confidence', '')::numeric,
+        CASE WHEN p_request ? 'scope_agent_ids'
+             THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'scope_agent_ids') x) END,
+        COALESCE((p_request->>'all_agents')::boolean, false),
+        NULLIF(p_request->>'min_accuracy', '')::numeric, NULLIF(p_request->>'max_ece', '')::numeric);
+
+    WHEN 'delegation.off_all' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_delegation_off_all();
+
+    WHEN 'delegation.eval_record' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_eval_record(p_request->>'session_token', p_request->>'point_key',
+        p_request->>'checkpoint', p_request->'report');
+
+    WHEN 'delegation.checkpoint_switch' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_checkpoint_switch(p_request->>'session_token', p_request->>'point_key',
+        (p_request->>'report_id')::uuid);
+
+    WHEN 'proposals.grant' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_proposal_grant((p_request->>'proposal_id')::uuid,
+        ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(COALESCE(p_request->'agent_ids', '[]'::jsonb)) x));
 
     WHEN 'proposals.decide' THEN
       v_scope := allgres_private.visible_agent_ids(p_request->>'session_token');
@@ -1861,6 +1901,50 @@ BEGIN
     -- Rooms (sql/rooms.sql). Reading and posting need membership (admins see
     -- every room); creating a room, its members, its limits and the roles
     -- are admin-only.
+    -- Stage 5c-5e: second teams, a team's window, handoffs, shared notes.
+    WHEN 'teams.list' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'teams', allgres_public.fn_teams_list());
+
+    WHEN 'teams.secondary_set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_team_secondary_set((p_request->>'agent_id')::uuid, (p_request->>'group_id')::uuid,
+        COALESCE((p_request->>'on')::boolean, true));
+
+    WHEN 'teams.intake_set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_team_intake_set((p_request->>'group_id')::uuid, p_request->>'mode',
+        NULLIF(p_request->>'agent_id', '')::uuid);
+
+    WHEN 'teams.handoff' THEN
+      RETURN allgres_public.fn_team_handoff(p_request->>'session_token', (p_request->>'group_id')::uuid, p_request->>'goal');
+
+    WHEN 'teams.handoff_assign' THEN
+      RETURN allgres_public.fn_team_handoff_assign(p_request->>'session_token', (p_request->>'handoff_id')::uuid,
+        NULLIF(p_request->>'agent_id', '')::uuid);
+
+    WHEN 'teams.handoffs' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'handoffs', allgres_public.fn_team_handoffs(COALESCE((p_request->>'limit')::int, 50)));
+
+    WHEN 'memory_scopes.list' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_shared_memories_list() || jsonb_build_object('ok', true);
+
+    WHEN 'memory_scopes.add' THEN
+      RETURN allgres_public.fn_shared_memory_add(p_request->>'session_token', p_request->>'scope',
+        NULLIF(p_request->>'group_id', '')::uuid, p_request->>'content', COALESCE((p_request->>'importance')::numeric, 0.5));
+
+    WHEN 'memory_scopes.delete' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_shared_memory_delete((p_request->>'memory_id')::uuid);
+
+    WHEN 'memory_scopes.access_set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_memory_access_set((p_request->>'agent_id')::uuid, p_request->>'scope',
+        NULLIF(p_request->>'group_id', '')::uuid, COALESCE((p_request->>'can_read')::boolean, false),
+        COALESCE((p_request->>'can_write')::boolean, false));
+
     WHEN 'rooms.list' THEN
       v_user := allgres_private.session_user(p_request->>'session_token');
       IF v_user.user_id IS NULL THEN

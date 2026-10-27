@@ -220,6 +220,45 @@ fn claim_mcp_probe_jobs(limit: i32) -> Value {
     })
 }
 
+/// Questions put to a decision model (decision_asks): one POST each, no task.
+fn claim_decision_ask_jobs(limit: i32) -> Value {
+    BackgroundWorker::transaction(|| {
+        if !drop_privileges() {
+            return json!({ "count": 0, "calls": [] });
+        }
+        Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_claim_decision_asks($1)",
+            &[limit.into()],
+        )
+        .ok()
+        .flatten()
+        .map(|j| j.0)
+        .unwrap_or_else(|| json!({ "count": 0, "calls": [] }))
+    })
+}
+
+/// Completion for a question to the decision model. A failed privilege drop
+/// leaves the row in flight; the next claim marks it lost, and the decision
+/// stays with the person.
+fn submit_decision_ask_result(call_id: &str, status: i32, body: &str) {
+    let body = truncate_utf8(&body.replace('\0', ""), MAX_RESPONSE_BYTES).to_string();
+    BackgroundWorker::transaction(|| {
+        if !drop_privileges() {
+            pgrx::warning!(
+                "Allgres: skipping fn_complete_decision_ask for call {} -- privilege drop failed",
+                call_id
+            );
+            return;
+        }
+        if let Err(e) = Spi::get_one_with_args::<JsonB>(
+            "SELECT allgres_public.fn_complete_decision_ask($1::uuid, $2, $3)",
+            &[call_id.into(), status.into(), body.as_str().into()],
+        ) {
+            pgrx::warning!("Allgres: fn_complete_decision_ask failed for call {}: {}", call_id, e);
+        }
+    });
+}
+
 fn submit_http_result(call_id: &str, status: i32, body: &str) {
     // Postgres text cannot hold NUL; this is sanitisation, not escaping.
     let body = truncate_utf8(&body.replace('\0', ""), MAX_RESPONSE_BYTES).to_string();
@@ -443,6 +482,7 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
                         }
                         OutboundQueue::McpProbe => submit_mcp_probe_result(&r.call_id, r.status, &r.body),
                         OutboundQueue::McpOauth => submit_mcp_oauth_result(&r.call_id, r.status, &r.body),
+                        OutboundQueue::DecisionAsk => submit_decision_ask_result(&r.call_id, r.status, &r.body),
                     }
                 }
                 Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
@@ -600,6 +640,26 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
                         continue;
                     }
                     let job = OutboundJob { call_id: id.to_string(), queue: OutboundQueue::McpOauth, call: call.clone() };
+                    if jobs.send(job).is_err() {
+                        break;
+                    }
+                    in_flight += 1;
+                    queued += 1;
+                }
+            }
+        }
+
+        // 3g. Questions to the decision model (decision_asks). The claimed
+        // call is a plain JSON POST with its own headers.
+        if ready && in_flight < capacity {
+            let claimed = claim_decision_ask_jobs((capacity - in_flight) as i32);
+            if let Some(calls) = claimed.get("calls").and_then(Value::as_array) {
+                for call in calls {
+                    let Some(id) = call.get("call_id").and_then(Value::as_str) else { continue };
+                    if !valid_uuid(id) {
+                        continue;
+                    }
+                    let job = OutboundJob { call_id: id.to_string(), queue: OutboundQueue::DecisionAsk, call: call.clone() };
                     if jobs.send(job).is_err() {
                         break;
                     }

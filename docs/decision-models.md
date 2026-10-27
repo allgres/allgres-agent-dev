@@ -17,7 +17,7 @@ A server that has just started shows no checkpoint until its first request loads
 
 ## What connecting does not do
 
-Nothing is handed to the model. Every decision point keeps going to people and rules, whether or not a server is connected, and a person's decisions are recorded in Laya's training format either way. Turning delegation on for a single decision point is a separate step that comes later (stage 6 of [improvement-plan.md](improvement-plan.md)).
+Nothing is handed to the model. Every decision point keeps going to people and rules, whether or not a server is connected, and a person's decisions are recorded in Laya's training format either way. Turning delegation on for a single decision point is a separate, optional step: see [delegation.md](delegation.md).
 
 ## Stored
 
