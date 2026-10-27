@@ -392,6 +392,66 @@ test('assisted room: agents ask each other, the lead proposes, a person confirms
   expect(point).toMatchObject({ records: 1, human: 1, gold: 1 });
 });
 
+test('auto room: the lead proposes and the room starts the task by itself', async ({ page }) => {
+  test.setTimeout(120000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  // A priced model is what lets the room count its cost, so auto mode is allowed.
+  await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const llm = { provider: 'ui_auto_mock', model: 'allgres-mock' };
+    const p = await call({ action: 'provider.create', name: 'ui_auto_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    const pr = await call({ action: 'model_prices.set', provider_id: p.provider_id, model: 'allgres-mock', input_price_per_1k: 0.001, output_price_per_1k: 0.002 });
+    if (pr.ok === false) throw new Error(pr.error);
+    const make = async (name, script) => {
+      const a = await call({ action: 'agents.create', name, system_prompt: 'MOCK_SCRIPT: ' + script, llm_config: llm, is_active: true });
+      if (a.ok === false) throw new Error(a.error);
+      return a.agent_id;
+    };
+    const lead = await make('ui_au_lead', 'Plan ready.\\nPROPOSE @ui_au_impl: write the quarterly summary');
+    await make('ui_au_impl', 'Summary written.');
+    const g = await call({ action: 'permissions.grant', agent_id: lead, type: 'agent', ref: 'ui_au_impl' });
+    if (g.ok === false) throw new Error(g.error);
+  }, baseURL);
+  await page.locator('#nav button', { hasText: 'Rooms' }).click();
+  await page.locator('#rmName').fill('ui-auto');
+  await page.locator('#rmCreate').click();
+  await expect(page.getByRole('heading', { name: 'ui-auto' })).toBeVisible();
+  for (const [name, role] of [['ui_au_lead', 'lead'], ['ui_au_impl', 'implementer']]) {
+    await page.locator('#rmAgent').selectOption({ label: name });
+    await page.locator('#rmRole').selectOption({ label: role });
+    await page.locator('#rmAddAgent').click();
+    await expect(page.locator('#view .row', { hasText: name }).first()).toBeVisible();
+  }
+  // Auto is refused until the room has a lead.
+  await page.locator('#rmMode').selectOption('auto');
+  await page.locator('#rmSaveLimits').click();
+  await expect(page.getByText('it needs a lead').first()).toBeVisible();
+  await page.locator('#view .row', { hasText: 'ui_au_lead' }).getByRole('button', { name: 'Make lead' }).click();
+  await expect(page.locator('#view .status', { hasText: /^lead$/ })).toHaveCount(2);
+  await page.locator('#rmMode').selectOption('auto');
+  await page.locator('#rmSaveLimits').click();
+  await expect(page.locator('#view .status', { hasText: /^auto$/ })).toBeVisible();
+  // One message: the lead proposes and the room starts the task without a click.
+  await page.locator('#rmText').fill('Write up the quarter @ui_au_lead');
+  await page.locator('#rmSend').click();
+  await expect(page.locator('#rmThread .msg', { hasText: 'Started automatically. Task for ui_au_impl: write the quarterly summary' })).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('#rmThread .msg', { hasText: 'Summary written.' })).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('#view .panel', { hasText: 'Waiting for you' })).toHaveCount(0);
+  // The choice is the model's: an llm record with no gold label.
+  const stats = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ action: 'decisions.stats', session_token: sessionStorage.getItem('allgres_session_token') }) });
+    return r.json();
+  });
+  const point = stats.points.find(x => x.point_key === 'room_task_confirmation');
+  expect(point.records).toBeGreaterThanOrEqual(1);
+  expect(point.gold).toBe(1);
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(5);

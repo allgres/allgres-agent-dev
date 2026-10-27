@@ -953,6 +953,15 @@
     ]
   },
   {
+    "action": "rooms.cancel_task",
+    "guards": [],
+    "params": [
+      "room_id",
+      "session_token",
+      "task_id"
+    ]
+  },
+  {
     "action": "rooms.make_task",
     "guards": [],
     "params": [

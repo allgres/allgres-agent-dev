@@ -1911,7 +1911,9 @@ BEGIN
               'message_id', m.message_id, 'kind', m.kind, 'content', m.content, 'created_at', m.created_at,
               'author', COALESCE(a.name, u.username, 'room'), 'by_agent', m.author_agent_id IS NOT NULL,
               'called', COALESCE((SELECT jsonb_agg(ca.name) FROM allgres_private.agents ca WHERE ca.agent_id = ANY (m.called_agent_ids)), '[]'::jsonb),
-              'session_id', m.session_id, 'task_id', m.task_id) AS x
+              'session_id', m.session_id, 'task_id', m.task_id,
+              'auto', m.kind = 'task_started' AND m.author_user_id IS NULL,
+              'task_status', (SELECT k.status FROM allgres_private.tasks k WHERE k.task_id = m.task_id)) AS x
             FROM allgres_private.room_messages m
             LEFT JOIN allgres_private.agents a ON a.agent_id = m.author_agent_id
             LEFT JOIN allgres_private.users u ON u.user_id = m.author_user_id
@@ -1958,6 +1960,10 @@ BEGIN
     WHEN 'rooms.proposal_decide' THEN
       RETURN allgres_public.fn_room_proposal_decide(p_request->>'session_token', (p_request->>'proposal_id')::uuid,
         COALESCE((p_request->>'accept')::boolean, false));
+
+    WHEN 'rooms.cancel_task' THEN
+      RETURN allgres_public.fn_room_cancel_task(p_request->>'session_token', (p_request->>'room_id')::uuid,
+        (p_request->>'task_id')::uuid);
 
     WHEN 'rooms.make_task' THEN
       RETURN allgres_public.fn_room_make_task(p_request->>'session_token', (p_request->>'room_id')::uuid,
