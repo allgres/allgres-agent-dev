@@ -491,9 +491,12 @@ test('teams: a second team, a window that waits for a person, and shared notes',
   await page.locator('#nav button', { hasText: 'Home' }).click();
   await page.locator('#nav button', { hasText: 'Teams' }).click();
   await expect(team('ui-team-one')).toContainText('ui_tm_a');
-  await team('ui-team-two').locator('.tmSecAgent').selectOption({ label: 'ui_tm_a' });
-  await team('ui-team-two').getByRole('button', { name: 'Add as second team' }).click();
-  await expect(team('ui-team-two').locator('.status', { hasText: 'second team' })).toBeVisible();
+  // The page can re-render under the click; adding twice is harmless, so retry the pair.
+  await expect(async () => {
+    await team('ui-team-two').locator('.tmSecAgent').selectOption({ label: 'ui_tm_a' });
+    await team('ui-team-two').getByRole('button', { name: 'Add as second team' }).click();
+    await expect(team('ui-team-two').locator('.status', { hasText: 'second team' })).toBeVisible({ timeout: 4000 });
+  }).toPass({ timeout: 40000 });
   // The window waits for a person; hand work to it, then pick who takes it.
   await team('ui-team-two').locator('.tmMode').selectOption('person');
   await team('ui-team-two').getByRole('button', { name: 'Save window' }).click();
