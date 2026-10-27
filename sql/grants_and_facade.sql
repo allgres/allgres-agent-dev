@@ -594,6 +594,7 @@ BEGIN
           WHERE c.is_enabled AND c.health IN ('auth_needed', 'unreachable', 'changed') AND c.name NOT LIKE 'selftest%'
         ), '[]'::jsonb),
         'held_events', (SELECT count(*) FROM allgres_private.inbound_events WHERE status = 'held'),
+        'team_handoffs_pending', (SELECT count(*) FROM allgres_private.team_handoffs WHERE status = 'pending'),
         'agents', (SELECT count(*) FROM allgres_private.agents WHERE name NOT LIKE 'selftest%'),
         'active_agents', (SELECT count(*) FROM allgres_private.agents WHERE is_active AND name NOT LIKE 'selftest%'),
         'running_tasks', (
@@ -1861,6 +1862,50 @@ BEGIN
     -- Rooms (sql/rooms.sql). Reading and posting need membership (admins see
     -- every room); creating a room, its members, its limits and the roles
     -- are admin-only.
+    -- Stage 5c-5e: second teams, a team's window, handoffs, shared notes.
+    WHEN 'teams.list' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'teams', allgres_public.fn_teams_list());
+
+    WHEN 'teams.secondary_set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_team_secondary_set((p_request->>'agent_id')::uuid, (p_request->>'group_id')::uuid,
+        COALESCE((p_request->>'on')::boolean, true));
+
+    WHEN 'teams.intake_set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_team_intake_set((p_request->>'group_id')::uuid, p_request->>'mode',
+        NULLIF(p_request->>'agent_id', '')::uuid);
+
+    WHEN 'teams.handoff' THEN
+      RETURN allgres_public.fn_team_handoff(p_request->>'session_token', (p_request->>'group_id')::uuid, p_request->>'goal');
+
+    WHEN 'teams.handoff_assign' THEN
+      RETURN allgres_public.fn_team_handoff_assign(p_request->>'session_token', (p_request->>'handoff_id')::uuid,
+        NULLIF(p_request->>'agent_id', '')::uuid);
+
+    WHEN 'teams.handoffs' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN jsonb_build_object('ok', true, 'handoffs', allgres_public.fn_team_handoffs(COALESCE((p_request->>'limit')::int, 50)));
+
+    WHEN 'memory_scopes.list' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_shared_memories_list() || jsonb_build_object('ok', true);
+
+    WHEN 'memory_scopes.add' THEN
+      RETURN allgres_public.fn_shared_memory_add(p_request->>'session_token', p_request->>'scope',
+        NULLIF(p_request->>'group_id', '')::uuid, p_request->>'content', COALESCE((p_request->>'importance')::numeric, 0.5));
+
+    WHEN 'memory_scopes.delete' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_shared_memory_delete((p_request->>'memory_id')::uuid);
+
+    WHEN 'memory_scopes.access_set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_memory_access_set((p_request->>'agent_id')::uuid, p_request->>'scope',
+        NULLIF(p_request->>'group_id', '')::uuid, COALESCE((p_request->>'can_read')::boolean, false),
+        COALESCE((p_request->>'can_write')::boolean, false));
+
     WHEN 'rooms.list' THEN
       v_user := allgres_private.session_user(p_request->>'session_token');
       IF v_user.user_id IS NULL THEN

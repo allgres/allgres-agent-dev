@@ -4204,9 +4204,12 @@ BEGIN
       || E' -- saves something worth recalling in a future session; memory_type and importance default to'
       || E' semantic/0.5 if omitted, expires_in_days is optional and unset means it never expires on its own.'
       || E' Use it when you learn a durable fact, preference, or instruction, not for routine intermediate results.'
+      || E' Add "scope":"team" (and optionally "team":"<name>") or "scope":"org" to share the note with your team or the whole organization;'
+      || E' that works only if you were given the right to write there.'
       || CASE WHEN v_memories = '[]'::jsonb THEN ''
               ELSE E'\n\n# memory (your own past recollections, most important first)\n' || v_memories::text
          END
+      || COALESCE(allgres_private.shared_memory_block(t.agent_id), '')
       || CASE WHEN v_procedures = '[]'::jsonb THEN ''
               ELSE E'\n\n# procedures (reusable, curated by an operator -- follow these when they apply)\n' || v_procedures::text
          END
@@ -5839,15 +5842,22 @@ BEGIN
   -- an agent can only ever write to its own memory, which cannot expand its
   -- privileges or touch anything another agent owns.
   IF v_action = 'remember' THEN
-    v_mem_result := allgres_private.write_memory(
-      t.agent_id,
-      v_parsed->>'content',
-      v_parsed->>'memory_type',
-      v_parsed->>'importance',
-      v_parsed->>'subject_id',
-      v_parsed->>'expires_in_days',
-      t.session_id, p_task_id
-    );
+    IF v_parsed->>'scope' IN ('team', 'org') THEN
+      v_mem_result := allgres_private.shared_memory_write(
+        t.agent_id, v_parsed->>'scope', v_parsed->>'team', v_parsed->>'content',
+        v_parsed->>'memory_type', v_parsed->>'importance', p_task_id
+      );
+    ELSE
+      v_mem_result := allgres_private.write_memory(
+        t.agent_id,
+        v_parsed->>'content',
+        v_parsed->>'memory_type',
+        v_parsed->>'importance',
+        v_parsed->>'subject_id',
+        v_parsed->>'expires_in_days',
+        t.session_id, p_task_id
+      );
+    END IF;
     IF NOT COALESCE((v_mem_result->>'ok')::boolean, false) THEN
       PERFORM allgres_private.append_log(
         p_task_id, t.step_count + 1, 'error',

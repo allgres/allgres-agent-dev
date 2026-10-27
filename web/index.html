@@ -119,7 +119,7 @@ const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users
 // Approvals page (as tabs, open to regular users too -- item 41); Chat/
 // Messenger/Project folded into one Chat page (as a mode switch -- item
 // 43). Nav is simpler because of it, not because anything was removed.
-const adminPages=['Overview','Agents','People','Chat','Rooms','Projects','Approvals','Activity','Schedules','Abilities','Memories','SQL','Models','APIs','MCP','Decision','Inbound','Settings','Audit'];
+const adminPages=['Overview','Agents','People','Chat','Rooms','Teams','Projects','Approvals','Activity','Schedules','Abilities','Memories','SQL','Models','APIs','MCP','Decision','Inbound','Settings','Audit'];
 const userPages=['Chat','Rooms','Projects','Approvals','My Agents'];
 function pagesForRole(){return state.me?.role==='admin'?adminPages:userPages}
 const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -168,7 +168,7 @@ function scrollBottom(id){const el=$(id);if(el)el.scrollTop=el.scrollHeight}
 // nav labels, page chrome, and common actions/empty-states, not because
 // more than one language is selectable.
 const I18N={
-  Overview:'Home',Agents:'Agents',People:'People',Chat:'General',Rooms:'Rooms',Approvals:'Approvals',Activity:'Activity',Schedules:'Schedules',Abilities:'Functions & procedures',Models:'Models & prices',APIs:'APIs',MCP:'MCP servers',Decision:'Decision model',Inbound:'Inbound events',Projects:'Projects',Run:'Run',Memories:'Memories',Audit:'Audit log',Settings:'Access & appearance','My Agents':'My agents',
+  Overview:'Home',Agents:'Agents',People:'People',Chat:'General',Rooms:'Rooms',Teams:'Teams',Approvals:'Approvals',Activity:'Activity',Schedules:'Schedules',Abilities:'Functions & procedures',Models:'Models & prices',APIs:'APIs',MCP:'MCP servers',Decision:'Decision model',Inbound:'Inbound events',Projects:'Projects',Run:'Run',Memories:'Memories',Audit:'Audit log',Settings:'Access & appearance','My Agents':'My agents',
   general:'General',messenger:'Messenger',project:'Project',
   save:'Save',cancel:'Cancel',close:'Close',edit:'Edit',create:'Create',approve:'Approve',reject:'Reject',send:'Send',delete:'Delete',
   signIn:'Sign in',signOut:'Sign out',username:'Username',password:'Password',
@@ -238,7 +238,7 @@ function nav(){
   const groups=admin?
     [{label:'',items:[['Overview','Home','top']]},
      {label:'Organization',items:[['Canvas','Canvas','sub'],['Agents','Agents','sub'],['People','People','sub']]},
-     {label:'Work',items:[['Chat','General','sub'],['Rooms','Rooms','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub'],['Activity','Activity','sub'],['Schedules','Schedules','sub']]},
+     {label:'Work',items:[['Chat','General','sub'],['Rooms','Rooms','sub'],['Teams','Teams','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub'],['Activity','Activity','sub'],['Schedules','Schedules','sub']]},
      {label:'Abilities',items:[['Abilities','Functions & procedures','sub'],['Memories','Memories','sub'],['SQL','SQL','sub']]},
      {label:'Connections',items:[['Models','Models & prices','sub'],['APIs','APIs','sub'],['MCP','MCP servers','sub'],['Decision','Decision model','sub'],['Inbound','Inbound events','sub']]},
      {label:'Settings',items:[['Settings','Access & appearance','sub'],['Audit','Audit log','sub']]}]:
@@ -317,6 +317,7 @@ async function renderPage(){
   if(state.page==='Decision')await decisionModelPage();
   if(state.page==='Inbound')await inboundPage();
   if(state.page==='Rooms')await roomsPage();
+  if(state.page==='Teams')await teamsPage();
   if(state.page==='SQL')await sqlConsolePage();
   if(state.page in SETTINGS_PAGES)await settings(SETTINGS_PAGES[state.page]);
   if(state.page==='Chat')await chatPage();
@@ -372,15 +373,16 @@ async function overview(){
   const active=recent.filter(x=>waiting.includes(x.status)),failed=recent.filter(x=>x.status==='failed');
   const brokenProviders=providers.filter(p=>p.is_enabled&&p.last_probe_status&&p.last_probe_status!=='ok'&&p.last_probe_status!=='untested');
   const pending=mine.approvals||[];
-  const badConns=d.connections_attention||[],heldEvents=Number(d.held_events||0);
+  const badConns=d.connections_attention||[],heldEvents=Number(d.held_events||0),teamWaiting=Number(d.team_handoffs_pending||0);
   const section=(title,body,extra='')=>`<div class="panel"><div class="row"><h3 class="u-margin-0">${title}</h3><span class="spacer"></span>${extra}</div>${body}</div>`;
   $('#view').innerHTML=`${secretBanner(d.secret_storage)}
   ${next>=0?section('Get started',`<p class="muted">Three steps to a working team.</p><div class="row wrap">${steps.map((x,n)=>`<button class="btn ${n===next?'primary':''}" id="${x.id}" title="${esc(x.hint)}">${x.done?'✓ ':`${n+1}. `}${esc(x.label)}</button>`).join('')}</div><div class="muted u-font-size-12px-margin-top-6px">${esc(steps[next].hint)}</div>`):''}
   ${section('Waiting for you',pending.length?pending.map(a=>`<div class="listrow"><div class="row"><b>${esc(a.agent)}</b><span class="muted"> — ${esc(a.reason||a.goal||'')}</span><span class="spacer"></span><button class="btn primary small hmAccept" data-id="${esc(a.approval_id)}">${esc(t('approve'))}</button><button class="btn danger small hmReject" data-id="${esc(a.approval_id)}">${esc(t('reject'))}</button></div></div>`).join(''):`<div class="muted">Nothing needs your decision.</div>`,`<button class="btn small" id="hmAllApprovals">${Number(d.pending_approvals)>pending.length?`All ${esc(d.pending_approvals)} approvals`:'Approvals'}</button>`)}
   ${section('In progress',active.length?taskRows(active,true):`<div class="muted">No task is running right now.</div>`,`<button class="btn small" id="hmActivity">Activity</button>`)}
-  ${failed.length||brokenProviders.length||badConns.length||heldEvents?section('Needs attention',`${badConns.map(c=>`<div class="row u-padding-4px-0"><span class="status s-failed">${esc({auth_needed:'needs a login or key',unreachable:'cannot be reached',changed:'a tool changed'}[c.health]||c.health)}</span><b>${esc(c.name)}</b><span class="muted"> — ${esc(c.detail||'')}</span><span class="spacer"></span><button class="btn small hmFixConn" data-kind="${esc(c.kind)}">Open</button></div>`).join('')}${heldEvents?`<div class="row u-padding-4px-0"><span class="status s-pending">waiting</span><b>${heldEvents} inbound event${heldEvents===1?'':'s'}</b><span class="muted"> — received from outside and waiting for you to start a task.</span><span class="spacer"></span><button class="btn small" id="hmInbound">Open Inbound</button></div>`:''}${brokenProviders.map(p=>`<div class="row u-padding-4px-0">${status(p.last_probe_status)}<b>${esc(p.name)}</b><span class="muted"> — the last connection test did not pass.</span><span class="spacer"></span><button class="btn small hmFixModels">Open Models &amp; prices</button></div>`).join('')}${failed.length?`<div class="muted u-font-size-12px">Failed recently:</div>${taskRows(failed,true)}`:''}`):''}
+  ${failed.length||brokenProviders.length||badConns.length||heldEvents||teamWaiting?section('Needs attention',`${teamWaiting?`<div class="row u-padding-4px-0"><span class="status s-pending">waiting</span><b>${teamWaiting} handoff${teamWaiting===1?'':'s'} to a team</b><span class="muted"> — waiting for you to pick who takes the work.</span><span class="spacer"></span><button class="btn small" id="hmTeams">Open Teams</button></div>`:''}${badConns.map(c=>`<div class="row u-padding-4px-0"><span class="status s-failed">${esc({auth_needed:'needs a login or key',unreachable:'cannot be reached',changed:'a tool changed'}[c.health]||c.health)}</span><b>${esc(c.name)}</b><span class="muted"> — ${esc(c.detail||'')}</span><span class="spacer"></span><button class="btn small hmFixConn" data-kind="${esc(c.kind)}">Open</button></div>`).join('')}${heldEvents?`<div class="row u-padding-4px-0"><span class="status s-pending">waiting</span><b>${heldEvents} inbound event${heldEvents===1?'':'s'}</b><span class="muted"> — received from outside and waiting for you to start a task.</span><span class="spacer"></span><button class="btn small" id="hmInbound">Open Inbound</button></div>`:''}${brokenProviders.map(p=>`<div class="row u-padding-4px-0">${status(p.last_probe_status)}<b>${esc(p.name)}</b><span class="muted"> — the last connection test did not pass.</span><span class="spacer"></span><button class="btn small hmFixModels">Open Models &amp; prices</button></div>`).join('')}${failed.length?`<div class="muted u-font-size-12px">Failed recently:</div>${taskRows(failed,true)}`:''}`):''}
   <details class="panel"><summary><b>System status</b></summary><div class="u-margin-top-12px">${clusterCard()}<div class="cards">${[['Agents',d.agents],['Active',d.active_agents],['Running',d.running_tasks],['Outbound',d.queued_outbound],['SQL',d.queued_sql],['Approvals',d.pending_approvals],['Failed',d.failed_tasks]].map(x=>`<div class="card"><div class="metric">${x[1]}</div><div class="label">${x[0]}</div></div>`).join('')}</div><div class="grid2"><div class="panel"><h3>Workers</h3>${workersWithWeb(d.workers).map(w=>`<div class="row"><span class="dot"></span><span>${esc(w.name)}</span><span class="spacer"></span><span class="mono muted">${w.self?'serving this page':'PID '+esc(w.pid)}</span></div>`).join('')||'<div class="muted">No workers reported</div>'}</div><div class="panel"><h3>Recent tasks</h3>${taskRows(d.recent_tasks||[],true)}</div></div></div></details>`;
   document.querySelectorAll('.hmFixConn').forEach(b=>b.onclick=()=>openPage(b.dataset.kind==='mcp'?'MCP':b.dataset.kind==='decision'?'Decision':'APIs'));
+  $('#hmTeams')&&($('#hmTeams').onclick=()=>openPage('Teams'));
   $('#hmInbound')&&($('#hmInbound').onclick=()=>openPage('Inbound'));
   $('#hmConnect')&&($('#hmConnect').onclick=()=>providerReady?(general?agentModal(general):openPage('Agents')):openPage('Models'));
   $('#hmTeam')&&($('#hmTeam').onclick=()=>location.assign('/canvas'));
@@ -733,6 +735,46 @@ ${room.status==='open'?`<div class="row u-margin-top-12px-gap-8px"><textarea cla
   });
   const th=$('#rmThread');if(th)th.scrollTop=th.scrollHeight;
   if(room?.busy&&state.page==='Rooms')roomPollTimer=setTimeout(()=>{if(state.page==='Rooms')roomsPage()},2000);
+}
+// --- Teams: a second team for an agent, a team's window for work from
+// others, what was handed over and how it went, and notes a team shares. ---
+async function teamsPage(){
+  const [tr,hr,mr,ag]=await Promise.all([rpc('teams.list'),rpc('teams.handoffs'),rpc('memory_scopes.list'),api('/api/v1/agents')]);
+  state.agents=ag.agents||state.agents;
+  const teams=tr.teams||[],handoffs=hr.handoffs||[],notes=mr.notes||[],access=mr.access||[];
+  const agents=state.agents.filter(a=>!a.is_system&&a.is_active!==false);
+  const waiting=handoffs.filter(h=>h.status==='pending');
+  const teamById=Object.fromEntries(teams.map(t=>[t.group_id,t]));
+  const statusBadge=h=>({pending:'<span class="status s-pending">waiting for a person</span>',assigned:`<span class="status s-checking">${esc(h.task_status||'working')}</span>`,finished:'<span class="status s-ok">finished</span>',failed:'<span class="status s-failed">failed</span>',declined:'<span class="status s-stale">declined</span>',cancelled:'<span class="status s-stale">cancelled</span>'}[h.status]||esc(h.status));
+  const teamPanel=t=>{const inTeam=new Set(t.members.map(m=>m.agent_id));const canAdd=agents.filter(a=>!inTeam.has(a.agent_id));
+    return `<div class="panel" data-team="${esc(t.name)}"><div class="row wrap"><h3 class="u-margin-bottom-0">${esc(t.name)}</h3><span class="muted">${esc(t.kind)}</span>${t.waiting?`<span class="status s-pending">${esc(t.waiting)} waiting</span>`:''}</div>
+<div class="u-padding-4px-0">${t.members.map(m=>`<div class="row"><b>${esc(m.name)}</b>${m.first_team?'':'<span class="status s-checking">second team</span>'}<span class="spacer"></span>${m.first_team?'':`<button class="btn small tmLeave" data-agent="${esc(m.agent_id)}" data-group="${esc(t.group_id)}">Remove</button>`}</div>`).join('')||'<div class="muted">No agents yet. Put agents here on the Canvas.</div>'}</div>
+<div class="row wrap u-gap-8px"><select class="select u-max-width-180px tmSecAgent">${canAdd.map(a=>opt(a.agent_id,a.name)).join('')}</select><button class="btn small tmSecAdd" data-group="${esc(t.group_id)}">Add as second team</button></div>
+<div class="row wrap u-gap-8px u-margin-top-12px"><label class="muted">Window for work from others</label><select class="select u-max-width-180px tmMode"><option value="off" ${!t.intake_mode?'selected':''}>Closed</option><option value="agent" ${t.intake_mode==='agent'?'selected':''}>An agent takes it</option><option value="person" ${t.intake_mode==='person'?'selected':''}>A person picks who</option></select><select class="select u-max-width-180px tmWinAgent">${t.members.map(m=>opt(m.agent_id,m.name,m.name===t.intake_agent)).join('')}</select><button class="btn small tmWin" data-group="${esc(t.group_id)}">Save window</button></div>
+${t.intake_mode?`<div class="row wrap u-gap-8px u-margin-top-12px"><input class="input tmGoal" placeholder="Hand work to this team…"><button class="btn small primary tmHand" data-group="${esc(t.group_id)}">Hand over</button></div>`:''}</div>`};
+  const handRow=h=>`<tr><td>${esc(h.from)}</td><td>${esc(h.team)}</td><td>${esc(h.goal)}</td><td>${statusBadge(h)}${h.assignee?`<div class="muted">${esc(h.assignee)}</div>`:''}</td><td class="muted">${h.result?esc(String(h.result).slice(0,240)):''}</td></tr>`;
+  const waitRow=h=>`<div class="row wrap u-padding-4px-0"><b>${esc(h.team)}</b><span class="muted">from ${esc(h.from)}: ${esc(h.goal)}</span><span class="spacer"></span><select class="select u-max-width-180px tmAssignWho">${(teamById[h.group_id]?.members||[]).map(m=>opt(m.agent_id,m.name)).join('')}</select><button class="btn small primary tmAssign" data-id="${esc(h.handoff_id)}">Give it to them</button><button class="btn small tmDecline" data-id="${esc(h.handoff_id)}">Nobody takes it</button></div>`;
+  $('#view').innerHTML=`<div class="muted u-margin-bottom-10px">An agent can sit in more than one team. Its first team sets what it may do and who answers for its cost; a second team only opens the way work comes in and which shared notes it reads. A team can have a window: work handed to the team goes to one agent, or waits for a person to pick who takes it (your pick is kept as a decision). Whoever takes the work does it with their own permissions, never the sender's.</div>
+${waiting.length?`<div class="panel"><h3>Waiting for you</h3>${waiting.map(waitRow).join('')}</div>`:''}
+${teams.map(teamPanel).join('')||'<div class="panel muted">No teams yet. Make one on the Canvas.</div>'}
+<div class="panel"><h3>Handed over</h3><table class="table"><thead><tr><th>From</th><th>Team</th><th>Work</th><th>State</th><th>Result</th></tr></thead><tbody>${handoffs.map(handRow).join('')||'<tr><td colspan="5" class="muted">Nothing has been handed to a team yet.</td></tr>'}</tbody></table></div>
+<div class="panel"><h3>Shared notes</h3><div class="muted">Notes a team or the whole organization keeps. Agents read them as data. A team's members read its notes; everything else, and all writing by agents, needs a grant below.</div>
+<div class="row wrap u-gap-8px u-margin-top-12px"><select class="select u-max-width-180px" id="tnScope"><option value="team">Team</option><option value="org">Organization</option></select><select class="select u-max-width-180px" id="tnTeam">${teams.map(t=>opt(t.group_id,t.name)).join('')}</select><input class="input" id="tnText" placeholder="A note everyone there should know"><button class="btn small primary" id="tnAdd">Add note</button></div>
+<table class="table"><thead><tr><th>Where</th><th>Note</th><th>By</th><th></th></tr></thead><tbody>${notes.map(n=>`<tr><td>${n.scope==='org'?'Organization':esc(n.team)}</td><td>${esc(n.content)}</td><td>${esc(n.author||'')}</td><td><button class="btn small danger tnDel" data-id="${esc(n.memory_id)}">Delete</button></td></tr>`).join('')||'<tr><td colspan="4" class="muted">No shared notes yet.</td></tr>'}</tbody></table>
+<h3 class="u-margin-top-12px">Grants</h3><div class="row wrap u-gap-8px"><select class="select u-max-width-180px" id="taAgent">${agents.map(a=>opt(a.agent_id,a.name)).join('')}</select><select class="select u-max-width-180px" id="taScope"><option value="team">Team</option><option value="org">Organization</option></select><select class="select u-max-width-180px" id="taTeam">${teams.map(t=>opt(t.group_id,t.name)).join('')}</select><label class="muted"><input type="checkbox" id="taRead" checked> read</label><label class="muted"><input type="checkbox" id="taWrite"> write</label><button class="btn small" id="taSave">Save grant</button></div>
+<table class="table"><thead><tr><th>Agent</th><th>Where</th><th>Read</th><th>Write</th><th></th></tr></thead><tbody>${access.map(a=>`<tr><td>${esc(a.agent)}</td><td>${a.scope==='org'?'Organization':esc(a.team)}</td><td>${a.can_read?'yes':'no'}</td><td>${a.can_write?'yes':'no'}</td><td><button class="btn small taDel" data-agent="${esc(a.agent_id)}" data-scope="${esc(a.scope)}" data-group="${esc(a.group_id||'')}">Remove</button></td></tr>`).join('')||'<tr><td colspan="5" class="muted">No grants.</td></tr>'}</tbody></table></div>`;
+  const go=async(action,body,msg)=>{try{await rpc(action,body);if(msg)toast(msg);teamsPage()}catch(e){toast(e.message)}};
+  const panel=el=>el.closest('.panel');
+  document.querySelectorAll('.tmSecAdd').forEach(b=>b.onclick=()=>{const sel=panel(b).querySelector('.tmSecAgent').value;if(!sel)return toast('No agent left to add');go('teams.secondary_set',{agent_id:sel,group_id:b.dataset.group,on:true},'Added')});
+  document.querySelectorAll('.tmLeave').forEach(b=>b.onclick=()=>go('teams.secondary_set',{agent_id:b.dataset.agent,group_id:b.dataset.group,on:false},'Removed'));
+  document.querySelectorAll('.tmWin').forEach(b=>b.onclick=()=>{const p=panel(b);go('teams.intake_set',{group_id:b.dataset.group,mode:p.querySelector('.tmMode').value,agent_id:p.querySelector('.tmWinAgent').value},'Saved')});
+  document.querySelectorAll('.tmHand').forEach(b=>b.onclick=()=>{const g=panel(b).querySelector('.tmGoal').value.trim();if(!g)return toast('Say what is to be done');go('teams.handoff',{group_id:b.dataset.group,goal:g},'Handed over')});
+  document.querySelectorAll('.tmAssign').forEach(b=>b.onclick=()=>go('teams.handoff_assign',{handoff_id:b.dataset.id,agent_id:b.closest('.row').querySelector('.tmAssignWho').value},'Work started'));
+  document.querySelectorAll('.tmDecline').forEach(b=>b.onclick=()=>go('teams.handoff_assign',{handoff_id:b.dataset.id},'Declined'));
+  $('#tnAdd')&&($('#tnAdd').onclick=()=>{const t=$('#tnText').value.trim();if(!t)return toast('Write the note first');go('memory_scopes.add',{scope:$('#tnScope').value,group_id:$('#tnScope').value==='team'?$('#tnTeam').value:'',content:t},'Added')});
+  document.querySelectorAll('.tnDel').forEach(b=>b.onclick=()=>go('memory_scopes.delete',{memory_id:b.dataset.id},'Deleted'));
+  $('#taSave')&&($('#taSave').onclick=()=>go('memory_scopes.access_set',{agent_id:$('#taAgent').value,scope:$('#taScope').value,group_id:$('#taScope').value==='team'?$('#taTeam').value:'',can_read:$('#taRead').checked,can_write:$('#taWrite').checked},'Saved'));
+  document.querySelectorAll('.taDel').forEach(b=>b.onclick=()=>go('memory_scopes.access_set',{agent_id:b.dataset.agent,scope:b.dataset.scope,group_id:b.dataset.group,can_read:false,can_write:false},'Removed'));
 }
 // --- Inbound events: outside systems POST a signed request to
 // /inbound/<name>. Only a valid signature is accepted; the event is held for

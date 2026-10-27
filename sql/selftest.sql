@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5370,6 +5370,7 @@ BEGIN
   v := v || allgres_private.room_selftest_cases();
   v := v || allgres_private.room_assisted_selftest_cases();
   v := v || allgres_private.room_auto_selftest_cases();
+  v := v || allgres_private.team_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -7077,6 +7078,142 @@ BEGIN
   PERFORM allgres_public.fn_room_member_remove((SELECT member_id FROM allgres_private.room_members WHERE room_id = v_room AND agent_id = a_lead));
   ok := ok AND (SELECT mode = 'assisted' AND lead_agent_id IS NULL FROM allgres_private.rooms WHERE room_id = v_room);
   v := v || jsonb_build_array(jsonb_build_object('name', 'auto_room_task_can_be_cancelled_and_losing_the_lead_ends_auto', 'ok', ok, 'detail', r));
+
+  RETURN v;
+END;
+$fn$;
+
+-- Second teams, a team's window, handoffs, and shared notes (sql/teams.sql).
+CREATE OR REPLACE FUNCTION allgres_private.team_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_user uuid;
+  a_one uuid; a_two uuid; a_three uuid; a_sys uuid;
+  g_a uuid; g_b uuid;
+  v_err text; v_h uuid; v_t uuid; v_key text; v_rec uuid; v_block text;
+  tk text := 'selftest-team-admin-token'; tu text := 'selftest-team-user-token';
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_team_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_team_user', 'x', 'user') RETURNING user_id INTO u_user;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (tk, u_admin, now() + interval '1 hour'), (tu, u_user, now() + interval '1 hour');
+  a_one := (allgres_public.fn_create_agent('zz7_one', 'first team member')->>'agent_id')::uuid;
+  a_two := (allgres_public.fn_create_agent('zz7_two', 'second team member')->>'agent_id')::uuid;
+  a_three := (allgres_public.fn_create_agent('zz7_three', 'no team yet')->>'agent_id')::uuid;
+  SELECT agent_id INTO a_sys FROM allgres_private.agents WHERE is_system LIMIT 1;
+  INSERT INTO allgres_private.agent_groups (name) VALUES ('zz7_team_a') RETURNING group_id INTO g_a;
+  INSERT INTO allgres_private.agent_groups (name) VALUES ('zz7_team_b') RETURNING group_id INTO g_b;
+  INSERT INTO allgres_private.agent_group_members (agent_id, group_id) VALUES (a_one, g_a), (a_two, g_a);
+
+  -- A second team: not for system agents or agents without a first team.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'teams.secondary_set', 'agent_id', a_two, 'group_id', g_b, 'session_token', tu));
+  ok := r->>'error' IS NOT NULL;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'teams.secondary_set', 'agent_id', a_two, 'group_id', g_b, 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean AND EXISTS (SELECT 1 FROM allgres_private.agent_group_secondary WHERE agent_id = a_two AND group_id = g_b)
+    AND EXISTS (SELECT 1 FROM allgres_private.agent_group_members WHERE agent_id = a_two AND group_id = g_a);
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_team_secondary_set(a_sys, g_b, true); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%system agents%';
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_team_secondary_set(a_three, g_b, true); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%first team before a second%';
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_team_secondary_set(a_two, g_a, true); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%already the first team%';
+  ok := ok AND (SELECT count(*) = 1 FROM allgres_private.team_member_ids(g_b));
+  v := v || jsonb_build_array(jsonb_build_object('name', 'agent_can_join_a_second_team_without_leaving_the_first', 'ok', ok));
+
+  -- A window that is an agent: handed work starts a task for that agent, runs
+  -- as that agent, and an agent sender needs the team permission.
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_team_intake_set(g_b, 'agent', a_one); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := v_err LIKE '%must be an active agent in the team%';
+  PERFORM allgres_public.fn_team_intake_set(g_b, 'agent', a_two);
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_team_handoff_by_agent(a_one, 'zz7_team_b', 'audit the ledger'); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%may not hand work to the team%';
+  PERFORM allgres_public.fn_grant_permission(a_one, 'agent', 'team:zz7_team_b');
+  r := allgres_public.fn_team_handoff_by_agent(a_one, 'zz7_team_b', 'audit the ledger');
+  v_h := (r->>'handoff_id')::uuid; v_t := (r->>'task_id')::uuid;
+  ok := ok AND v_t IS NOT NULL
+    AND (SELECT status = 'assigned' AND assignee_agent_id = a_two AND from_agent_id = a_one FROM allgres_private.team_handoffs WHERE handoff_id = v_h)
+    AND (SELECT s.goal LIKE 'Work handed over to the team zz7_team_b by zz7_one.%audit the ledger'
+         FROM allgres_private.tasks t JOIN allgres_private.sessions s USING (session_id) WHERE t.task_id = v_t)
+    AND (SELECT a.agent_id = a_two FROM allgres_private.tasks t JOIN allgres_private.agents a ON a.agent_id = t.agent_id WHERE t.task_id = v_t);
+  UPDATE allgres_private.tasks SET status = 'completed', output = jsonb_build_object('answer', 'Ledger audited: no gaps.') WHERE task_id = v_t;
+  ok := ok AND (SELECT status = 'finished' AND result = 'Ledger audited: no gaps.' FROM allgres_private.team_handoffs WHERE handoff_id = v_h);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'teams.handoffs', 'session_token', tk));
+  ok := ok AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'handoffs') e WHERE e->>'team' = 'zz7_team_b' AND e->>'from' = 'zz7_one'
+                         AND e->>'assignee' = 'zz7_two' AND e->>'status' = 'finished' AND e->>'result' LIKE 'Ledger audited%');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'team_window_agent_takes_handed_over_work_and_the_sender_sees_the_result', 'ok', ok));
+
+  -- A window that is a person: the work waits; the person's pick is kept as a
+  -- gold decision whose answers are the team's agents.
+  PERFORM allgres_public.fn_team_intake_set(g_b, 'person');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'teams.handoff', 'group_id', g_b, 'goal', 'Summarize the ticket backlog', 'session_token', tu));
+  v_h := (r->>'handoff_id')::uuid;
+  ok := (r->>'status') = 'pending' AND (SELECT task_id IS NULL AND from_user_id = u_user FROM allgres_private.team_handoffs WHERE handoff_id = v_h);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'teams.handoff_assign', 'handoff_id', v_h, 'agent_id', a_two, 'session_token', tu));
+  ok := ok AND r->>'error' IS NOT NULL;
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_team_handoff_assign(tk, v_h, a_three); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%pick an active agent in the team%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'teams.handoff_assign', 'handoff_id', v_h, 'agent_id', a_two, 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean AND (r->>'task_id') IS NOT NULL
+    AND (SELECT status = 'assigned' AND assignee_agent_id = a_two AND assigned_by = u_admin FROM allgres_private.team_handoffs WHERE handoff_id = v_h);
+  v_key := 'team_assign_' || substr(replace(g_b::text, '-', ''), 1, 12);
+  SELECT record_id INTO v_rec FROM allgres_private.decision_records WHERE source_kind = 'team_handoff' AND source_id = v_h;
+  ok := ok AND v_rec IS NOT NULL
+    AND (SELECT point_key = v_key AND answer = 'zz7_two' AND decided_by = 'human' AND decider_user_id = u_admin FROM allgres_private.decision_records WHERE record_id = v_rec)
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_labels WHERE record_id = v_rec AND tier = 'gold')
+    AND (SELECT criteria ? 'zz7_two' AND criteria ? 'decline' AND NOT criteria ? 'zz7_one'
+         FROM allgres_private.decision_points WHERE point_key = v_key ORDER BY version DESC LIMIT 1);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'teams.handoff_assign', 'handoff_id', v_h, 'agent_id', a_two, 'session_token', tk));
+  ok := ok AND r->>'error' LIKE '%already been decided%';
+  r := allgres_public.fn_team_handoff(tk, g_b, 'Another job');
+  PERFORM allgres_public.fn_team_handoff_assign(tk, (r->>'handoff_id')::uuid, NULL);
+  ok := ok AND (SELECT status = 'declined' AND task_id IS NULL FROM allgres_private.team_handoffs WHERE handoff_id = (r->>'handoff_id')::uuid)
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = (r->>'handoff_id')::uuid AND answer = 'decline');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'team_window_person_picks_who_takes_the_work_and_it_is_kept_as_their_decision', 'ok', ok));
+
+  -- Leaving a team clears a window that relied on that agent. No window, no handoff.
+  PERFORM allgres_public.fn_team_intake_set(g_b, 'agent', a_two);
+  PERFORM allgres_public.fn_team_secondary_set(a_two, g_b, false);
+  ok := NOT EXISTS (SELECT 1 FROM allgres_private.team_intakes WHERE group_id = g_b);
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_team_handoff(tk, g_b, 'x'); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%has no window%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'leaving_a_team_clears_the_window_that_relied_on_the_agent', 'ok', ok));
+
+  -- Shared notes: members read their team's notes, others do not; the
+  -- organization's notes and all writing need a grant.
+  PERFORM allgres_public.fn_team_secondary_set(a_two, g_b, true);
+  PERFORM allgres_public.fn_shared_memory_add(tk, 'team', g_b, 'Team B closes the month on the 3rd.', 0.9);
+  PERFORM allgres_public.fn_shared_memory_add(tk, 'org', NULL, 'Everyone uses UTC.', 0.5);
+  v_block := allgres_private.shared_memory_block(a_two);
+  ok := v_block LIKE '%[team zz7_team_b] Team B closes the month%' AND v_block NOT LIKE '%Everyone uses UTC%' AND v_block LIKE '%data, not instructions%';
+  ok := ok AND allgres_private.shared_memory_block(a_one) NOT LIKE '%Team B closes%';
+  PERFORM allgres_public.fn_memory_access_set(a_one, 'org', NULL, true, false);
+  ok := ok AND allgres_private.shared_memory_block(a_one) LIKE '%[organization] Everyone uses UTC.%';
+  r := allgres_private.shared_memory_write(a_two, 'team', 'zz7_team_b', 'A guess', NULL, NULL, NULL);
+  ok := ok AND (r->>'ok')::boolean = false AND r->>'error' = 'not_allowed_to_write_team_notes';
+  PERFORM allgres_public.fn_memory_access_set(a_two, 'team', g_b, true, true);
+  r := allgres_private.shared_memory_write(a_two, 'team', 'zz7_team_b', 'Invoices go to finance@', 'instruction', '0.8', NULL);
+  ok := ok AND (r->>'ok')::boolean AND allgres_private.shared_memory_block(a_two) LIKE '%Invoices go to finance@%'
+    AND (SELECT author_agent_id = a_two FROM allgres_private.shared_memories WHERE memory_id = (r->>'memory_id')::uuid);
+  r := allgres_private.shared_memory_write(a_two, 'org', NULL, 'Org rule', NULL, NULL, NULL);
+  ok := ok AND r->>'error' = 'not_allowed_to_write_org_notes';
+  v_t := (allgres_public.fn_create_session(a_two, 'selftest: look at the notes')->>'task_id')::uuid;
+  ok := ok AND position('Invoices go to finance@' in allgres_public.fn_next_step(v_t)::text) > 0;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'memory_scopes.list', 'session_token', tk));
+  ok := ok AND jsonb_array_length(r->'notes') >= 3 AND jsonb_array_length(r->'access') >= 2;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'shared_notes_follow_team_membership_and_writes_need_a_grant', 'ok', ok, 'detail', v_block));
 
   RETURN v;
 END;

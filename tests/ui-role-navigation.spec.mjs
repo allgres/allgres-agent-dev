@@ -16,7 +16,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Rooms','Access & appearance','Audit log'];
+  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Rooms','Teams','Access & appearance','Audit log'];
   for (const label of labels) {
     const button = page.locator('#nav button', { hasText: label }).first();
     await expect(button).toBeVisible();
@@ -450,6 +450,74 @@ test('auto room: the lead proposes and the room starts the task by itself', asyn
   const point = stats.points.find(x => x.point_key === 'room_task_confirmation');
   expect(point.records).toBeGreaterThanOrEqual(1);
   expect(point.gold).toBe(1);
+});
+
+test('teams: a second team, a window that waits for a person, and shared notes', async ({ page }) => {
+  test.setTimeout(120000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const llm = { provider: 'ui_team_mock', model: 'allgres-mock' };
+    const p = await call({ action: 'provider.create', name: 'ui_team_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    for (const name of ['ui_tm_a', 'ui_tm_b']) {
+      const a = await call({ action: 'agents.create', name, system_prompt: 'You help the team.', llm_config: llm, is_active: true });
+      if (a.ok === false) throw new Error(a.error);
+    }
+    for (const name of ['ui-team-one', 'ui-team-two']) {
+      const g = await call({ action: 'canvas.groups.create', name });
+      if (g.ok === false) throw new Error(JSON.stringify(g));
+    }
+  }, baseURL);
+  const team = (name) => page.locator('#view .panel[data-team="' + name + '"]');
+  await page.locator('#nav button', { hasText: 'Teams' }).click();
+  await expect(team('ui-team-one')).toBeVisible();
+  // ui_tm_a sits in team one first, then also in team two.
+  await page.evaluate(async () => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const ags = (await call({ action: 'agents.list' })).agents;
+    const gs = (await call({ action: 'teams.list' })).teams;
+    const id = n => ags.find(a => a.name === n).agent_id;
+    const gid = n => gs.find(g => g.name === n).group_id;
+    for (const n of ['ui_tm_a', 'ui_tm_b']) {
+      const r = await call({ action: 'canvas.groups.set_member', agent_id: id(n), group_id: gid('ui-team-one') });
+      if (r.ok === false) throw new Error(JSON.stringify(r));
+    }
+  });
+  await page.locator('#nav button', { hasText: 'Home' }).click();
+  await page.locator('#nav button', { hasText: 'Teams' }).click();
+  await expect(team('ui-team-one')).toContainText('ui_tm_a');
+  await team('ui-team-two').locator('.tmSecAgent').selectOption({ label: 'ui_tm_a' });
+  await team('ui-team-two').getByRole('button', { name: 'Add as second team' }).click();
+  await expect(team('ui-team-two').locator('.status', { hasText: 'second team' })).toBeVisible();
+  // The window waits for a person; hand work to it, then pick who takes it.
+  await team('ui-team-two').locator('.tmMode').selectOption('person');
+  await team('ui-team-two').getByRole('button', { name: 'Save window' }).click();
+  await team('ui-team-two').locator('.tmGoal').fill('Summarize the ticket backlog');
+  await team('ui-team-two').getByRole('button', { name: 'Hand over' }).click();
+  const waiting = page.locator('#view .panel', { hasText: 'Waiting for you' });
+  await expect(waiting).toContainText('Summarize the ticket backlog');
+  await waiting.getByRole('button', { name: 'Give it to them' }).click();
+  await expect(page.locator('#view .panel', { hasText: 'Handed over' }).getByText('Summarize the ticket backlog')).toBeVisible();
+  await expect(page.locator('#view .panel', { hasText: 'Handed over' }).locator('.status', { hasText: /finished|completed|queued|running|working/ }).first()).toBeVisible({ timeout: 60000 });
+  // A shared note for the team.
+  await page.locator('#tnScope').selectOption('team');
+  await page.locator('#tnTeam').selectOption({ label: 'ui-team-two' });
+  await page.locator('#tnText').fill('Team two closes the month on the 3rd.');
+  await page.locator('#tnAdd').click();
+  await expect(page.getByText('Team two closes the month on the 3rd.')).toBeVisible();
+  // The person's pick is kept as a gold decision.
+  const stats = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ action: 'decisions.stats', session_token: sessionStorage.getItem('allgres_session_token') }) });
+    return r.json();
+  });
+  expect(stats.points.some(x => x.point_key.startsWith('team_assign_') && x.gold >= 1)).toBe(true);
 });
 
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {

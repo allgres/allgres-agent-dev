@@ -842,6 +842,111 @@
     ]
   },
   {
+    "action": "teams.list",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "teams.secondary_set",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "agent_id",
+      "group_id",
+      "on",
+      "session_token"
+    ]
+  },
+  {
+    "action": "teams.intake_set",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "agent_id",
+      "group_id",
+      "mode",
+      "session_token"
+    ]
+  },
+  {
+    "action": "teams.handoff",
+    "guards": [],
+    "params": [
+      "goal",
+      "group_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "teams.handoff_assign",
+    "guards": [],
+    "params": [
+      "agent_id",
+      "handoff_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "teams.handoffs",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "limit",
+      "session_token"
+    ]
+  },
+  {
+    "action": "memory_scopes.list",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "memory_scopes.add",
+    "guards": [],
+    "params": [
+      "content",
+      "group_id",
+      "importance",
+      "scope",
+      "session_token"
+    ]
+  },
+  {
+    "action": "memory_scopes.delete",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "memory_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "memory_scopes.access_set",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "agent_id",
+      "can_read",
+      "can_write",
+      "group_id",
+      "scope",
+      "session_token"
+    ]
+  },
+  {
     "action": "rooms.list",
     "guards": [
       "session_user"
