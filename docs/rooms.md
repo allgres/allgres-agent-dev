@@ -6,7 +6,7 @@ A room is where people and agents work on something together. Open **Work → Ro
 
 - **Members.** People and agents, chosen by an admin. An agent cannot join a room or bring another in by itself, and system agents cannot be members.
 - **Roles.** An agent in a room can have a role (`lead`, `reviewer`, `implementer`, `recorder`, or one an admin writes). A role is text that tells the agent what it is asked to do in that room. **It grants nothing**: what an agent may use is decided by its own permissions, exactly as everywhere else.
-- **Mode.** `manual` (default) or `assisted`; an admin chooses. In a manual room only a person's message calls an agent. In an assisted room agents may also ask each other for turns, and the lead may propose tasks (see below). A third mode, `auto`, where a room confirms tasks itself, is described in [stage5-design.md](stage5-design.md) and cannot be switched on yet.
+- **Mode.** `manual` (default) or `assisted`; an admin chooses. In a manual room only a person's message calls an agent. In an assisted room agents may also ask each other for turns, and the lead may propose tasks (see below). A third mode, `auto`, lets the room confirm the lead's proposals itself (see below).
 - **Limits.** Agent turns (default 12), cost (default $1), and chain depth (default 4, how many agents-calling-agents hops one request may make). A message that would pass either limit is refused with the reason, and an admin can raise it. A closed room accepts nothing.
 
 ## How a conversation works
@@ -16,6 +16,18 @@ A room is where people and agents work on something together. Open **Work → Ro
 3. When the task finishes, its answer is posted to the room as the agent's message. If it fails, the room gets a notice with the reason.
 
 The tasks are ordinary tasks: they appear in Activity, use the agent's own model and budget, and are stopped by the same approvals and tool risk levels.
+
+## Auto rooms
+
+In an `auto` room the lead's `PROPOSE` line starts the task at once, with no click. An admin turns it on per room, and the room refuses (and keeps refusing, whenever anything about it changes) unless:
+
+- it has a lead;
+- its cost limit is above zero, its turn limit is 50 or less, and its chain depth is 6 or less;
+- every agent in it uses a model that has a price, so the cost can be counted. An unpriced agent cannot be added to an auto room.
+
+Each start is checked again: if the chain is too deep, the turn or cost limit is reached, or the lead may not hand work to that agent, the proposal stays pending with a notice and a person can still confirm it. Write and physical tools still wait for a person's approval as everywhere else. The start is posted as "Started automatically. Task for ...", and the room view shows a Cancel button on it (`rooms.cancel_task`). Removing the lead drops the room to `assisted`.
+
+The confirmation is kept as a `room_task_confirmation` record with `decided_by='llm'` and no gold label: only a person's decision is a gold label.
 
 ## Assisted rooms
 

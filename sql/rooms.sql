@@ -10,10 +10,13 @@
 -- Roles tell an agent what it is asked to do in a room. They grant nothing:
 -- what an agent may use is decided by its own permissions.
 --
--- A room is `manual` (only a person's message calls an agent) or `assisted`
+-- A room is `manual` (only a person's message calls an agent), `assisted`
 -- (agents may also call each other, within the room's limits, and the lead
--- may propose a task that a person confirms). The third mode, `auto`, where
--- the room confirms tasks itself, is stored but cannot be switched on yet.
+-- may propose a task that a person confirms), or `auto` (the lead's proposal
+-- starts at once, with nobody confirming, so long as the room's rules hold:
+-- a lead, a cost limit, small turn and depth limits, and every agent's model
+-- priced so the cost limit can count). An automatic confirmation is kept as
+-- a decision record from the model, never as a person's answer to learn from.
 --
 -- Loaded after sql/inbound_events.sql and before sql/selftest.sql
 -- (src/lib.rs). The final ownership and REVOKE pass in
@@ -106,6 +109,7 @@ CREATE TABLE IF NOT EXISTS allgres_private.room_proposals (
   decided_by_user   uuid REFERENCES allgres_private.users(user_id) ON DELETE SET NULL,
   decided_at        timestamptz,
   task_id           uuid,
+  auto_confirmed    boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS room_proposals_room_idx ON allgres_private.room_proposals (room_id, status);
@@ -159,6 +163,59 @@ BEGIN
 END;
 $fn$;
 
+-- Whether an agent's model has a price, so what it spends can be counted.
+CREATE OR REPLACE FUNCTION allgres_private.agent_model_priced(p_agent_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT EXISTS (
+    SELECT 1 FROM allgres_private.policies po
+    JOIN allgres_private.llm_providers lp ON lp.name = po.llm_config->>'provider'
+    JOIN allgres_private.llm_model_prices mp ON mp.provider_id = lp.provider_id AND mp.model = po.llm_config->>'model'
+    WHERE po.agent_id = p_agent_id)
+$fn$;
+
+-- Member agents whose model has no price (or no model at all). A room that
+-- starts work by itself must be able to count what it spends.
+CREATE OR REPLACE FUNCTION allgres_private.room_unpriced_members(p_room_id uuid)
+RETURNS text[]
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT COALESCE(array_agg(a.name ORDER BY a.name), ARRAY[]::text[])
+  FROM allgres_private.room_members m
+  JOIN allgres_private.agents a ON a.agent_id = m.agent_id
+  WHERE m.room_id = p_room_id AND NOT allgres_private.agent_model_priced(m.agent_id)
+$fn$;
+
+-- What stops a room from being automatic, in words. Empty when it may be.
+CREATE OR REPLACE FUNCTION allgres_private.room_auto_problems(p_room_id uuid)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  r allgres_private.rooms%ROWTYPE;
+  v_unpriced text[];
+  v_out text[] := ARRAY[]::text[];
+BEGIN
+  SELECT * INTO r FROM allgres_private.rooms WHERE room_id = p_room_id;
+  IF r.lead_agent_id IS NULL THEN v_out := v_out || 'it needs a lead'::text; END IF;
+  IF r.max_cost_usd <= 0 THEN v_out := v_out || 'it needs a cost limit above zero'::text; END IF;
+  IF r.max_turns > 50 THEN v_out := v_out || 'its turn limit must be 50 or less'::text; END IF;
+  IF r.max_depth > 6 THEN v_out := v_out || 'its chain depth must be 6 or less'::text; END IF;
+  v_unpriced := allgres_private.room_unpriced_members(p_room_id);
+  IF cardinality(v_unpriced) > 0 THEN
+    v_out := v_out || ('these agents use a model with no price, so their cost cannot be counted: ' || array_to_string(v_unpriced, ', '));
+  END IF;
+  RETURN array_to_string(v_out, '; ');
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_public.fn_room_create(
   p_token text, p_name text, p_purpose text DEFAULT '', p_max_turns int DEFAULT 12, p_max_cost_usd numeric DEFAULT 1.00
 ) RETURNS jsonb
@@ -192,9 +249,11 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
+DECLARE
+  v_problems text;
 BEGIN
-  IF p_mode IS NOT NULL AND p_mode NOT IN ('manual', 'assisted') THEN
-    RAISE EXCEPTION 'only the manual and assisted modes are available so far' USING ERRCODE = 'P0001';
+  IF p_mode IS NOT NULL AND p_mode NOT IN ('manual', 'assisted', 'auto') THEN
+    RAISE EXCEPTION 'the mode is manual, assisted, or auto' USING ERRCODE = 'P0001';
   END IF;
   IF p_lead_agent_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM allgres_private.room_members WHERE room_id = p_room_id AND agent_id = p_lead_agent_id
@@ -213,6 +272,13 @@ BEGIN
   WHERE room_id = p_room_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'room not found' USING ERRCODE = 'P0001';
+  END IF;
+  -- An automatic room keeps its rules whenever anything about it changes.
+  IF (SELECT mode FROM allgres_private.rooms WHERE room_id = p_room_id) = 'auto' THEN
+    v_problems := allgres_private.room_auto_problems(p_room_id);
+    IF v_problems <> '' THEN
+      RAISE EXCEPTION 'this room cannot start work by itself: %', v_problems USING ERRCODE = 'P0001';
+    END IF;
   END IF;
   PERFORM allgres_private.audit('rooms.set', jsonb_build_object('room_id', p_room_id, 'status', p_status, 'mode', p_mode));
   RETURN jsonb_build_object('ok', true);
@@ -240,6 +306,10 @@ BEGIN
   IF p_user_id IS NOT NULL AND p_role_id IS NOT NULL THEN
     RAISE EXCEPTION 'roles are for agents' USING ERRCODE = 'P0001';
   END IF;
+  IF p_agent_id IS NOT NULL AND (SELECT mode FROM allgres_private.rooms WHERE room_id = p_room_id) = 'auto'
+     AND NOT allgres_private.agent_model_priced(p_agent_id) THEN
+    RAISE EXCEPTION 'an automatic room only takes agents whose model has a price, so its cost can be counted' USING ERRCODE = 'P0001';
+  END IF;
   INSERT INTO allgres_private.room_members (room_id, user_id, agent_id, role_id)
   VALUES (p_room_id, p_user_id, p_agent_id, p_role_id)
   ON CONFLICT (room_id, agent_id) DO UPDATE SET role_id = EXCLUDED.role_id
@@ -265,7 +335,9 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'member not found' USING ERRCODE = 'P0001';
   END IF;
-  UPDATE allgres_private.rooms SET lead_agent_id = NULL WHERE room_id = m.room_id AND lead_agent_id = m.agent_id;
+  UPDATE allgres_private.rooms
+  SET lead_agent_id = NULL, mode = CASE WHEN mode = 'auto' THEN 'assisted' ELSE mode END
+  WHERE room_id = m.room_id AND lead_agent_id = m.agent_id;
   PERFORM allgres_private.audit('rooms.member_remove', jsonb_build_object('member_id', p_member_id, 'room_id', m.room_id));
   RETURN jsonb_build_object('ok', true);
 END;
@@ -473,7 +545,74 @@ BEGIN
 END;
 $fn$;
 
--- After an agent answers in an assisted room: the lead's PROPOSE lines become
+-- In an automatic room the lead's proposal is confirmed by the room itself.
+-- It starts only when every rule that lets a person-free room work still
+-- holds; otherwise it stays a proposal for a person, with a notice saying
+-- why. The confirmation is kept as a decision from the model, which is never
+-- an answer to learn from.
+CREATE OR REPLACE FUNCTION allgres_private.room_auto_confirm(p_proposal_id uuid, p_depth int)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  pr allgres_private.room_proposals%ROWTYPE;
+  r allgres_private.rooms%ROWTYPE;
+  v_assignee text; v_by text; v_role text; v_state text; v_started jsonb; v_stop text; v_problems text;
+BEGIN
+  SELECT * INTO pr FROM allgres_private.room_proposals WHERE proposal_id = p_proposal_id FOR UPDATE;
+  SELECT * INTO r FROM allgres_private.rooms WHERE room_id = pr.room_id;
+  SELECT name INTO v_assignee FROM allgres_private.agents WHERE agent_id = pr.assignee_agent_id;
+  SELECT name INTO v_by FROM allgres_private.agents WHERE agent_id = pr.proposed_by_agent;
+  v_problems := allgres_private.room_auto_problems(pr.room_id);
+  IF v_problems <> '' THEN
+    v_stop := 'the room no longer meets the rules for starting work by itself (' || v_problems || ')';
+  ELSIF p_depth + 1 > r.max_depth THEN
+    v_stop := 'the chain is already ' || r.max_depth || ' deep';
+  ELSIF (SELECT count(*) FROM allgres_private.room_turns WHERE room_id = pr.room_id) >= r.max_turns THEN
+    v_stop := 'the room has reached its limit of ' || r.max_turns || ' agent turns';
+  ELSIF allgres_private.room_cost(pr.room_id) >= r.max_cost_usd THEN
+    v_stop := 'the room has reached its cost limit of $' || r.max_cost_usd;
+  ELSIF NOT allgres_private.agent_has_permission(pr.proposed_by_agent, 'agent', v_assignee) THEN
+    v_stop := v_by || ' is not allowed to hand work to ' || v_assignee;
+  END IF;
+  IF v_stop IS NOT NULL THEN
+    INSERT INTO allgres_private.room_messages (room_id, kind, content)
+    VALUES (pr.room_id, 'notice', 'The proposed task for ' || v_assignee || ' was not started automatically: ' || v_stop || '. A person can still confirm it.');
+    RETURN;
+  END IF;
+  SELECT ro.name INTO v_role FROM allgres_private.room_members m JOIN allgres_private.room_roles ro USING (role_id)
+  WHERE m.room_id = pr.room_id AND m.agent_id = pr.assignee_agent_id;
+  v_started := allgres_public.fn_create_session(pr.assignee_agent_id,
+    allgres_private.room_goal(pr.room_id, pr.assignee_agent_id, pr.goal));
+  INSERT INTO allgres_private.room_turns (task_id, room_id, agent_id, depth, caller_agent_id)
+  VALUES ((v_started->>'task_id')::uuid, pr.room_id, pr.assignee_agent_id, p_depth + 1, pr.proposed_by_agent);
+  INSERT INTO allgres_private.room_messages (room_id, kind, content, called_agent_ids, session_id, task_id)
+  VALUES (pr.room_id, 'task_started', 'Started automatically. Task for ' || v_assignee || ': ' || left(pr.goal, 600),
+          ARRAY[pr.assignee_agent_id], (v_started->>'session_id')::uuid, (v_started->>'task_id')::uuid);
+  UPDATE allgres_private.room_proposals
+  SET status = 'confirmed', auto_confirmed = true, decided_at = now(), task_id = (v_started->>'task_id')::uuid
+  WHERE proposal_id = p_proposal_id;
+  v_state := 'Room: ' || r.name || E'\nPurpose: ' || r.purpose
+    || E'\nProposed by: ' || COALESCE(v_by, 'the lead')
+    || E'\nAssignee: ' || v_assignee || COALESCE(' (' || v_role || ')', '')
+    || E'\nGoal: ' || left(pr.goal, 1000)
+    || E'\nDiscussion: ' || (SELECT count(*) FROM allgres_private.room_messages WHERE room_id = pr.room_id AND kind = 'say')
+    || ' messages from ' || (SELECT count(DISTINCT COALESCE(author_user_id::text, author_agent_id::text)) FROM allgres_private.room_messages
+                              WHERE room_id = pr.room_id AND kind = 'say') || ' participants';
+  BEGIN
+    PERFORM allgres_private.record_decision('room_task_confirmation', v_state, 'confirm', 'llm', NULL, NULL, 'room_proposal', p_proposal_id);
+  EXCEPTION WHEN others THEN
+    PERFORM allgres_private.audit('decision_records.failed', jsonb_build_object(
+      'source_kind', 'room_proposal', 'source_id', p_proposal_id, 'error', left(SQLERRM, 300)));
+  END;
+  PERFORM allgres_private.audit('rooms.auto_confirm', jsonb_build_object(
+    'proposal_id', p_proposal_id, 'room_id', pr.room_id, 'task_id', v_started->>'task_id'));
+END;
+$fn$;
+
+-- After an agent answers in an assisted or automatic room: the lead's PROPOSE lines become
 -- proposals for a person, and an @mention of another member asks that member
 -- for a turn, if every limit allows it. Anything that stops a call says so in
 -- the room, once.
@@ -495,6 +634,7 @@ DECLARE
   v_names text[];
   v_turns int;
   v_pmsg uuid;
+  v_prop uuid;
   v_started jsonb;
   v_stop text;
   v_text text;
@@ -525,7 +665,11 @@ BEGIN
           VALUES (p_room_id, p_agent_id, 'task_proposal', 'Proposed task for ' || v_name || ': ' || left(v_goal, 600), ARRAY[v_callee])
           RETURNING message_id INTO v_pmsg;
           INSERT INTO allgres_private.room_proposals (room_id, message_id, proposed_by_agent, assignee_agent_id, goal)
-          VALUES (p_room_id, v_pmsg, p_agent_id, v_callee, left(v_goal, 1000));
+          VALUES (p_room_id, v_pmsg, p_agent_id, v_callee, left(v_goal, 1000))
+          RETURNING proposal_id INTO v_prop;
+          IF r.mode = 'auto' THEN
+            PERFORM allgres_private.room_auto_confirm(v_prop, p_depth);
+          END IF;
         END IF;
       END IF;
     END LOOP;
@@ -702,5 +846,34 @@ BEGIN
   PERFORM allgres_private.audit('rooms.proposal_decide', jsonb_build_object(
     'proposal_id', p_proposal_id, 'room_id', pr.room_id, 'accepted', p_accept));
   RETURN jsonb_build_object('ok', true, 'task_id', v_started->'task_id', 'session_id', v_started->'session_id');
+END;
+$fn$;
+
+-- A person stops a task the room started. Any member may; the task is
+-- cancelled like any other and the room says so.
+CREATE OR REPLACE FUNCTION allgres_public.fn_room_cancel_task(p_token text, p_room_id uuid, p_task_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  u allgres_private.users%ROWTYPE;
+  rt allgres_private.room_turns%ROWTYPE;
+  v_session uuid;
+  v_name text;
+BEGIN
+  u := allgres_private.room_user(p_token, p_room_id);
+  SELECT * INTO rt FROM allgres_private.room_turns WHERE task_id = p_task_id AND room_id = p_room_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'that task did not come from this room' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT session_id INTO v_session FROM allgres_private.tasks WHERE task_id = p_task_id;
+  SELECT name INTO v_name FROM allgres_private.agents WHERE agent_id = rt.agent_id;
+  PERFORM allgres_public.fn_cancel_session(v_session, 'stopped from room by ' || u.username);
+  INSERT INTO allgres_private.room_messages (room_id, author_user_id, kind, content, session_id, task_id)
+  VALUES (p_room_id, u.user_id, 'notice', u.username || ' stopped the task for ' || COALESCE(v_name, 'an agent') || '.', v_session, p_task_id);
+  PERFORM allgres_private.audit('rooms.cancel_task', jsonb_build_object('room_id', p_room_id, 'task_id', p_task_id));
+  RETURN jsonb_build_object('ok', true);
 END;
 $fn$;
