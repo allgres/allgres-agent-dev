@@ -332,6 +332,8 @@ REVOKE ALL ON FUNCTION allgres_public.fn_claim_sql(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_sql(uuid, boolean, jsonb, int, boolean, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_oauth(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_mcp_probe(int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_claim_decision_asks(int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION allgres_public.fn_complete_decision_ask(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_claim_mcp_oauth(int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_mcp_oauth(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION allgres_public.fn_complete_mcp_probe(uuid, int, text) FROM PUBLIC;
@@ -369,6 +371,8 @@ GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_agent_embedding(uuid, int, 
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_provider_probe(int) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_provider_probe(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_mcp_probe(int) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_decision_asks(int) TO worker;
+GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_decision_ask(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_claim_mcp_oauth(int) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_mcp_oauth(uuid, int, text) TO worker;
 GRANT EXECUTE ON FUNCTION allgres_public.fn_complete_mcp_probe(uuid, int, text) TO worker;
@@ -878,6 +882,35 @@ BEGIN
                OR (v_scope IS NULL AND v_user.user_id IS NULL)
                OR allgres_private.decision_access(v_user.user_id, 'proposal', cp.proposal_id) IN ('admin', 'self', 'delegate'))
       ), '[]'::jsonb));
+
+    -- Stage 6: handing a decision point to the decision model, one at a time.
+    WHEN 'delegation.overview' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_delegation_overview() || jsonb_build_object('ok', true);
+
+    WHEN 'delegation.set' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_delegation_set(
+        p_request->>'point_key', p_request->>'mode', NULLIF(p_request->>'connection_id', '')::uuid,
+        NULLIF(p_request->>'checkpoint', ''), NULLIF(p_request->>'min_confidence', '')::numeric,
+        CASE WHEN p_request ? 'scope_agent_ids'
+             THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'scope_agent_ids') x) END,
+        COALESCE((p_request->>'all_agents')::boolean, false),
+        NULLIF(p_request->>'min_accuracy', '')::numeric, NULLIF(p_request->>'max_ece', '')::numeric);
+
+    WHEN 'delegation.off_all' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_delegation_off_all();
+
+    WHEN 'delegation.eval_record' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_eval_record(p_request->>'session_token', p_request->>'point_key',
+        p_request->>'checkpoint', p_request->'report');
+
+    WHEN 'delegation.checkpoint_switch' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_checkpoint_switch(p_request->>'session_token', p_request->>'point_key',
+        (p_request->>'report_id')::uuid);
 
     WHEN 'proposals.grant' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');

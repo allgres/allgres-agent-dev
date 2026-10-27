@@ -562,6 +562,51 @@ test('an agent proposes a function, the person sees the check, approves, and giv
   await expect(page.locator('#view .listrow', { hasText: 'ui_cr_echo' }).filter({ hasText: 'already: ui_cr_user' })).toBeVisible();
 });
 
+test('decision model: watch a point, compare with a person, and meet the gate before handing over', async ({ page }) => {
+  test.setTimeout(120000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const p = await call({ action: 'provider.create', name: 'ui_dg_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    const action = JSON.stringify({ action: 'await_human', reason: 'OK to go ahead with the delivery?' });
+    const a = await call({ action: 'agents.create', name: 'ui_dg_agent', system_prompt: 'MOCK_ACTION: ' + action,
+      llm_config: { provider: 'ui_dg_mock', model: 'allgres-mock' }, is_active: true });
+    if (a.ok === false) throw new Error(a.error);
+    const m = await call({ action: 'decision_models.connect', name: 'ui-dg-laya', base_url: base + '/mock/laya', allow_private_network: true });
+    if (m.ok === false) throw new Error(m.error);
+    const run = await call({ action: 'run', agent_id: a.agent_id, goal: 'Deliver the order' });
+    if (run.ok === false) throw new Error(run.error);
+  }, baseURL);
+  // Watch the approval point.
+  await page.locator('#nav button', { hasText: 'Decision model' }).click();
+  const row = page.locator('#view .listrow[data-point="approval_decision"]');
+  await expect(row).toBeVisible();
+  await row.locator('.dgModel').selectOption({ label: 'ui-dg-laya' });
+  await row.getByRole('button', { name: 'Watch' }).click();
+  await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: 'watching' })).toBeVisible();
+  // A person approves the agent's question; the model is asked afterwards and compared.
+  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  await expect(async () => {
+    await page.locator('.apTabBtn', { hasText: 'Approvals' }).click();
+    await expect(page.locator('#view .listrow', { hasText: 'OK to go ahead with the delivery?' }).first()).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 60000 });
+  await page.locator('#view .listrow', { hasText: 'OK to go ahead with the delivery?' }).first().locator('.apAccept').click();
+  await page.locator('#nav button', { hasText: 'Decision model' }).click();
+  await expect(async () => {
+    await page.locator('#nav button', { hasText: 'Decision model' }).click();
+    await expect(page.locator('#view .listrow[data-point="approval_decision"]')).toContainText('Compared 1 decisions: the model agreed on 1', { timeout: 3000 });
+  }).toPass({ timeout: 60000 });
+  // Handing over is refused until enough has been watched.
+  await page.locator('#view .listrow[data-point="approval_decision"]').getByRole('button', { name: 'Hand over' }).click();
+  await expect(page.getByText(/observe first/)).toBeVisible();
+  // The way back.
+  await page.getByRole('button', { name: 'Turn everything off' }).click();
+  await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: /^off$/ })).toBeVisible();
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(5);

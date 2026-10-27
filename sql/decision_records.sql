@@ -267,6 +267,12 @@ BEGIN
   IF p_decided_by = 'human' THEN
     INSERT INTO allgres_private.decision_labels (record_id, expected, tier, source, labeled_by_user_id)
     VALUES (v_id, jsonb_build_object(pt.point_key, p_answer), 'gold', 'human_decision', p_user_id);
+    -- Compare with the decision model, if this point asks it (sql/delegation.sql).
+    BEGIN
+      PERFORM allgres_private.decision_after_human_record(pt.point_key, v_state, p_answer, p_source_kind, p_source_id);
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
   END IF;
   RETURN v_id;
 END;
@@ -291,7 +297,10 @@ BEGIN
         approval_decision_state(NEW.approval_id, (SELECT state_fields FROM decision_points
                                                   WHERE point_key = 'approval_decision' ORDER BY version DESC LIMIT 1)),
         CASE NEW.status WHEN 'approved' THEN 'approve' ELSE 'reject' END,
-        'human', NEW.decided_by_user_id, NEW.decided_via, 'approval', NEW.approval_id,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text THEN 'laya' ELSE 'human' END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text THEN NULL ELSE NEW.decided_by_user_id END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text THEN NULL ELSE NEW.decided_via END,
+        'approval', NEW.approval_id,
         jsonb_build_object('task_id', NEW.task_id));
     EXCEPTION WHEN OTHERS THEN
       -- A decision must never fail because its record could not be kept.
@@ -318,7 +327,10 @@ BEGIN
         proposal_decision_state(NEW.proposal_id, (SELECT state_fields FROM decision_points
                                                   WHERE point_key = 'proposal_decision' ORDER BY version DESC LIMIT 1)),
         CASE NEW.status WHEN 'approved' THEN 'approve' ELSE 'reject' END,
-        'human', NEW.decided_by_user_id, NEW.decided_via, 'proposal', NEW.proposal_id,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text THEN 'laya' ELSE 'human' END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text THEN NULL ELSE NEW.decided_by_user_id END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text THEN NULL ELSE NEW.decided_via END,
+        'proposal', NEW.proposal_id,
         jsonb_build_object('kind', NEW.kind));
     EXCEPTION WHEN OTHERS THEN
       PERFORM audit('decision_records.failed', jsonb_build_object(

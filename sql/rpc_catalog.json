@@ -126,6 +126,76 @@
     ]
   },
   {
+    "action": "delegation.overview",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.set",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "all_agents",
+      "checkpoint",
+      "connection_id",
+      "max_ece",
+      "min_accuracy",
+      "min_confidence",
+      "mode",
+      "point_key",
+      "scope_agent_ids",
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.off_all",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.eval_record",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "checkpoint",
+      "point_key",
+      "report",
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.checkpoint_switch",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "point_key",
+      "report_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "proposals.grant",
+    "guards": [
+      "require_admin_if_accounts_exist"
+    ],
+    "params": [
+      "agent_ids",
+      "proposal_id",
+      "session_token"
+    ]
+  },
+  {
     "action": "proposals.decide",
     "guards": [
       "visible_agent_ids"

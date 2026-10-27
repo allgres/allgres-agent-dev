@@ -814,7 +814,9 @@ async function inboundPage(){
 let decisionPollTimer=null;
 async function decisionModelPage(){
   if(decisionPollTimer){clearTimeout(decisionPollTimer);decisionPollTimer=null}
-  const r=await rpc('decision_models.list'),models=r.models||[];
+  const [r,dg,agl]=await Promise.all([rpc('decision_models.list'),rpc('delegation.overview'),state.agents?.length?Promise.resolve({agents:state.agents}):api('/api/v1/agents')]);
+  state.agents=agl.agents||state.agents;
+  const models=r.models||[],dpoints=dg.points||[],drecent=dg.recent||[];
   const healthText={unknown:'not checked yet',ok:'connected',auth_needed:'key needed',unreachable:'cannot be reached'};
   const card=m=>{
     const st=m.status||{},loaded=st.loaded||[];
@@ -826,13 +828,32 @@ ${m.health==='ok'?`<table class="table"><thead><tr><th>Checkpoint</th><th>Revisi
 <div class="panel"><h3>Connect a server</h3><div class="grid2"><div class="field"><label>Name</label><input class="input" id="dmName" placeholder="e.g. laya-main"></div><div class="field"><label>Address</label><input class="input" id="dmUrl" placeholder="https://laya.example.com"></div>
 <div class="field"><label>Key (the server's LAYA_API_KEY, if it has one)</label><input type="password" class="input" id="dmKey" autocomplete="new-password"></div></div>
 <label class="muted"><input type="checkbox" id="dmPrivate"> The server is on this machine or a private network</label><div class="row u-margin-top-12px-gap-8px"><button class="btn primary" id="dmGo">Connect and check</button></div></div>
-${models.map(card).join('')||'<div class="panel muted">No decision model connected. Everything is decided by people and rules.</div>'}`;
+${models.map(card).join('')||'<div class="panel muted">No decision model connected. Everything is decided by people and rules.</div>'}
+<div class="panel"><div class="row wrap"><h3 class="u-margin-bottom-0">Hand decisions to the model</h3><span class="spacer"></span>${dpoints.some(p=>p.mode!=='off')?'<button class="btn danger small" id="dgOffAll">Turn everything off</button>':''}</div>
+<div class="muted u-margin-bottom-10px">One decision point at a time, in three steps. <b>Off</b>: nothing is asked. <b>Watch</b>: after a person decides, the model is asked the same question and its answer is only compared. <b>Hand over</b>: a new decision is put to the model first; a sure answer decides it, anything else (doubt, an error, a stopped server) stays with a person as if the model were not there. A write or physical tool, and approving a proposal, are always a person's. Handing over needs 10 compared decisions at the agreement bar, and a limited set of agents.</div>
+${dpoints.map(p=>{const o=p.observed||{};const rate=o.compared?Math.round(100*o.agreed/o.compared):null;const agentsOpts=(state.agents||[]).filter(a=>!a.is_system&&a.is_active!==false);
+return `<div class="listrow" data-point="${esc(p.point_key)}"><div class="row wrap"><b>${esc(p.point_key)}</b><span class="status s-${p.mode==='off'?'stale':p.mode==='observe'?'checking':'ok'}">${p.mode==='off'?'off':p.mode==='observe'?'watching':'handed over'}</span><span class="muted">${esc(p.instructions)}</span></div>
+<div class="muted u-margin-6px-0">${o.compared?`Compared ${esc(o.compared)} decisions: the model agreed on ${esc(o.agreed)} (${rate}%). `:'Nothing compared yet. '}${o.low_confidence?`Doubtful answers: ${esc(o.low_confidence)}. `:''}${o.errors?`Errors: ${esc(o.errors)}. `:''}${o.applied?`Decided by the model: ${esc(o.applied)}. `:''}${o.left_to_person?`Sent back to a person: ${esc(o.left_to_person)}.`:''}</div>
+<div class="row wrap u-gap-8px"><select class="select u-max-width-180px dgModel">${models.map(m=>opt(m.connection_id,m.name,m.connection_id===p.connection_id)).join('')}</select><input class="input u-max-width-180px dgCheckpoint" placeholder="checkpoint (optional)" value="${esc(p.checkpoint||'')}"><label class="muted">Sure enough at <input class="input u-max-width-90px dgConf" value="${esc(p.min_confidence)}"></label>
+<button class="btn small dgSet" data-mode="off">Off</button><button class="btn small dgSet" data-mode="observe">Watch</button>${p.delegable?'<button class="btn small primary dgSet" data-mode="delegate">Hand over</button>':''}</div>
+${p.delegable?`<div class="row wrap u-gap-8px u-margin-top-12px"><span class="muted">Hand over for:</span>${agentsOpts.map(a=>`<label class="muted"><input type="checkbox" class="dgAgent" value="${esc(a.agent_id)}" ${(p.scope_agent_ids||[]).includes(a.agent_id)?'checked':''}> ${esc(a.name)}</label>`).join('')}<label class="muted"><input type="checkbox" class="dgAll" ${p.all_agents?'checked':''}> all agents</label></div>`:''}
+<details class="u-margin-top-12px"><summary>Checkpoints and evaluation reports</summary><div class="muted">Train and evaluate outside Allgres with laya-train and laya-evals, then paste the JSON report here. Switching this point to that checkpoint needs a report that meets the bar (accuracy ≥ ${esc(p.min_accuracy)}, calibration error ≤ ${esc(p.max_ece)}).</div>
+<table class="table"><tbody>${(p.reports||[]).map(x=>`<tr><td class="mono">${esc(x.checkpoint)}</td><td>accuracy ${esc(x.accuracy)}</td><td>ECE ${esc(x.ece??'—')}</td><td>${p.checkpoint===x.checkpoint?'<span class="status s-ok">in use</span>':`<button class="btn small dgSwitch" data-report="${esc(x.report_id)}">Use this checkpoint</button>`}</td></tr>`).join('')||'<tr><td class="muted">No report recorded.</td></tr>'}</tbody></table>
+<div class="row wrap u-gap-8px"><input class="input u-max-width-180px dgRepCp" placeholder="checkpoint name"><input class="input dgRepJson" placeholder='report JSON, e.g. {"accuracy":0.91,"ece":0.04}'><button class="btn small dgRecord">Record report</button></div></details></div>`}).join('')}
+<h3 class="u-margin-top-12px">Recent questions to the model</h3><table class="table"><thead><tr><th>Point</th><th>Kind</th><th>Model said</th><th>Person said</th><th>What happened</th></tr></thead><tbody>${drecent.map(x=>`<tr><td>${esc(x.point_key)}</td><td>${esc(x.mode==='observe'?'watching':'handed over')}</td><td>${esc(x.answer||'—')}${x.confidence!=null?` <span class="muted">(${esc(Number(x.confidence).toFixed(2))})</span>`:''}</td><td>${esc(x.human_answer||'—')}</td><td>${esc(x.outcome||x.status)}${x.note?`<div class="muted">${esc(x.note)}</div>`:''}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Nothing has been asked of the model yet.</td></tr>'}</tbody></table></div>`;
   const v=id=>$('#'+id).value;
   const go=async(action,body,msg)=>{try{await rpc(action,body);if(msg)toast(msg);decisionModelPage()}catch(e){toast(e.message);decisionModelPage()}};
   $('#dmGo').onclick=()=>{if(!v('dmName')||!v('dmUrl'))return toast('Give it a name and an address');go('decision_models.connect',{name:v('dmName'),base_url:v('dmUrl'),api_key:v('dmKey'),allow_private_network:$('#dmPrivate').checked},'Connecting…')};
   document.querySelectorAll('.dmCheck').forEach(b=>b.onclick=()=>go('connections.test',{connection_id:b.dataset.id},'Checking…'));
   document.querySelectorAll('.dmEdit').forEach(b=>b.onclick=async()=>{state.connections=(await rpc('connections.list')).connections||[];const c=state.connections.find(c=>c.connection_id===b.dataset.id);if(c)connectionModal(c)});
   document.querySelectorAll('.dmDel').forEach(b=>b.onclick=()=>{if(confirm('Remove this decision model connection?'))go('connections.delete',{connection_id:b.dataset.id},'Removed')});
+  const dgRow=el=>el.closest('.listrow');
+  document.querySelectorAll('.dgSet').forEach(b=>b.onclick=()=>{const row=dgRow(b);const body={point_key:row.dataset.point,mode:b.dataset.mode,connection_id:row.querySelector('.dgModel').value,checkpoint:row.querySelector('.dgCheckpoint').value.trim(),min_confidence:row.querySelector('.dgConf').value.trim()};
+    if(b.dataset.mode==='delegate'){body.scope_agent_ids=[...row.querySelectorAll('.dgAgent:checked')].map(x=>x.value);body.all_agents=!!row.querySelector('.dgAll')?.checked}
+    go('delegation.set',body,b.dataset.mode==='off'?'Turned off':b.dataset.mode==='observe'?'Watching':'Handed over')});
+  $('#dgOffAll')&&($('#dgOffAll').onclick=()=>go('delegation.off_all',{},'Everything is back with people'));
+  document.querySelectorAll('.dgRecord').forEach(b=>b.onclick=()=>{const row=dgRow(b);let rep;try{rep=JSON.parse(row.querySelector('.dgRepJson').value)}catch(e){return toast('The report must be JSON')}go('delegation.eval_record',{point_key:row.dataset.point,checkpoint:row.querySelector('.dgRepCp').value.trim(),report:rep},'Recorded')});
+  document.querySelectorAll('.dgSwitch').forEach(b=>b.onclick=()=>go('delegation.checkpoint_switch',{point_key:dgRow(b).dataset.point,report_id:b.dataset.report},'Checkpoint changed'));
   if(models.some(m=>m.checking)&&state.page==='Decision')decisionPollTimer=setTimeout(()=>{if(state.page==='Decision')decisionModelPage()},1500);
 }
 // --- MCP servers: paste an address, see the tools, confirm how risky each

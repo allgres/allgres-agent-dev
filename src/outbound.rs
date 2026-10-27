@@ -29,6 +29,7 @@ pub(crate) enum OutboundQueue {
     ProviderProbe,
     McpProbe,
     McpOauth,
+    DecisionAsk,
 }
 
 pub(crate) struct OutboundJob {

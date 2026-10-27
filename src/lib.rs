@@ -156,7 +156,8 @@ extension_sql_file!("../sql/inbound_events.sql", name = "inbound_events", requir
 extension_sql_file!("../sql/rooms.sql", name = "rooms", requires = ["inbound_events"]);
 extension_sql_file!("../sql/teams.sql", name = "teams", requires = ["rooms"]);
 extension_sql_file!("../sql/creator.sql", name = "creator", requires = ["teams"]);
-extension_sql_file!("../sql/selftest.sql", requires = ["creator"]);
+extension_sql_file!("../sql/delegation.sql", name = "delegation", requires = ["creator"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["delegation"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]
