@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'proposals.grant', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'proposals.grant', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5371,6 +5371,7 @@ BEGIN
   v := v || allgres_private.room_assisted_selftest_cases();
   v := v || allgres_private.room_auto_selftest_cases();
   v := v || allgres_private.team_selftest_cases();
+  v := v || allgres_private.creator_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -7215,6 +7216,111 @@ BEGIN
   ok := ok AND jsonb_array_length(r->'notes') >= 3 AND jsonb_array_length(r->'access') >= 2;
   v := v || jsonb_build_array(jsonb_build_object('name', 'shared_notes_follow_team_membership_and_writes_need_a_grant', 'ok', ok, 'detail', v_block));
 
+  RETURN v;
+END;
+$fn$;
+
+-- The creator builds capabilities by conversation (sql/creator.sql): the
+-- guide it reads, the proposals it makes, the check a person sees, handing
+-- out what was approved.
+CREATE OR REPLACE FUNCTION allgres_private.creator_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  a_creator uuid; a_user uuid; a_other uuid; a_sys uuid;
+  v_sid uuid; v_tid uuid; v_p1 uuid; v_p2 uuid; v_p3 uuid; v_p4 uuid; v_name text; v_err text;
+  v_old_auto text; u_admin uuid;
+  tk text := 'selftest-creator-admin-token';
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_creator_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (tk, u_admin, now() + interval '1 hour');
+  SELECT agent_id, autonomy_level INTO a_creator, v_old_auto FROM allgres_private.agents WHERE name = 'creator';
+  a_user := (allgres_public.fn_create_agent('zz8_user', 'will be given the new ability')->>'agent_id')::uuid;
+  a_other := (allgres_public.fn_create_agent('zz8_other', 'other agent')->>'agent_id')::uuid;
+  SELECT agent_id INTO a_sys FROM allgres_private.agents WHERE is_system AND name <> 'creator' LIMIT 1;
+  PERFORM allgres_public.fn_set_agent_autonomy(a_creator, 'admin_approval');
+  v_name := 'zz8_research_' || replace(extract(epoch from clock_timestamp())::text, '.', '_');
+
+  -- The creator reads its guide every turn, as a usage document it is granted.
+  v_sid := (allgres_public.fn_create_session(a_creator, 'selftest: build a research ability')->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  ok := allgres_public.fn_next_step(v_tid)::text LIKE '%How to build a capability%'
+    AND EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = a_creator AND resource_type = 'procedure' AND resource_ref = 'creator_guide')
+    AND (SELECT system_prompt LIKE '%create_procedure%' AND system_prompt LIKE '%MCP server%' FROM allgres_private.policies WHERE agent_id = a_creator);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'creator_reads_its_guide_and_knows_when_to_point_at_mcp', 'ok', ok));
+
+  -- A usage document is proposed with a check; only the creator may propose one.
+  r := allgres_public.fn_submit_result(v_tid, jsonb_build_object('type', 'llm_response', 'content', '{"action":"create_procedure"}',
+    'parsed', jsonb_build_object('action', 'create_procedure', 'name', v_name,
+      'content', E'1. Search the web with the connected search tool.\n2. Keep each source address.\n3. Write the summary with a source after every claim.',
+      'reason', 'zz8 creator case')));
+  v_p1 := (r->>'proposal_id')::uuid;
+  ok := v_p1 IS NOT NULL
+    AND (SELECT status = 'pending' AND kind = 'create_procedure' AND (test_report->>'ok')::boolean AND NOT (test_report->>'ran')::boolean
+         FROM allgres_private.change_proposals WHERE proposal_id = v_p1)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.procedures WHERE name = v_name);
+  v_sid := (allgres_public.fn_create_session(a_user, 'selftest: not the creator')->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  PERFORM allgres_public.fn_next_step(v_tid);
+  r := allgres_public.fn_submit_result(v_tid, jsonb_build_object('type', 'llm_response', 'content', '{"action":"create_procedure"}',
+    'parsed', jsonb_build_object('action', 'create_procedure', 'name', v_name || '_x', 'content', 'steps')));
+  ok := ok AND r->>'proposal_id' IS NULL AND NOT EXISTS (SELECT 1 FROM allgres_private.change_proposals WHERE proposed_changes->>'name' = v_name || '_x');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'creator_proposes_a_usage_document_with_a_check_and_nobody_else_may', 'ok', ok));
+
+  -- The check: a body that does not compile fails it, a written-in secret is flagged.
+  INSERT INTO allgres_private.change_proposals (agent_id, kind, proposed_changes, reason, base_generation)
+  VALUES (a_creator, 'create_function', jsonb_build_object('name', v_name || '_bad', 'description', 'broken', 'body', 'BEGIN RETURN p_args END IF; END;'), 'zz8 creator case', 0)
+  RETURNING proposal_id INTO v_p2;
+  INSERT INTO allgres_private.change_proposals (agent_id, kind, proposed_changes, reason, base_generation)
+  VALUES (a_creator, 'create_function', jsonb_build_object('name', v_name || '_key', 'description', 'has a key',
+    'body', E'DECLARE k text := ''api_key = abcdef123456'';\nBEGIN RETURN jsonb_build_object(''k'', k); END;'), 'zz8 creator case', 0)
+  RETURNING proposal_id INTO v_p3;
+  INSERT INTO allgres_private.change_proposals (agent_id, kind, proposed_changes, reason, base_generation)
+  VALUES (a_creator, 'create_function', jsonb_build_object('name', v_name || '_ok', 'description', 'echo',
+    'body', 'BEGIN RETURN jsonb_build_object(''echo'', p_args); END;'), 'zz8 creator case', 0)
+  RETURNING proposal_id INTO v_p4;
+  ok := (SELECT NOT (test_report->>'ok')::boolean AND EXISTS (SELECT 1 FROM jsonb_array_elements(test_report->'checks') c WHERE c->>'check' = 'compiles' AND NOT (c->>'ok')::boolean)
+         FROM allgres_private.change_proposals WHERE proposal_id = v_p2)
+    AND (SELECT NOT (test_report->>'ok')::boolean AND EXISTS (SELECT 1 FROM jsonb_array_elements(test_report->'checks') c WHERE c->>'check' = 'no secret written in' AND NOT (c->>'ok')::boolean)
+         FROM allgres_private.change_proposals WHERE proposal_id = v_p3)
+    AND (SELECT (test_report->>'ok')::boolean FROM allgres_private.change_proposals WHERE proposal_id = v_p4);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'proposals.list', 'session_token', tk));
+  ok := ok AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'proposals') e WHERE e->>'proposal_id' = v_p4::text AND e->'test_report'->>'ok' = 'true');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'proposal_check_compiles_without_running_and_flags_a_secret', 'ok', ok));
+
+  -- Approving creates the document (a new version on a repeat) and the result
+  -- can be handed to agents a person picks, never to a system agent.
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_proposal_grant(v_p1, ARRAY[a_user]); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := v_err LIKE '%only an approved function or usage document%';
+  r := allgres_public.fn_decide_proposal(v_p1, true);
+  ok := ok AND (r->>'status') = 'approved' AND EXISTS (SELECT 1 FROM allgres_private.procedures WHERE name = v_name AND generation = 1);
+  INSERT INTO allgres_private.change_proposals (agent_id, kind, proposed_changes, reason, base_generation)
+  VALUES (a_creator, 'create_procedure', jsonb_build_object('name', v_name, 'content', 'A better order of steps.'), 'zz8 creator case', 0)
+  RETURNING proposal_id INTO v_p2;
+  PERFORM allgres_public.fn_decide_proposal(v_p2, true);
+  ok := ok AND EXISTS (SELECT 1 FROM allgres_private.procedures WHERE name = v_name AND generation = 2 AND content = 'A better order of steps.')
+    AND EXISTS (SELECT 1 FROM allgres_private.procedure_history h JOIN allgres_private.procedures p USING (procedure_id) WHERE p.name = v_name AND h.generation = 1);
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_proposal_grant(v_p2, ARRAY[a_sys]); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%not system agents%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'proposals.grant', 'proposal_id', v_p2, 'agent_ids', jsonb_build_array(a_user), 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean
+    AND EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = a_user AND resource_type = 'procedure' AND resource_ref = v_name)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = a_other AND resource_ref = v_name)
+    AND (SELECT result->'granted_to' ? 'zz8_user' FROM allgres_private.change_proposals WHERE proposal_id = v_p2);
+  -- A function approved from a proposal is handed out the same way.
+  r := allgres_public.fn_decide_proposal(v_p4, true);
+  PERFORM allgres_public.fn_proposal_grant(v_p4, ARRAY[a_user]);
+  ok := ok AND EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = a_user AND resource_type = 'function' AND resource_ref = v_name || '_ok');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'approved_capability_is_created_versioned_and_handed_to_chosen_agents', 'ok', ok));
+
+  PERFORM allgres_public.fn_set_agent_autonomy(a_creator, v_old_auto);
   RETURN v;
 END;
 $fn$;

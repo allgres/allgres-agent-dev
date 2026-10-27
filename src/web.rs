@@ -496,7 +496,34 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
                     .map(|t| t.trim().replace("\\n", "\n"))
             })
             .unwrap_or_else(|| "Allgres mock runtime OK".to_string());
-        let content = json!({"action": "final_answer", "answer": scripted}).to_string();
+        // "MOCK_ACTION: <json>" answers with that action instead, once: when
+        // the request already carries a proposal that action made (a message
+        // holding "proposal_id"), the mock finishes with a plain answer so the
+        // agent does not propose the same thing again.
+        let scripted_action = request
+            .get("messages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|m| m.get("content").and_then(Value::as_str))
+            .find_map(|c| {
+                c.lines()
+                    .find_map(|l| l.trim_start().strip_prefix("MOCK_ACTION:"))
+                    .map(|t| t.trim().to_string())
+            });
+        let already_proposed = request
+            .get("messages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|m| m.get("role").and_then(Value::as_str) != Some("system"))
+            .filter_map(|m| m.get("content").and_then(Value::as_str))
+            .any(|c| c.contains("proposal_id"));
+        let content = match scripted_action {
+            Some(action) if !already_proposed => action,
+            Some(_) => json!({"action": "final_answer", "answer": "Proposed for approval."}).to_string(),
+            None => json!({"action": "final_answer", "answer": scripted}).to_string(),
+        };
         let body = json!({
             "id": "allgres-mock",
             "object": "chat.completion",

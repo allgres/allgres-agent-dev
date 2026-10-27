@@ -1152,7 +1152,12 @@ ALTER TABLE allgres_private.change_proposals
 -- same as 'create_agent'.
 ALTER TABLE allgres_private.change_proposals DROP CONSTRAINT IF EXISTS change_proposals_kind_check;
 ALTER TABLE allgres_private.change_proposals ADD CONSTRAINT change_proposals_kind_check
-  CHECK (kind IN ('policy_change', 'create_agent', 'function_override', 'create_function', 'update_function'));
+  CHECK (kind IN ('policy_change', 'create_agent', 'function_override', 'create_function', 'update_function', 'create_procedure'));
+-- test_report: what was checked before a person decides (never a run of the
+-- proposed code). result: what approving created, so it can be handed out.
+ALTER TABLE allgres_private.change_proposals
+  ADD COLUMN IF NOT EXISTS test_report jsonb,
+  ADD COLUMN IF NOT EXISTS result jsonb;
 ALTER TABLE allgres_private.change_proposals
   ADD COLUMN IF NOT EXISTS target_function_id uuid REFERENCES allgres_private.functions(function_id) ON DELETE CASCADE;
 
@@ -4596,7 +4601,7 @@ BEGIN
   v_action := v_parsed->>'action';
   IF v_action IS NULL OR v_action NOT IN (
     'final_answer', 'execute_sql', 'call_function', 'run_procedure', 'delegate', 'search_agents', 'search_capabilities', 'recall', 'await_human', 'propose_change',
-    'remember', 'create_agent', 'propose_fix', 'await_children', 'create_function', 'update_function'
+    'remember', 'create_agent', 'propose_fix', 'await_children', 'create_function', 'update_function', 'create_procedure'
   ) THEN
     PERFORM allgres_private.append_log(
       p_task_id, t.step_count + 1, 'error',
@@ -5726,6 +5731,42 @@ BEGIN
     PERFORM allgres_private.append_log(
       p_task_id, t.step_count + 1, 'assistant',
       jsonb_build_object('proposed_function', v_parsed, 'proposal_id', v_proposal)
+    );
+    UPDATE allgres_private.tasks SET step_count = step_count + 1, updated_at = now() WHERE task_id = p_task_id;
+    RETURN jsonb_build_object('action', 'continue', 'proposal_id', v_proposal);
+  END IF;
+
+  IF v_action = 'create_procedure' THEN
+    -- A usage document is shared with whoever is granted it, so it is the
+    -- creator's job only, and always waits for a person.
+    IF a.name <> 'creator' THEN
+      PERFORM allgres_private.append_log(
+        p_task_id, t.step_count + 1, 'error',
+        jsonb_build_object('reason', 'create_procedure_creator_only', 'parsed', v_parsed)
+      );
+      UPDATE allgres_private.tasks SET step_count = step_count + 1, updated_at = now() WHERE task_id = p_task_id;
+      RETURN jsonb_build_object('action', 'continue');
+    END IF;
+    IF NULLIF(btrim(COALESCE(v_parsed->>'name', '')), '') IS NULL
+       OR NULLIF(btrim(COALESCE(v_parsed->>'content', '')), '') IS NULL
+       OR length(v_parsed->>'content') > 20000 THEN
+      PERFORM allgres_private.append_log(
+        p_task_id, t.step_count + 1, 'error',
+        jsonb_build_object('reason', 'create_procedure_incomplete', 'parsed', v_parsed)
+      );
+      UPDATE allgres_private.tasks SET step_count = step_count + 1, updated_at = now() WHERE task_id = p_task_id;
+      RETURN jsonb_build_object('action', 'continue');
+    END IF;
+    INSERT INTO allgres_private.change_proposals (agent_id, task_id, kind, proposed_changes, reason, base_generation)
+    VALUES (
+      t.agent_id, p_task_id, 'create_procedure',
+      jsonb_build_object('name', btrim(v_parsed->>'name'), 'content', v_parsed->>'content'),
+      NULLIF(btrim(COALESCE(v_parsed->>'reason', '')), ''), 0
+    )
+    RETURNING proposal_id INTO v_proposal;
+    PERFORM allgres_private.append_log(
+      p_task_id, t.step_count + 1, 'assistant',
+      jsonb_build_object('proposed_procedure', v_parsed->>'name', 'proposal_id', v_proposal)
     );
     UPDATE allgres_private.tasks SET step_count = step_count + 1, updated_at = now() WHERE task_id = p_task_id;
     RETURN jsonb_build_object('action', 'continue', 'proposal_id', v_proposal);

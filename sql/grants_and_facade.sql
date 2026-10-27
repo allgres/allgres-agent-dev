@@ -850,6 +850,7 @@ BEGIN
           'routed_role_id', cp.routed_role_id, 'routed_role', rr.name,
           'routed_unit_id', cp.routed_unit_id, 'escalate_at', cp.escalate_at,
           'decided_by_user_id', cp.decided_by_user_id, 'decided_via', cp.decided_via,
+          'test_report', cp.test_report, 'result', cp.result,
           'can_decide', (v_scope IS NULL AND v_user.user_id IS NULL)
             OR allgres_private.decision_access(v_user.user_id, 'proposal', cp.proposal_id) IN ('admin', 'self', 'delegate')
         ) ORDER BY cp.created_at DESC)
@@ -877,6 +878,11 @@ BEGIN
                OR (v_scope IS NULL AND v_user.user_id IS NULL)
                OR allgres_private.decision_access(v_user.user_id, 'proposal', cp.proposal_id) IN ('admin', 'self', 'delegate'))
       ), '[]'::jsonb));
+
+    WHEN 'proposals.grant' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_proposal_grant((p_request->>'proposal_id')::uuid,
+        ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(COALESCE(p_request->'agent_ids', '[]'::jsonb)) x));
 
     WHEN 'proposals.decide' THEN
       v_scope := allgres_private.visible_agent_ids(p_request->>'session_token');

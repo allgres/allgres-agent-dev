@@ -651,13 +651,30 @@ BEGIN
   -- proposal): same "no generation to go stale against" reasoning as
   -- 'create_agent'. 'update_function' targets r.target_function_id;
   -- 'create_function' needs no target, same as 'create_agent'.
+  IF r.kind = 'create_procedure' THEN
+    -- A usage document: a new one, or a new version of the one with that name.
+    SELECT procedure_id INTO v_target FROM allgres_private.procedures WHERE lower(name) = lower(r.proposed_changes->>'name');
+    IF v_target IS NULL THEN
+      v_created := allgres_public.fn_create_procedure(r.proposed_changes->>'name', r.proposed_changes->>'content');
+    ELSE
+      v_created := allgres_public.fn_set_procedure(v_target, r.proposed_changes->>'content') || jsonb_build_object('procedure_id', v_target);
+    END IF;
+    UPDATE allgres_private.change_proposals
+    SET status = 'approved', decided_at = now(), decided_reply = p_reply,
+        result = jsonb_build_object('kind', 'procedure', 'name', r.proposed_changes->>'name')
+    WHERE proposal_id = p_proposal_id;
+    PERFORM allgres_private.audit('proposals.decide', jsonb_build_object('proposal_id', p_proposal_id, 'status', 'approved', 'kind', 'create_procedure'));
+    RETURN jsonb_build_object('ok', true, 'status', 'approved', 'created_procedure', v_created);
+  END IF;
+
   IF r.kind = 'create_function' THEN
     v_created := allgres_public.fn_create_function(
       r.proposed_changes->>'name', r.proposed_changes->>'description', 'plpgsql', '{}'::jsonb,
       r.proposed_changes->>'body', COALESCE(r.proposed_changes->'param_schema', '{}'::jsonb), r.agent_id
     );
     UPDATE allgres_private.change_proposals
-    SET status = 'approved', decided_at = now(), decided_reply = p_reply
+    SET status = 'approved', decided_at = now(), decided_reply = p_reply,
+        result = jsonb_build_object('kind', 'function', 'name', lower(trim(r.proposed_changes->>'name')))
     WHERE proposal_id = p_proposal_id;
     PERFORM allgres_private.audit('proposals.decide', jsonb_build_object('proposal_id', p_proposal_id, 'status', 'approved', 'kind', 'create_function'));
     RETURN jsonb_build_object('ok', true, 'status', 'approved', 'created_function', v_created);

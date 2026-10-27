@@ -523,6 +523,45 @@ test('teams: a second team, a window that waits for a person, and shared notes',
   expect(stats.points.some(x => x.point_key.startsWith('team_assign_') && x.gold >= 1)).toBe(true);
 });
 
+test('an agent proposes a function, the person sees the check, approves, and gives it to an agent', async ({ page }) => {
+  test.setTimeout(120000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  const names = await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const llm = { provider: 'ui_cr_mock', model: 'allgres-mock' };
+    const p = await call({ action: 'provider.create', name: 'ui_cr_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    const action = JSON.stringify({ action: 'create_function', name: 'ui_cr_echo', description: 'Echoes what it is given.',
+      body: "BEGIN RETURN jsonb_build_object('echo', p_args); END;", reason: 'A small echo for tests.' });
+    const maker = await call({ action: 'agents.create', name: 'ui_cr_maker', system_prompt: 'MOCK_ACTION: ' + action, llm_config: llm, is_active: true });
+    if (maker.ok === false) throw new Error(maker.error);
+    const user = await call({ action: 'agents.create', name: 'ui_cr_user', system_prompt: 'Uses the echo.', llm_config: llm, is_active: true });
+    if (user.ok === false) throw new Error(user.error);
+    const run = await call({ action: 'run', agent_id: maker.agent_id, goal: 'Make an echo function' });
+    if (run.ok === false) throw new Error(run.error);
+    return true;
+  }, baseURL);
+  expect(names).toBe(true);
+  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  const card = page.locator('#view .listrow', { hasText: 'ui_cr_echo' }).first();
+  // The agent proposes when its run reaches the worker; reopen the tab until it shows.
+  await expect(async () => {
+    await page.locator('.apTabBtn', { hasText: 'Proposals' }).click();
+    await expect(card).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 60000 });
+  await expect(card).toContainText('Check before you decide');
+  await expect(card).toContainText('compiles');
+  await expect(card).toContainText('not run');
+  await card.getByRole('button', { name: /approve/i }).click();
+  const done = page.locator('#view .listrow', { hasText: 'ui_cr_echo' }).filter({ hasText: 'Give it to' });
+  await expect(done).toBeVisible({ timeout: 20000 });
+  await done.locator('label', { hasText: 'ui_cr_user' }).locator('input').check();
+  await done.getByRole('button', { name: 'Give', exact: true }).click();
+  await expect(page.locator('#view .listrow', { hasText: 'ui_cr_echo' }).filter({ hasText: 'already: ui_cr_user' })).toBeVisible();
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(5);

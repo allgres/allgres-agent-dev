@@ -196,6 +196,7 @@ BEGIN
   SELECT name INTO v_target FROM allgres_private.agents WHERE agent_id = cp.target_agent_id;
   v_summary := CASE cp.kind
     WHEN 'create_function' THEN format('function %s: %s', cp.proposed_changes->>'name', left(cp.proposed_changes->>'description', 300))
+    WHEN 'create_procedure' THEN format('usage document %s: %s', cp.proposed_changes->>'name', left(cp.proposed_changes->>'content', 300))
     WHEN 'update_function' THEN format('update to a function: %s', left(cp.proposed_changes->>'description', 300))
     WHEN 'create_agent' THEN format('new agent %s', cp.proposed_changes->>'name')
     WHEN 'function_override' THEN format('model override, step %s, candidate %s/%s', cp.proposed_changes->>'op',
