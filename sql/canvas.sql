@@ -207,6 +207,12 @@ AS $fn$
       SELECT jsonb_agg(jsonb_build_object('agent_id', m.agent_id, 'group_id', m.group_id))
       FROM allgres_private.agent_group_members m
     ), '[]'::jsonb),
+    -- Teams an agent also belongs to (docs/teams.md); the board shows them as a
+    -- dashed note on that team, not as a second card.
+    'secondary', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('agent_id', m.agent_id, 'group_id', m.group_id))
+      FROM allgres_private.agent_group_secondary m
+    ), '[]'::jsonb),
     'positions', COALESCE((
       SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
         'kind', c.item_kind, 'id', c.item_id, 'x', c.x, 'y', c.y,

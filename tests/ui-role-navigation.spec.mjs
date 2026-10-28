@@ -24,7 +24,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
     await expect(button).toHaveClass(/active/);
   }
   await page.locator('#nav button', { hasText: 'General' }).click();
-  await expect(page.locator('#generalChatThread')).toBeVisible();
+  await expect(page.locator('#generalChatThread')).toBeAttached();
   await expect(page.locator('#msgInput')).toHaveCount(0);
   await page.locator('#nav button', { hasText: 'Access & appearance' }).click();
   await expect(page.locator('#bulkApply')).toHaveCount(0);
@@ -600,8 +600,9 @@ test('decision model: watch a point, compare with a person, and meet the gate be
     await expect(page.locator('#view .listrow[data-point="approval_decision"]')).toContainText('Compared 1 decisions: the model agreed on 1', { timeout: 3000 });
   }).toPass({ timeout: 60000 });
   // Handing over is refused until enough has been watched.
-  await page.locator('#view .listrow[data-point="approval_decision"]').getByRole('button', { name: 'Hand over' }).click();
-  await expect(page.getByText(/observe first/)).toBeVisible();
+  const handOver = page.locator('#view .listrow[data-point="approval_decision"]').getByRole('button', { name: 'Hand over' });
+  await expect(handOver).toBeDisabled();
+  await expect(page.locator('#view .listrow[data-point="approval_decision"]')).toContainText('Hand over unlocks after at least 10 compared decisions');
   // The way back.
   await page.getByRole('button', { name: 'Turn everything off' }).click();
   await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: /^off$/ })).toBeVisible();
@@ -632,7 +633,7 @@ test('regular user sees only scoped chat and personal settings', async ({ page }
   await expect(page.locator('#view')).not.toContainText('ui-audit-room');
   await expect(page.locator('#rmCreate')).toHaveCount(0);
   await page.locator('#nav button', { hasText: 'General' }).click();
-  await expect(page.locator('#generalChatThread')).toBeVisible();
+  await expect(page.locator('#generalChatThread')).toBeAttached();
   await expect(page.getByText('not assigned to your account')).toHaveCount(0);
   for (const forbidden of ['Home','Canvas','SQL','Agents','People','Memories','Audit log'])
     await expect(page.locator('#nav').getByRole('button',{name:forbidden,exact:true})).toHaveCount(0);

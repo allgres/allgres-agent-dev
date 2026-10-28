@@ -114,6 +114,7 @@ export interface TemplateInfo {
 export interface CanvasState {
   groups: Group[];
   members: { agent_id: string; group_id: string }[];
+  secondary?: { agent_id: string; group_id: string }[];
   positions: StoredPosition[];
   templates: TemplateInfo[];
 }
