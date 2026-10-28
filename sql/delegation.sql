@@ -259,7 +259,8 @@ $fn$;
 
 -- The model's reading of the reply. The answer is the label under "choice"
 -- (or answer/label/value), found under "answers" or at the top level, and
--- confidence is gated here on answer_confidence, whatever flag the server sets.
+-- confidence is gated here on answer_confidence (or the chosen label's
+-- probability), whatever flag the server sets.
 CREATE OR REPLACE FUNCTION allgres_private.decision_parse_answer(p_body jsonb, p_point_key text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -275,8 +276,12 @@ BEGIN
   v_node := COALESCE(p_body->'answers'->p_point_key, p_body->p_point_key);
   IF v_node IS NULL OR jsonb_typeof(v_node) <> 'object' THEN RETURN NULL; END IF;
   v_label := COALESCE(v_node->>'choice', v_node->>'answer', v_node->>'label', v_node->>'value');
+  -- answer_confidence is the probability of the answer given (laya-serve's own
+  -- advice for gating). With LAYA_JEV_STRICT it is left out, so the probability
+  -- of the chosen label stands in. "confidence" (normalised entropy) is never
+  -- used: a missing figure counts as not sure.
   BEGIN
-    v_conf := COALESCE((v_node->>'answer_confidence')::numeric, (v_node->>'confidence')::numeric);
+    v_conf := COALESCE((v_node->>'answer_confidence')::numeric, (v_node->'probabilities'->>v_label)::numeric);
   EXCEPTION WHEN others THEN v_conf := NULL; END;
   v_flag := COALESCE((v_node->>'low_confidence')::boolean, false) OR COALESCE(v_node->>'abstention', '') = 'abstained';
   RETURN jsonb_build_object('answer', v_label, 'confidence', v_conf, 'flagged_low', v_flag);

@@ -44,4 +44,6 @@ A decision the model makes is kept in the same decision records, with `decided_b
 
 ## What was checked
 
-Against a mock that follows the documented request (`POST /v1/systemone`, `state`, `questions`, `min_confidence`, optional `model`) and reply (`answers.<question>.choice`, `answer_confidence`, `abstention`). The documentation does not show a captured reply, so the first run against a real `laya-serve` should be watched: if its reply differs, the parser (`decision_parse_answer`) is the one place to adjust.
+The request and the reply were checked against the source of the published `laya` package (0.4.15, `laya/serve.py`): `POST /v1/systemone` takes `state`, `questions` and the controls `model` and `min_confidence`; the reply is `{"model", "answers": {<question>: {"type": "choice", "choice", "confidence", "probabilities", "answer_confidence", ...}}, "usage"}`, and an answer below `min_confidence` also carries `abstention: "abstained"` and `low_confidence: true`. Allgres gates on `answer_confidence` itself; when the server runs with `LAYA_JEV_STRICT` (which drops that field) the probability of the chosen label is used; a reply with neither counts as not sure and stays with the person.
+
+It has **not** been run against a live `laya-serve` with a trained checkpoint (that needs torch and model weights), only against a mock built from that source. The first live run should still be watched, and `decision_parse_answer` is the one place to adjust.
