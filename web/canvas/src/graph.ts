@@ -48,7 +48,7 @@ export function inheritedSkills(a: Agent, all: Agent[]) {
   }
   return out;
 }
-export type GroupNodeData = { group: Group; count: number; depth: number };
+export type GroupNodeData = { group: Group; count: number; depth: number; also: string[] };
 export type FrameNodeData = { label: string; count: number };
 
 type XY = { x: number; y: number };
@@ -312,7 +312,14 @@ export function buildGraph(
       width: w,
       height: h,
       zIndex: depth - 10,
-      data: { group: g, count: membersOf(g.group_id).length, depth } satisfies GroupNodeData,
+      data: {
+        group: g,
+        count: membersOf(g.group_id).length,
+        depth,
+        also: (state.secondary || [])
+          .filter((m) => m.group_id === g.group_id && byId.has(m.agent_id))
+          .map((m) => byId.get(m.agent_id)!.name),
+      } satisfies GroupNodeData,
     };
     return p;
   };

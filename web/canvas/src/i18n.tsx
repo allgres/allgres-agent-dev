@@ -114,6 +114,7 @@ const KO: Record<string, string> = {
   inherits: '상속',
   'handed work': '넘긴 일',
   'Hands work to': '일을 넘김',
+  'Also in this team': '이 팀에도 속함',
   'A can give B a task. Drag one card onto another to set this up; click the line to remove it.': 'A가 B에게 작업을 줄 수 있습니다. 카드를 다른 카드 위에 놓아 만들고, 선을 눌러 끊습니다.',
   Inherits: '상속',
   "The lower system agent gets the upper one's abilities and base instructions.": '아래 시스템 에이전트가 위 에이전트의 능력과 기본 지시를 물려받습니다.',

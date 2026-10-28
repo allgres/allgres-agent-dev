@@ -88,6 +88,13 @@ export function GroupNode({ id, data, selected }: NodeProps<Node<GroupNodeData>>
         <small>{t(KIND_LABEL[g.kind])}</small>
         <small className="count">{data.count}</small>
       </div>
+      {data.also.length > 0 && (
+        <div className="gn-also" title={t('Also in this team')}>
+          {data.also.map((n) => (
+            <span key={n}>{n}</span>
+          ))}
+        </div>
+      )}
       {dropTarget === id && dropText && <span className="gn-drop">{dropText}</span>}
     </div>
   );
