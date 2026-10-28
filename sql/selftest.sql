@@ -7467,6 +7467,17 @@ BEGIN
   END LOOP;
   v := v || jsonb_build_array(jsonb_build_object('name', 'doubt_error_or_a_tool_run_leaves_the_decision_with_the_person', 'ok', ok));
 
+  -- The reply of a strict-mode server has no answer_confidence: the chosen label's probability is used;
+  -- a reply with only the entropy-based "confidence" counts as not sure.
+  r := allgres_private.decision_parse_answer(jsonb_build_object('answers', jsonb_build_object('approval_decision',
+    jsonb_build_object('type', 'choice', 'choice', 'reject', 'confidence', 0.2, 'probabilities', jsonb_build_object('approve', 0.03, 'reject', 0.97))))
+    , 'approval_decision');
+  ok := (r->>'answer') = 'reject' AND (r->>'confidence')::numeric = 0.97;
+  r := allgres_private.decision_parse_answer(jsonb_build_object('answers', jsonb_build_object('approval_decision',
+    jsonb_build_object('type', 'choice', 'choice', 'reject', 'confidence', 0.99))), 'approval_decision');
+  ok := ok AND (r->>'answer') = 'reject' AND r->>'confidence' IS NULL;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'reply_parser_uses_answer_confidence_then_label_probability_never_entropy', 'ok', ok));
+
   -- A proposal: the model may reject it, never approve it. Then the way back.
   INSERT INTO allgres_private.change_proposals (agent_id, kind, proposed_changes, reason, base_generation)
   VALUES (a_one, 'create_procedure', jsonb_build_object('name', 'zz9_doc', 'content', 'x'), 'zz9 case', 0) RETURNING proposal_id INTO v_prop;
