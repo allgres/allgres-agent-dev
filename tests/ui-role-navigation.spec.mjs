@@ -364,8 +364,8 @@ test('assisted room: agents ask each other, the lead proposes, a person confirms
     await expect(page.locator('#view .row', { hasText: name }).first()).toBeVisible();
   }
   await page.locator('#view .row', { hasText: 'ui_as_lead' }).getByRole('button', { name: 'Make lead' }).click();
-  // The lead badge joins the role badge of the same name once the lead is set.
-  await expect(page.locator('#view .status', { hasText: /^lead$/ })).toHaveCount(2);
+  // One lead badge: the room's lead and the lead role are shown once.
+  await expect(page.locator('#view .status', { hasText: /^lead$/ })).toHaveCount(1);
   await page.locator('#rmMode').selectOption('assisted');
   await page.locator('#rmSaveLimits').click();
   await expect(page.getByText('assisted', { exact: true }).first()).toBeVisible();
@@ -430,7 +430,7 @@ test('auto room: the lead proposes and the room starts the task by itself', asyn
   await page.locator('#rmSaveLimits').click();
   await expect(page.getByText('it needs a lead').first()).toBeVisible();
   await page.locator('#view .row', { hasText: 'ui_au_lead' }).getByRole('button', { name: 'Make lead' }).click();
-  await expect(page.locator('#view .status', { hasText: /^lead$/ })).toHaveCount(2);
+  await expect(page.locator('#view .status', { hasText: /^lead$/ })).toHaveCount(1);
   await page.locator('#rmMode').selectOption('auto');
   await page.locator('#rmSaveLimits').click();
   await expect(page.locator('#view .status', { hasText: /^auto$/ })).toBeVisible();
