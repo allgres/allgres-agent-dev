@@ -362,3 +362,17 @@ kbd { font: 600 11px -apple-system, system-ui, sans-serif; border: 1px solid var
 .edge-focus .react-flow__edge-textbg { fill: var(--panel); }
 
 .chip.is-secondary { border-style: dashed; color: var(--muted); }
+
+/* The delegation lines carry a label on every edge; with several of them the labels
+   crowd each other where lines meet. They show on hover, focus and selection, and the
+   board's own guide ("How to read the board") says what the dashed line means. */
+.edge-delegate .react-flow__edge-text,
+.edge-delegate .react-flow__edge-textbg { opacity: 0; transition: opacity 0.12s; }
+.edge-delegate:hover .react-flow__edge-text,
+.edge-delegate:hover .react-flow__edge-textbg,
+.edge-delegate.edge-focus .react-flow__edge-text,
+.edge-delegate.edge-focus .react-flow__edge-textbg,
+.edge-delegate.edge-active .react-flow__edge-text,
+.edge-delegate.edge-active .react-flow__edge-textbg,
+.edge-delegate.selected .react-flow__edge-text,
+.edge-delegate.selected .react-flow__edge-textbg { opacity: 1; }
