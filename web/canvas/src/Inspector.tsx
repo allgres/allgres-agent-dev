@@ -279,6 +279,20 @@ function TeamSection({ board, agent }: { board: Board; agent: Agent }) {
           ))}
         </select>
       </div>
+      {(board.state.secondary || []).some((m) => m.agent_id === agent.agent_id) && (
+        <div className="field">
+          <label>{t('Also in this team')}</label>
+          <div className="chips">
+            {(board.state.secondary || [])
+              .filter((m) => m.agent_id === agent.agent_id)
+              .map((m) => (
+                <span className="chip is-secondary" key={m.group_id}>
+                  {board.state.groups.find((g) => g.group_id === m.group_id)?.name}
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
       <div className="field">
         <label>{t('Takes work from')}</label>
         <AgentChips list={from} t={t} onRemove={(a) => (a.is_system ? board.toast(t('System agents are changed only from SQL.'), true) : unlink(a, agent))} />
@@ -601,6 +615,7 @@ export function GroupInspector({ board, group, onClose }: { board: Board; group:
   const [name, setName] = useState(group.name);
   useEffect(() => setName(group.name), [group.name]);
   const members = board.agents.filter((a) => groupOf(board.state, a.agent_id) === group.group_id);
+  const alsoHere = board.agents.filter((a) => (board.state.secondary || []).some((m) => m.agent_id === a.agent_id && m.group_id === group.group_id));
   const within = (gid: string | null): boolean => {
     for (let g = gid; g; g = board.state.groups.find((x) => x.group_id === g)?.parent_group_id || null) if (g === group.group_id) return true;
     return false;
@@ -620,7 +635,7 @@ export function GroupInspector({ board, group, onClose }: { board: Board; group:
         <div className="in-title">
           <b>{group.name}</b>
           <small>
-            {t(KIND_LABEL[group.kind])} · {t('{n} agents', { n: members.length })}
+            {t(KIND_LABEL[group.kind])} · {members.length === 1 ? t('1 agent') : t('{n} agents', { n: members.length })}
           </small>
         </div>
         <button type="button" className="icon-btn" onClick={onClose} aria-label={t('Close details')}>
@@ -680,6 +695,21 @@ export function GroupInspector({ board, group, onClose }: { board: Board; group:
             </div>
           </div>
         </section>
+        {alsoHere.length > 0 && (
+          <section>
+            <h4>{t('Also in this team')}</h4>
+            <div className="chips">
+              {alsoHere.map((a) => (
+                <span className="chip agent-chip is-secondary" key={a.agent_id}>
+                  <button type="button" className="link" onClick={() => board.select(a.agent_id)}>
+                    {a.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+            <p className="muted small">{t('Their first team sets what they may do. Change this on the Teams page.')}</p>
+          </section>
+        )}
         <section>
           <h4>{t('Members')}</h4>
           {members.length ? (

@@ -523,6 +523,13 @@ test('teams: a second team, a window that waits for a person, and shared notes',
     return r.json();
   });
   expect(stats.points.some(x => x.point_key.startsWith('team_assign_') && x.gold >= 1)).toBe(true);
+  // The Canvas shows the second team on that team's box and in its inspector.
+  await page.goto(baseURL + '/canvas');
+  const box = page.locator('.group-node', { hasText: 'ui-team-two' });
+  await expect(box.locator('.gn-also')).toContainText('ui_tm_a');
+  await box.locator('.gn-head').click();
+  await expect(page.locator('.inspector')).toContainText('Also in this team');
+  await expect(page.locator('.inspector')).toContainText('ui_tm_a');
 });
 
 test('an agent proposes a function, the person sees the check, approves, and gives it to an agent', async ({ page }) => {

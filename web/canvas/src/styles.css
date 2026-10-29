@@ -360,3 +360,5 @@ kbd { font: 600 11px -apple-system, system-ui, sans-serif; border: 1px solid var
 @media (max-width: 760px) { .guide { display: none; } }
 .edge-focus .react-flow__edge-text { font-weight: 650; }
 .edge-focus .react-flow__edge-textbg { fill: var(--panel); }
+
+.chip.is-secondary { border-style: dashed; color: var(--muted); }
