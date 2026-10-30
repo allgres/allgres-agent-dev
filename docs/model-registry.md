@@ -26,3 +26,17 @@ In an agent's settings (**Agents → Edit → Models this agent may use**) tick 
 - An agent whose model cannot be used shows the reason in the Agents list and in its settings, and its turns fail with that reason instead of calling the model: no model chosen, the provider or the model is off, or the model is not among the ticked ones.
 
 Action: `agents.set_allowed_models` (`agent_id`, `models`: a list of `{provider, model}`). Table: `agent_models`.
+
+## Inference settings
+
+Set on an agent (**Agents → Edit → Reasoning and sampling**) or as a model's defaults (**Models & prices → Settings**). Order: the agent's value, then the model's default, then the server's own default.
+
+| Setting | OpenAI-compatible | Claude |
+|---|---|---|
+| Effort (low, medium, high, xhigh, max) | `reasoning_effort` (xhigh and max become high) | `output_config.effort` |
+| Thinking (adaptive, enabled + budget, disabled; display summarized or omitted) | not used | `thinking` |
+| Temperature, top P, top K | sent | not sent (rejected by current Claude models) |
+| Max tokens | sent | sent, 4096 when blank |
+| Stop sequences | `stop` | `stop_sequences` |
+
+A blank setting is not sent. Values are checked when saved (temperature 0 to 2, top P above 0 up to 1, thinking budget at least 1024, up to 16 stop sequences). Stored in `agents.llm_config` and `llm_models.params`.

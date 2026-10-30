@@ -5376,6 +5376,7 @@ BEGIN
   v := v || allgres_private.chat_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.model_registry_selftest_cases();
+  v := v || allgres_private.inference_settings_selftest_cases();
   v := v || allgres_private.agent_models_selftest_cases();
   v := v || allgres_private.agent_clone_selftest_cases();
   v := v || allgres_private.provider_test_selftest_cases();
@@ -7987,6 +7988,96 @@ BEGIN
   END;
   ok := ok AND COALESCE(v_err, '') NOT LIKE '%not among the models%';
   v := v || jsonb_build_array(jsonb_build_object('name', 'a_turn_is_refused_for_a_model_that_is_off_or_not_ticked_but_not_for_an_override', 'ok', ok));
+  RETURN v;
+END;
+$fn$;
+
+-- Inference settings: what is valid, what each kind of provider is sent, and
+-- that a model's own defaults sit under the agent's.
+CREATE OR REPLACE FUNCTION allgres_private.inference_settings_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  b jsonb;
+  u_admin uuid;
+  ta text := 'selftest-inf-admin-token';
+  v_oa uuid; v_an uuid; a1 uuid; v_err text;
+  msgs jsonb := '[{"role":"system","content":"s"},{"role":"user","content":"hi"}]'::jsonb;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_inf_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (ta, u_admin, now() + interval '1 hour');
+  INSERT INTO allgres_private.llm_providers (name, kind, base_url, allow_private_network, response_format_json_object)
+    VALUES ('zz17_oa', 'openai_compat', 'http://192.0.2.10:1234/v1', true, false) RETURNING provider_id INTO v_oa;
+  INSERT INTO allgres_private.llm_providers (name, kind, base_url, allow_private_network)
+    VALUES ('zz17_an', 'anthropic', 'http://192.0.2.11:1234', true) RETURNING provider_id INTO v_an;
+  a1 := (allgres_public.fn_create_agent('zz17_agent', 'x')->>'agent_id')::uuid;
+
+  -- What is valid.
+  ok := true;
+  FOR r IN SELECT x FROM jsonb_array_elements('[{"temperature":3},{"temperature":"hot"},{"top_p":0},{"top_p":1.5},{"top_k":1.5},{"top_k":0},{"max_tokens":0},{"max_tokens":"many"},{"stop":"x"},{"stop":[""]},{"effort":"turbo"},{"thinking":{"type":"on"}},{"thinking":{"type":"enabled"}},{"thinking":{"type":"enabled","budget_tokens":10}},{"thinking":{"type":"adaptive","display":"loud"}}]'::jsonb) x LOOP
+    BEGIN
+      PERFORM allgres_private.llm_params_check(r.x);
+      ok := false;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+  END LOOP;
+  ok := ok AND (SELECT true FROM (SELECT allgres_private.llm_params_check('{"temperature":0.7,"top_p":0.9,"top_k":40,"max_tokens":2000,"stop":["END"],"effort":"high","thinking":{"type":"enabled","budget_tokens":2048,"display":"summarized"}}'::jsonb)) q);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'inference_settings_must_be_valid_values', 'ok', ok));
+
+  -- Nothing set: nothing is sent to an OpenAI-compatible server, and a Claude request has its required max_tokens.
+  b := (allgres_private.build_llm_http(jsonb_build_object('messages', msgs, 'llm_config', '{"provider":"zz17_oa","model":"m"}'::jsonb)))->'body';
+  ok := b ? 'model' AND b ? 'messages' AND NOT b ? 'temperature' AND NOT b ? 'max_tokens' AND NOT b ? 'top_p' AND NOT b ? 'reasoning_effort';
+  b := (allgres_private.build_llm_http(jsonb_build_object('messages', msgs, 'llm_config', '{"provider":"zz17_an","model":"m"}'::jsonb)))->'body';
+  ok := ok AND (b->>'max_tokens')::int = 4096 AND NOT b ? 'thinking' AND NOT b ? 'output_config' AND NOT b ? 'stop_sequences';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'unset_settings_are_not_sent', 'ok', ok));
+
+  -- OpenAI-compatible: the sampling settings, stop, and effort as reasoning_effort (xhigh is high).
+  b := (allgres_private.build_llm_http(jsonb_build_object('messages', msgs, 'llm_config',
+        '{"provider":"zz17_oa","model":"m","temperature":0.3,"top_p":0.8,"top_k":20,"max_tokens":3000,"stop":["END"],"effort":"xhigh","thinking":{"type":"adaptive"}}'::jsonb)))->'body';
+  ok := (b->>'temperature')::numeric = 0.3 AND (b->>'top_p')::numeric = 0.8 AND (b->>'top_k')::int = 20
+    AND (b->>'max_tokens')::int = 3000 AND b->'stop' = '["END"]'::jsonb AND b->>'reasoning_effort' = 'high' AND NOT b ? 'thinking';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'an_openai_compatible_server_gets_sampling_stop_and_reasoning_effort', 'ok', ok));
+
+  -- Claude: stop_sequences, thinking, output_config.effort; temperature, top_p and top_k are not sent.
+  b := (allgres_private.build_llm_http(jsonb_build_object('messages', msgs, 'llm_config',
+        '{"provider":"zz17_an","model":"m","temperature":0.3,"top_p":0.8,"top_k":20,"max_tokens":9000,"stop":["END"],"effort":"max","thinking":{"type":"adaptive","display":"summarized"}}'::jsonb)))->'body';
+  ok := (b->>'max_tokens')::int = 9000 AND b->'stop_sequences' = '["END"]'::jsonb
+    AND b->'thinking' = '{"type":"adaptive","display":"summarized"}'::jsonb AND b->'output_config' = '{"effort":"max"}'::jsonb
+    AND NOT b ? 'temperature' AND NOT b ? 'top_p' AND NOT b ? 'top_k';
+  b := (allgres_private.build_llm_http(jsonb_build_object('messages', msgs, 'llm_config',
+        '{"provider":"zz17_an","model":"m","thinking":{"type":"enabled","budget_tokens":2048}}'::jsonb)))->'body';
+  ok := ok AND b->'thinking' = '{"type":"enabled","budget_tokens":2048}'::jsonb;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_claude_request_gets_thinking_effort_and_stop_sequences_but_not_sampling', 'ok', ok));
+
+  -- A model's own defaults sit under the agent's.
+  PERFORM allgres_private.models_register('zz17_oa', 'dm');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.registry_set', 'provider', 'zz17_oa', 'model', 'dm',
+    'params', '{"top_p":0.5,"temperature":0.1,"model":"hack","effort":"low"}'::jsonb, 'session_token', ta));
+  ok := (r->>'ok')::boolean AND (SELECT params = '{"top_p":0.5,"temperature":0.1,"effort":"low"}'::jsonb FROM allgres_private.llm_models WHERE provider_id = v_oa AND model = 'dm');
+  b := (allgres_private.build_llm_http(jsonb_build_object('messages', msgs, 'llm_config', '{"provider":"zz17_oa","model":"dm","temperature":0.9}'::jsonb)))->'body';
+  ok := ok AND (b->>'top_p')::numeric = 0.5 AND (b->>'temperature')::numeric = 0.9 AND b->>'reasoning_effort' = 'low';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.registry_set', 'provider', 'zz17_oa', 'model', 'dm', 'params', '{"top_p":5}'::jsonb, 'session_token', ta));
+  ok := ok AND r->>'error' LIKE '%top_p%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_models_own_defaults_sit_under_the_agents_settings', 'ok', ok));
+
+  -- An agent's policy takes valid settings, merges them, and a null clears one; an invalid one is refused.
+  PERFORM allgres_public.fn_set_policy(a1, NULL, NULL, NULL, '{"provider":"zz17_oa","model":"m","temperature":0.4,"stop":["a","b"],"effort":"medium"}'::jsonb);
+  PERFORM allgres_public.fn_set_policy(a1, NULL, NULL, NULL, '{"temperature":null}'::jsonb);
+  ok := (SELECT llm_config = '{"provider":"zz17_oa","model":"m","stop":["a","b"],"effort":"medium"}'::jsonb FROM allgres_private.policies WHERE agent_id = a1);
+  BEGIN
+    PERFORM allgres_public.fn_set_policy(a1, NULL, NULL, NULL, '{"top_k":-1}'::jsonb);
+    v_err := NULL;
+  EXCEPTION WHEN OTHERS THEN
+    v_err := SQLERRM;
+  END;
+  ok := ok AND v_err LIKE '%top_k%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_policy_keeps_valid_settings_clears_a_null_and_refuses_an_invalid_one', 'ok', ok));
   RETURN v;
 END;
 $fn$;

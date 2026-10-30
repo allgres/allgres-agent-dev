@@ -411,6 +411,7 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'policy not found' USING ERRCODE = 'P0001';
   END IF;
+  PERFORM allgres_private.llm_params_check(p_llm_config);
 
   v_prompt     := COALESCE(NULLIF(p_prompt, ''), p_row.system_prompt);
   v_steps      := COALESCE(p_max_steps, p_row.max_steps);

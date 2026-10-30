@@ -886,6 +886,60 @@ test('an agent is held to the models ticked for it, and the list warns when its 
   await expect(row().locator('.agentModelIssue')).toContainText('switched off');
 });
 
+test('reasoning and sampling are set on an agent and as a model default, and a Claude provider shows only what it receives', async ({ page }) => {
+  test.setTimeout(90000);
+  const name = `ui_inf_agent_${Date.now()}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  const cfg = () => page.evaluate(async (name) => {
+    const r = await (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ action: 'agents.list', session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    return (r.agents || r.rows || r).find(a => a.name === name)?.llm_config;
+  }, name);
+  await page.evaluate(async ([base, name]) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const p = await call({ action: 'provider.create', name: 'ui_inf_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    await call({ action: 'models.registry_add', provider: 'ui_inf_mock', models: ['allgres-mock'] });
+    const c = await call({ action: 'provider.create', name: 'ui_inf_claude', kind: 'anthropic', base_url: 'https://api.anthropic.com', api_key: 'sk-ant-x' });
+    const a = await call({ action: 'agents.create', name, system_prompt: 'x', llm_config: { provider: 'ui_inf_mock', model: 'allgres-mock' }, is_active: true });
+    if (a.ok === false) throw new Error(a.error);
+  }, [baseURL, name]);
+  await go(page, 'Agents');
+  const row = () => page.locator('#view tr', { hasText: name }).first();
+  await row().locator('.editAgent').click();
+  await page.locator('#rpBox summary').click();
+  // An OpenAI-compatible provider: sampling is open, Claude's thinking is not used.
+  await expect(page.locator('#apTemp')).toBeEnabled();
+  await expect(page.locator('#apThink')).toBeDisabled();
+  await page.locator('#apEffort').selectOption('high');
+  await page.locator('#apTemp').fill('0.3');
+  await page.locator('#apMax').fill('2048');
+  await page.locator('#apStop').fill('END\nSTOP');
+  await page.locator('#saveA').click();
+  await expect(page.locator('#modal')).toHaveClass(/hidden/);
+  await expect.poll(async () => JSON.stringify(await cfg())).toContain('"effort":"high"');
+  const saved = await cfg();
+  expect(saved.temperature).toBe(0.3);
+  expect(saved.max_tokens).toBe(2048);
+  expect(saved.stop).toEqual(['END', 'STOP']);
+  // A model's own defaults are saved from Models & prices.
+  await go(page, 'Models & prices');
+  const prov = page.locator('details', { hasText: 'ui_inf_mock' }).first();
+  const mrow = prov.locator('tr[data-model="allgres-mock"]');
+  if (!(await mrow.isVisible())) await prov.locator('summary').first().click();
+  await mrow.locator('.mrParams').click();
+  await page.locator('#mpTopP').fill('0.9');
+  await page.locator('#mrSaveParams').click();
+  await expect(page.locator('#modal')).toHaveClass(/hidden/);
+  const reg = await page.evaluate(async () => (await (await fetch('/api/v1/rpc', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+    body: JSON.stringify({ action: 'models.registry', session_token: sessionStorage.getItem('allgres_session_token') }) })).json()));
+  expect(JSON.stringify(reg)).toContain('"top_p":0.9');
+});
+
 test('an agent is copied with its setup', async ({ page }) => {
   const src = `ui_copy_src_${Date.now()}`;
   await login(page, 'ui_admin', 'ui-admin-password');

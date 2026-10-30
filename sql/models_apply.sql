@@ -362,6 +362,10 @@ BEGIN
   IF p_params IS NOT NULL AND jsonb_typeof(p_params) <> 'object' THEN
     RAISE EXCEPTION 'settings must be an object' USING ERRCODE = 'P0001';
   END IF;
+  IF p_params IS NOT NULL THEN
+    PERFORM allgres_private.llm_params_check(p_params);
+    p_params := allgres_private.sanitize_llm_config(p_params) - 'model' - 'provider';
+  END IF;
   UPDATE allgres_private.llm_models
   SET is_enabled = COALESCE(p_enabled, is_enabled),
       note = CASE WHEN p_note IS NULL THEN note ELSE NULLIF(btrim(p_note), '') END,
@@ -495,4 +499,16 @@ AS $fn$
   SELECT COALESCE(jsonb_agg(jsonb_build_object('provider', p.name, 'model', am.model) ORDER BY p.name, am.model), '[]'::jsonb)
   FROM allgres_private.agent_models am JOIN allgres_private.llm_providers p USING (provider_id)
   WHERE am.agent_id = p_agent_id
+$fn$;
+
+-- A model's own default inference settings (what the agent does not set itself).
+CREATE OR REPLACE FUNCTION allgres_private.llm_model_params(p_provider text, p_model text)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT COALESCE((SELECT m.params FROM allgres_private.llm_models m
+                   JOIN allgres_private.llm_providers p USING (provider_id)
+                   WHERE p.name = p_provider AND m.model = p_model), '{}'::jsonb)
 $fn$;
