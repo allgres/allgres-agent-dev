@@ -621,6 +621,15 @@
     ]
   },
   {
+    "action": "agents.set_allowed_models",
+    "guards": [],
+    "params": [
+      "agent_id",
+      "models",
+      "session_token"
+    ]
+  },
+  {
     "action": "models.default_clear",
     "guards": [],
     "params": [

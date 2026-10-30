@@ -399,3 +399,100 @@ BEGIN
   RETURN jsonb_build_object('ok', true);
 END;
 $fn$;
+
+-- ---------------------------------------------------------------------------
+-- Models an agent may use. An agent with none ticked may use any model that is
+-- switched on; with some ticked, only those (its own model, a person's choice
+-- in General, a model picked for one task). A function or procedure's own
+-- override and a model experiment are the administrator's own choice and are
+-- not held to the list. A model that is switched off is refused for everyone.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS allgres_private.agent_models (
+  agent_id    uuid NOT NULL REFERENCES allgres_private.agents(agent_id) ON DELETE CASCADE,
+  provider_id uuid NOT NULL REFERENCES allgres_private.llm_providers(provider_id) ON DELETE CASCADE,
+  model       text NOT NULL,
+  PRIMARY KEY (agent_id, provider_id, model)
+);
+
+-- Why this model cannot be used by this agent, or NULL when it can.
+CREATE OR REPLACE FUNCTION allgres_private.agent_model_issue(
+  p_agent_id uuid, p_provider text, p_model text, p_override boolean DEFAULT false
+) RETURNS text
+LANGUAGE plpgsql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_pid uuid;
+  v_enabled boolean;
+BEGIN
+  IF btrim(COALESCE(p_provider, '')) = '' OR btrim(COALESCE(p_model, '')) = '' THEN
+    RETURN 'no model is chosen: set a provider and a model for this agent';
+  END IF;
+  SELECT provider_id, is_enabled INTO v_pid, v_enabled FROM allgres_private.llm_providers WHERE name = p_provider;
+  IF v_pid IS NULL THEN
+    RETURN format('the provider "%s" does not exist', p_provider);
+  END IF;
+  IF NOT v_enabled THEN
+    RETURN format('the provider "%s" is switched off', p_provider);
+  END IF;
+  IF EXISTS (SELECT 1 FROM allgres_private.llm_models WHERE provider_id = v_pid AND model = p_model AND NOT is_enabled) THEN
+    RETURN format('the model "%s" is switched off in Models & prices', p_model);
+  END IF;
+  IF NOT COALESCE(p_override, false)
+     AND EXISTS (SELECT 1 FROM allgres_private.agent_models WHERE agent_id = p_agent_id)
+     AND NOT EXISTS (SELECT 1 FROM allgres_private.agent_models WHERE agent_id = p_agent_id AND provider_id = v_pid AND model = p_model) THEN
+    RETURN format('the model "%s" is not among the models this agent may use', p_model);
+  END IF;
+  RETURN NULL;
+END;
+$fn$;
+
+-- Set the models an agent may use. An empty list means any model that is on.
+CREATE OR REPLACE FUNCTION allgres_public.fn_agent_set_allowed_models(p_token text, p_agent_id uuid, p_models jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  m jsonb;
+  v_pid uuid;
+  v_n int := 0;
+BEGIN
+  PERFORM allgres_private.require_admin(p_token);
+  IF NOT EXISTS (SELECT 1 FROM allgres_private.agents WHERE agent_id = p_agent_id) THEN
+    RAISE EXCEPTION 'agent not found' USING ERRCODE = 'P0001';
+  END IF;
+  PERFORM allgres_private.forbid_system_agent_edit(p_agent_id);
+  IF p_models IS NULL OR jsonb_typeof(p_models) <> 'array' THEN
+    RAISE EXCEPTION 'give the models as a list' USING ERRCODE = 'P0001';
+  END IF;
+  FOR m IN SELECT * FROM jsonb_array_elements(p_models) LOOP
+    SELECT provider_id INTO v_pid FROM allgres_private.llm_providers WHERE name = m->>'provider' AND purpose = 'chat';
+    IF v_pid IS NULL OR NOT EXISTS (SELECT 1 FROM allgres_private.llm_models WHERE provider_id = v_pid AND model = m->>'model') THEN
+      RAISE EXCEPTION 'the model % / % is not in the list of models', m->>'provider', m->>'model' USING ERRCODE = 'P0001';
+    END IF;
+  END LOOP;
+  DELETE FROM allgres_private.agent_models WHERE agent_id = p_agent_id;
+  INSERT INTO allgres_private.agent_models (agent_id, provider_id, model)
+  SELECT p_agent_id, pr.provider_id, e->>'model'
+  FROM jsonb_array_elements(p_models) e
+  JOIN allgres_private.llm_providers pr ON pr.name = e->>'provider'
+  ON CONFLICT DO NOTHING;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  PERFORM allgres_private.audit('agents.set_allowed_models', jsonb_build_object('agent_id', p_agent_id, 'models', v_n));
+  RETURN jsonb_build_object('ok', true, 'models', v_n);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.agent_allowed_models(p_agent_id uuid)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('provider', p.name, 'model', am.model) ORDER BY p.name, am.model), '[]'::jsonb)
+  FROM allgres_private.agent_models am JOIN allgres_private.llm_providers p USING (provider_id)
+  WHERE am.agent_id = p_agent_id
+$fn$;
