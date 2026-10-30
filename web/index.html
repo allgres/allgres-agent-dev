@@ -250,7 +250,7 @@ const HUBS={
 };
 function hubOf(page){return Object.keys(HUBS).find(k=>HUBS[k].tabs.some(x=>x.page===page))||null}
 function tabActive(x){return x.page===state.page&&(!x.mode||x.mode===state.chatMode)}
-function openTab(x){if(x.mode){state.chatMode=x.mode;saveUi('chat_mode',x.mode)}else if(x.page==='Chat'){state.chatMode='general';saveUi('chat_mode','general')}openPage(x.page)}
+function openTab(x){if(tabActive(x))return;if(x.mode){state.chatMode=x.mode;saveUi('chat_mode',x.mode)}else if(x.page==='Chat'){state.chatMode='general';saveUi('chat_mode','general')}openPage(x.page)}
 function renderTabs(){
   const el=$('#pageTabs'),h=hubOf(state.page);
   if(!el)return;

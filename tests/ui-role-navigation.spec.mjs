@@ -26,7 +26,9 @@ const HUB = {
 async function go(page, label) {
   const [nav, tab] = HUB[label] || [label];
   await page.locator('#nav').getByRole('button', { name: nav, exact: true }).click();
-  if (tab) await page.locator('#pageTabs').getByRole('tab', { name: tab, exact: true }).click();
+  // The hub opens on its first tab; clicking the tab that is already open does nothing.
+  const t = page.locator('#pageTabs').getByRole('tab', { name: tab, exact: true });
+  if (tab && (await t.getAttribute('aria-selected')) !== 'true') await t.click();
 }
 
 test('admin reaches every primary surface directly', async ({ page }) => {
@@ -623,7 +625,7 @@ test('decision model: watch a point, compare with a person, and meet the gate be
   await page.locator('#view .listrow', { hasText: 'OK to go ahead with the delivery?' }).first().locator('.apAccept').click();
   await go(page, 'Decision model');
   await expect(async () => {
-    await go(page, 'Decision model');
+    await page.evaluate(() => loadPage());
     await expect(page.locator('#view .listrow[data-point="approval_decision"]')).toContainText('Compared 1 decisions: the model agreed on 1', { timeout: 3000 });
   }).toPass({ timeout: 60000 });
   // Handing over is refused until enough has been watched.
