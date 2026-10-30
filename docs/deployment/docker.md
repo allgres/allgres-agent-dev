@@ -43,16 +43,11 @@ tag (and available on demand via manual dispatch). `:latest` tracks the most
 recent published release, including this public alpha; `:main` tracks source
 commits. Wait for the image workflow to finish before using a new release.
 
-### Image tags
+### Image tag
 
-| Tag | Moves? | Use it for |
-|---|---|---|
-| `:sha-<7 hex>` | never | One exact commit of `main`. Pin to it, or roll back to the one before. |
-| `:main` | with every merge to `main` | Trying the newest development build. |
-| `:0.1.0-alpha.N` (also `:v0.1.0-alpha.N`) | never | A release. Created when a `v*` tag is pushed. |
-| `:latest` | with every release | The newest release. It does **not** follow `main`. |
+For now the only tag is **`:main`**, which moves with every merge to `main` (`ghcr.io/allgres/allgres-agent-dev:main`). Version tags (`:<version>`, `:v<version>`, and `:latest`) are published when a `v*` release tag is pushed, which has not started yet; `:latest` therefore still points at the old `v0.1.0-alpha.1`, so use `:main`.
 
-Every image carries `org.opencontainers.image.version` (the extension version, from `allgres.control`) and `org.opencontainers.image.revision` (the commit):
+Every image carries `org.opencontainers.image.version` (the extension version, from `allgres.control`) and `org.opencontainers.image.revision` (the commit), whatever it was pulled as:
 
 ```bash
 docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }} {{ index .Config.Labels "org.opencontainers.image.revision" }}' ghcr.io/allgres/allgres-agent-dev:main
