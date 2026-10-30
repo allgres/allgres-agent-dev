@@ -43,6 +43,23 @@ tag (and available on demand via manual dispatch). `:latest` tracks the most
 recent published release, including this public alpha; `:main` tracks source
 commits. Wait for the image workflow to finish before using a new release.
 
+### Image tags
+
+| Tag | Moves? | Use it for |
+|---|---|---|
+| `:sha-<7 hex>` | never | One exact commit of `main`. Pin to it, or roll back to the one before. |
+| `:main` | with every merge to `main` | Trying the newest development build. |
+| `:0.1.0-alpha.N` (also `:v0.1.0-alpha.N`) | never | A release. Created when a `v*` tag is pushed. |
+| `:latest` | with every release | The newest release. It does **not** follow `main`. |
+
+Every image carries `org.opencontainers.image.version` (the extension version, from `allgres.control`) and `org.opencontainers.image.revision` (the commit):
+
+```bash
+docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }} {{ index .Config.Labels "org.opencontainers.image.revision" }}' ghcr.io/allgres/allgres-agent-dev:main
+```
+
+**Upgrading an existing data volume is not supported yet.** The database objects are installed once, when the data directory is first created, and the alpha has no upgrade path between versions. Starting a newer image on an older volume can leave the screens expecting functions the database does not have. For a trial, start without a volume (the container's data is thrown away with it); with a volume, start a new one for each version.
+
 Both published ports (`5432`, `8088`) are bound to host loopback only; see
 [Exposure](../security.md#exposure) before changing that.
 

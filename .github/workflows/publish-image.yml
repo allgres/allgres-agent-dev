@@ -42,12 +42,21 @@ jobs:
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      - name: Read the extension version
+        id: ver
+        run: echo "version=$(sed -n "s/^default_version = '\(.*\)'/\1/p" allgres.control)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          # Which release and which commit this image is, readable with
+          # `docker inspect` whatever tag it was pulled by.
+          labels: |
+            org.opencontainers.image.version=${{ steps.ver.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Save this platform's digest for the merge job
@@ -79,12 +88,16 @@ jobs:
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            # A release: v0.1.0-alpha.4 is pinned as v0.1.0-alpha.4 and as
+            # 0.1.0-alpha.4, and :latest moves to it.
             REF="${GITHUB_REF#refs/tags/}"
-            TAGS="${IMAGE}:${REF},${IMAGE}:latest"
+            TAGS="${IMAGE}:${REF},${IMAGE}:${REF#v},${IMAGE}:latest"
             echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           else
+            # A commit on main: :main moves with it, and :sha-<7> stays on
+            # exactly this commit, so a build can be pinned or rolled back to.
             REF="${GITHUB_REF#refs/heads/}"
-            echo "tags=${IMAGE}:${REF}" >> "$GITHUB_OUTPUT"
+            echo "tags=${IMAGE}:${REF},${IMAGE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
@@ -176,12 +189,16 @@ jobs:
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')-cnpg-ext"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            # A release: v0.1.0-alpha.4 is pinned as v0.1.0-alpha.4 and as
+            # 0.1.0-alpha.4, and :latest moves to it.
             REF="${GITHUB_REF#refs/tags/}"
-            TAGS="${IMAGE}:${REF},${IMAGE}:latest"
+            TAGS="${IMAGE}:${REF},${IMAGE}:${REF#v},${IMAGE}:latest"
             echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           else
+            # A commit on main: :main moves with it, and :sha-<7> stays on
+            # exactly this commit, so a build can be pinned or rolled back to.
             REF="${GITHUB_REF#refs/heads/}"
-            echo "tags=${IMAGE}:${REF}" >> "$GITHUB_OUTPUT"
+            echo "tags=${IMAGE}:${REF},${IMAGE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
