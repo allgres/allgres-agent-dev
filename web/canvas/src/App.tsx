@@ -125,9 +125,30 @@ const inputFocused = () => {
 };
 const delegates = (from: Agent, to: Agent) => from.permissions.some((p) => p.type === 'agent' && p.ref.toLowerCase() === to.name.toLowerCase());
 
+// Inside the dashboard the Canvas is the body under the dashboard's own top
+// bar: no brand, view switch or language buttons of its own, and the shell
+// tells it the theme and language (same origin, so a plain postMessage).
+const embedded = (() => {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+})();
+
 function Canvas() {
   const t = useT();
   const { lang, setLang } = useLang();
+  useEffect(() => {
+    if (!embedded) return;
+    const on = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.data?.type !== 'allgres-ui') return;
+      if (e.data.theme === 'light' || e.data.theme === 'dark') document.documentElement.setAttribute('data-theme', e.data.theme);
+      if (e.data.lang === 'ko' || e.data.lang === 'en') setLang(e.data.lang);
+    };
+    window.addEventListener('message', on);
+    return () => window.removeEventListener('message', on);
+  }, [setLang]);
   const [gate, setGate] = useState<Gate>({ kind: 'loading' });
   const [agents, setAgents] = useState<Agent[]>([]);
   const [state, setState] = useState<CanvasState>(EMPTY_STATE);
@@ -1076,15 +1097,19 @@ function Canvas() {
   return (
     <div className="app">
       <header className="bar">
-        <a className="brand" href="/">
-          Allgres
-        </a>
-        <div className="viewswitch" role="group" aria-label={t('Switch view')}>
-          <a href="/">{t('Dashboard')}</a>
-          <a href="/canvas" className="on" aria-current="page">
-            {t('Canvas')}
-          </a>
-        </div>
+        {!embedded && (
+          <>
+            <a className="brand" href="/">
+              Allgres
+            </a>
+            <div className="viewswitch" role="group" aria-label={t('Switch view')}>
+              <a href="/">{t('Dashboard')}</a>
+              <a href="/canvas" className="on" aria-current="page">
+                {t('Canvas')}
+              </a>
+            </div>
+          </>
+        )}
         {gate.kind === 'ready' && (
           <>
             <div className="seg" role="group" aria-label={t('Canvas')}>
@@ -1110,7 +1135,7 @@ function Canvas() {
                 +
               </button>
             </div>
-            <div className="seg lang" role="group" aria-label={t('Language')}>
+            <div className="seg lang" role="group" aria-label={t('Language')} hidden={embedded}>
               <button type="button" className={lang === 'ko' ? 'on' : ''} aria-pressed={lang === 'ko'} onClick={() => setLang('ko')}>
                 한
               </button>

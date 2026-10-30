@@ -252,7 +252,7 @@ fn nonce() -> String {
 
 fn security_headers() -> &'static str {
     "X-Content-Type-Options: nosniff\r\n\
-     X-Frame-Options: DENY\r\n\
+     X-Frame-Options: SAMEORIGIN\r\n\
      Referrer-Policy: no-referrer\r\n\
      Cross-Origin-Resource-Policy: same-origin\r\n"
 }
@@ -953,7 +953,7 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
             "Content-Security-Policy: default-src 'none'; \
              script-src 'nonce-{n}'; style-src 'nonce-{n}'; \
              connect-src 'self'; img-src 'self' data:; \
-             base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n"
+             base-uri 'none'; form-action 'none'; frame-src 'self'; frame-ancestors 'self'\r\n"
         );
         respond(&mut s, "200 OK", "text/html; charset=utf-8", &html, &csp);
         return;

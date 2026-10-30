@@ -56,6 +56,49 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   });
 });
 
+test('the top bar stays put: Canvas is only the body, and theme and language follow', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  const top = await page.locator('.top').elementHandle();
+  await page.locator('#toCanvas').click();
+  const cv = page.frameLocator('#canvasFrame');
+  await expect(cv.locator('.agent-node').first()).toBeVisible();
+  // The bar has one size and its buttons one place on every page, in both languages.
+  const spots = async () => page.evaluate(() => ['#toDashboard', '#toCanvas', '#langSeg', '#themeBtn', '#logoutBtn'].map(q => {
+    const r = document.querySelector(q).getBoundingClientRect(); return [q, Math.round(r.x), Math.round(r.y), Math.round(r.width)]; }).concat([['bar', Math.round(document.querySelector('.top').getBoundingClientRect().height)]]));
+  const home = await spots();
+  for (const id of ['Agents', 'Chat', 'Approvals', 'Settings', 'Canvas']) {
+    await page.evaluate(i => openPage(i), id);
+    await expect(page.locator('#pageTitle')).not.toHaveText('');
+    expect(await spots()).toEqual(home);
+  }
+  await page.locator('#langSeg button[data-l=ko]').click();
+  await page.evaluate(() => openPage('Settings'));
+  const ko = await spots();
+  await page.evaluate(() => openPage('Canvas'));
+  expect(await spots()).toEqual(ko);
+  await page.locator('#langSeg button[data-l=en]').click();
+  await page.evaluate(() => openPage('Overview'));
+  await page.locator('#toCanvas').click();
+  // Same header element before and after; the Canvas brings no header of its own.
+  expect(await top.evaluate(el => el.isConnected)).toBe(true);
+  await expect(cv.locator('.brand')).toHaveCount(0);
+  // Korean from the dashboard's own button reaches the dashboard and the Canvas.
+  await page.locator('#langSeg button[data-l=ko]').click();
+  await expect(page.locator('#nav').getByRole('button', { name: '채팅', exact: true })).toBeVisible();
+  await expect(page.locator('#pageTitle')).toHaveText('캔버스');
+  await expect(cv.getByRole('button', { name: '조직' })).toBeVisible();
+  // Light theme too.
+  await page.locator('#themeBtn').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(cv.locator('html')).toHaveAttribute('data-theme', 'light');
+  // Back to English and the dashboard: the whole page changes with it.
+  await page.locator('#langSeg button[data-l=en]').click();
+  await page.locator('#toDashboard').click();
+  await expect(page.locator('#nav').getByRole('button', { name: 'Chat', exact: true })).toBeVisible();
+  await page.locator('#themeBtn').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+});
+
 // One test for the whole Canvas walk-through: the web listener allows 120
 // requests a minute per address, and this suite already runs from one.
 test('admin opens the canvas and builds a team', async ({ page }) => {
@@ -65,30 +108,34 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   const lead=`ui_lead_${stamp}`, worker=`ui_worker_${stamp}`, team=`UI team ${stamp}`;
   await login(page, 'ui_admin', 'ui-admin-password');
   await page.locator('#toCanvas').click();
-  await expect(page).toHaveURL(/\/canvas$/);
-  const general = page.locator('.agent-node', { hasText: 'general' }).first();
+  // The Canvas is the body under the dashboard's own top bar.
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator('#pageTitle')).toHaveText('Canvas');
+  const cv = page.frameLocator('#canvasFrame');
+  await expect(page.locator('#nav button.active')).toHaveCount(0);
+  const general = cv.locator('.agent-node', { hasText: 'general' }).first();
   await expect(general).toBeVisible();
   // The seeded agents do not count as a team, so a fresh install still gets
   // the first-team guide.
-  await expect(page.getByRole('region', { name: 'Build your first team' })).toBeVisible();
+  await expect(cv.getByRole('region', { name: 'Build your first team' })).toBeVisible();
   // First visit explains the board once; system agents start hidden.
-  await page.getByRole('button', { name: 'Got it' }).click();
-  await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
+  await cv.getByRole('button', { name: 'Got it' }).click();
+  await expect(cv.locator('.agent-node.is-system')).toHaveCount(0);
   await general.click();
-  await expect(page.locator('.inspector')).toContainText('Takes work from');
-  const fit = () => page.getByTitle('Fit to screen').click();
+  await expect(cv.locator('.inspector')).toContainText('Takes work from');
+  const fit = () => cv.getByTitle('Fit to screen').click();
   for (const name of [lead, worker]) {
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
-    await page.getByRole('menuitem', { name: /New agent/ }).click();
-    await page.locator('#dlg-name').fill(name);
-    await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await expect(page.locator(`.agent-node[data-agent="${name}"]`)).toBeVisible();
+    await cv.getByRole('button', { name: 'Add', exact: true }).click();
+    await cv.getByRole('menuitem', { name: /New agent/ }).click();
+    await cv.locator('#dlg-name').fill(name);
+    await cv.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(cv.locator(`.agent-node[data-agent="${name}"]`)).toBeVisible();
   }
-  await page.getByRole('button', { name: 'Close details' }).click();
+  await cv.getByRole('button', { name: 'Close details' }).click();
   await fit();
   await page.waitForTimeout(400);
-  const leadNode=page.locator(`.react-flow__node:has(.agent-node[data-agent="${lead}"])`);
-  const workerNode=page.locator(`.react-flow__node:has(.agent-node[data-agent="${worker}"])`);
+  const leadNode=cv.locator(`.react-flow__node:has(.agent-node[data-agent="${lead}"])`);
+  const workerNode=cv.locator(`.react-flow__node:has(.agent-node[data-agent="${worker}"])`);
   // Dropping the worker's card on the lead's puts it under the lead: the
   // lead may now hand it work (an `agent` grant), drawn as a line.
   // React Flow moves a node on real pointer moves, so drag in steps the way
@@ -98,34 +145,35 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   await page.mouse.down();
   await page.mouse.move(to.x + to.width / 2, to.y + 20, { steps: 12 });
   await page.mouse.up();
-  await expect(page.locator('.toast')).toContainText(`${worker} now works under ${lead}`);
-  await expect(page.locator('.react-flow__edge.edge-delegate')).not.toHaveCount(0);
+  await expect(cv.locator('.toast')).toContainText(`${worker} now works under ${lead}`);
+  await expect(cv.locator('.react-flow__edge.edge-delegate')).not.toHaveCount(0);
   await fit();
   await page.waitForTimeout(400);
   await leadNode.click();
-  await expect(page.locator('.inspector')).toContainText('Hands work to');
-  await expect(page.locator('.inspector')).toContainText(worker);
+  await expect(cv.locator('.inspector')).toContainText('Hands work to');
+  await expect(cv.locator('.inspector')).toContainText(worker);
   // Shift+click adds the worker; the selection bar makes them a team.
   await fit();
   await page.waitForTimeout(400);
   await page.keyboard.down('Shift');
   await workerNode.click();
   await page.keyboard.up('Shift');
-  await page.getByRole('button', { name: 'Make a team' }).click();
-  await page.locator('#dlg-name').fill(team);
-  await page.getByRole('button', { name: 'Create', exact: true }).click();
-  await expect(page.locator(`.group-node[data-group="${team}"]`)).toContainText('2');
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(page.locator(`.group-node[data-group="${team}"]`)).toHaveCount(0);
-  await page.getByRole('button', { name: 'More' }).click();
-  await page.getByRole('menuitem', { name: 'Tidy up layout' }).click();
-  await expect(page.locator('.toast')).toContainText('Tidied up');
-  await page.getByRole('button', { name: 'More' }).click();
-  await page.locator('#showSystem').check();
-  await expect(page.locator('.agent-node.is-system').first()).toBeVisible();
-  await page.locator('#showSystem').uncheck();
-  await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
-  await page.getByRole('group', { name: 'Switch view' }).getByRole('link', { name: 'Dashboard' }).click();
+  await cv.getByRole('button', { name: 'Make a team' }).click();
+  await cv.locator('#dlg-name').fill(team);
+  await cv.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(cv.locator(`.group-node[data-group="${team}"]`)).toContainText('2');
+  await cv.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(cv.locator(`.group-node[data-group="${team}"]`)).toHaveCount(0);
+  await cv.getByRole('button', { name: 'More' }).click();
+  await cv.getByRole('menuitem', { name: 'Tidy up layout' }).click();
+  await expect(cv.locator('.toast')).toContainText('Tidied up');
+  await cv.getByRole('button', { name: 'More' }).click();
+  await cv.locator('#showSystem').check();
+  await expect(cv.locator('.agent-node.is-system').first()).toBeVisible();
+  await cv.locator('#showSystem').uncheck();
+  await expect(cv.locator('.agent-node.is-system')).toHaveCount(0);
+  await page.locator('#toDashboard').click();
+  await expect(page.locator('#canvasFrame')).toHaveCount(0);
   await expect(page.locator('#whoami')).toContainText('ui_admin');
   expect(cspErrors).toEqual([]);
 });

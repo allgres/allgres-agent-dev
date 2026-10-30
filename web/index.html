@@ -74,9 +74,14 @@
 .u-max-width-360px{max-width:360px}
 .u-margin-bottom-20px{margin-bottom:20px}
 .u-font-size-12px-margin-top-10px-color-var-bad{font-size:12px;margin-top:10px;color:var(--bad)}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg button{border:0;background:transparent;color:var(--muted);padding:5px 12px;font:inherit;cursor:pointer}.seg button.seg-on{background:var(--accent);color:var(--on-accent)}.seg button:not(.seg-on):hover{color:var(--text)}.seg button[hidden]{display:none}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg button{border:0;background:transparent;color:var(--muted);padding:5px 12px;font:inherit;cursor:pointer}.seg button.seg-on,.seg button[aria-pressed=true]{background:var(--accent);color:var(--on-accent)}.seg button:not(.seg-on):hover{color:var(--text)}.seg button[hidden]{display:none}
+#themeBtn{padding:4px 10px}
+/* One fixed-height top bar: the buttons sit in the same place on every page. */
+@media(min-width:901px){.main>.top{flex-wrap:nowrap;height:64px;min-height:64px;margin-bottom:16px;gap:16px}.main>.top>div:first-child{min-width:0;flex:1 1 120px}.main>.top .title,.main>.top #pageSub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.main>.top>.row{flex:none;margin-left:auto;flex-wrap:nowrap;white-space:nowrap;gap:8px}.main>.top #whoami{min-width:0;max-width:170px;overflow:hidden;text-overflow:ellipsis;text-align:right}}
+@media(min-width:901px) and (max-width:1180px){.main>.top #pageSub,.main>.top #whoami{display:none}}
+.oncanvas .app{height:100vh;min-height:0}.oncanvas .main{padding:28px 32px 0;max-width:none;display:flex;flex-direction:column;height:100vh;min-height:0}.oncanvas #view{flex:1;min-height:0;display:flex}.oncanvas #canvasFrame{flex:1;width:100%;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;background:var(--bg)}
 #pageTabs{margin:0 0 14px}.hubtabs{display:flex;gap:2px;border-bottom:1px solid var(--line);flex-wrap:wrap}.hubtab{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:8px 14px;font:inherit;cursor:pointer;margin-bottom:-1px}.hubtab:hover{color:var(--text)}.hubtab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}.hubhint{margin-top:8px;font-size:12.5px}
-</style></head><body><div class="app"><aside class="side"><div class="brand">Allgres</div><div class="tag">Postgres Is All You Need.</div><nav class="nav" id="nav"></nav></aside><main class="main"><div class="top"><div><div class="title" id="pageTitle">Overview</div><div class="muted" id="pageSub">PostgreSQL-native agent control plane</div></div><div class="row"><div class="seg" role="group" aria-label="Switch view"><button class="seg-on" aria-pressed="true" id="toDashboard">Dashboard</button><button id="toCanvas" aria-pressed="false" hidden>Canvas</button></div><span class="muted mono u-font-size-12px" id="whoami"></span><button class="btn small" id="logoutBtn">Sign out</button><div class="pill"><span class="dot"></span><span id="health">connecting</span></div></div></div><div id="pageTabs" hidden></div><div id="view"></div></main></div><div id="modal" class="modal hidden" role="dialog" aria-modal="true" tabindex="-1"></div><div id="toast" class="toast" role="status" aria-live="polite"></div>
+</style></head><body><div class="app"><aside class="side"><div class="brand">Allgres</div><div class="tag">Postgres Is All You Need.</div><nav class="nav" id="nav"></nav></aside><main class="main"><div class="top"><div><div class="title" id="pageTitle">Overview</div><div class="muted" id="pageSub">PostgreSQL-native agent control plane</div></div><div class="row"><div class="seg" role="group" aria-label="Switch view"><button id="toDashboard" aria-pressed="true">Dashboard</button><button id="toCanvas" aria-pressed="false" hidden>Canvas</button></div><div class="seg" role="group" aria-label="Language" id="langSeg"><button data-l="ko">한</button><button data-l="en">EN</button></div><button class="btn small" id="themeBtn" aria-label="Switch light or dark">Theme</button><span class="muted mono u-font-size-12px" id="whoami"></span><button class="btn small" id="logoutBtn">Sign out</button><div class="pill"><span class="dot"></span><span id="health">connecting</span></div></div></div><div id="pageTabs" hidden></div><div id="view"></div></main></div><div id="modal" class="modal hidden" role="dialog" aria-modal="true" tabindex="-1"></div><div id="toast" class="toast" role="status" aria-live="polite"></div>
 <style nonce="__CSP_NONCE__">
 /* Responsive/accessibility restoration after the dashboard source split.
    Keep this override separate from the compact base sheet above so future
@@ -121,7 +126,7 @@ const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users
 // Approvals page (as tabs, open to regular users too -- item 41); Chat/
 // Messenger/Project folded into one Chat page (as a mode switch -- item
 // 43). Nav is simpler because of it, not because anything was removed.
-const adminPages=['Overview','Agents','People','Chat','Rooms','Teams','Projects','Approvals','Activity','Schedules','Abilities','Memories','SQL','Models','APIs','MCP','Decision','Inbound','Settings','Audit'];
+const adminPages=['Overview','Canvas','Agents','People','Chat','Rooms','Teams','Projects','Approvals','Activity','Schedules','Abilities','Memories','SQL','Models','APIs','MCP','Decision','Inbound','Settings','Audit'];
 const userPages=['Chat','Rooms','Projects','Approvals','My Agents'];
 function pagesForRole(){return state.me?.role==='admin'?adminPages:userPages}
 const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -185,6 +190,61 @@ function t(key){return I18N[key]??key}
 function theme(){return localStorage.getItem('allgres_theme')||''}
 function setTheme(v){try{v?localStorage.setItem('allgres_theme',v):localStorage.removeItem('allgres_theme')}catch{};document.documentElement.setAttribute('data-theme',v||'dark')}
 setTheme(theme());
+// --- Language. English is the source text; Korean is a dictionary of exact
+// strings applied to what is on screen (and to what appears later), so a
+// string with no entry simply stays English. Same key as the Canvas. ---
+const KO_UI=/*KO_BEGIN*/{"Postgres Is All You Need.":"Postgres 하나면 충분합니다.","Home":"홈","Work":"업무","Chat":"채팅","Approvals":"승인","Activity":"활동","Organization":"조직","Agents":"에이전트","Teams":"팀","People":"사람","Abilities":"능력","System":"시스템","Connections":"연결","Settings":"설정","PostgreSQL-native agent control plane":"PostgreSQL 네이티브 에이전트 컨트롤 플레인","Switch view":"화면 전환","Dashboard":"대시보드","Canvas":"캔버스","Language":"언어","Switch light or dark":"라이트/다크 전환","Sign out":"로그아웃","workers online":"워커 실행 중","Get started":"시작하기","Three steps to a working team.":"세 단계로 팀을 가동합니다.","Add a provider and test the connection.":"제공자를 추가하고 연결을 테스트합니다.","1. Connect a model":"1. 모델 연결","Add agents on the canvas and decide who hands work to whom.":"캔버스에서 에이전트를 추가하고 누가 누구에게 일을 넘길지 정합니다.","2. Build a team":"2. 팀 만들기","Ask General, or run a task on one of your agents.":"General에게 묻거나 에이전트에게 작업을 시킵니다.","3. Give it a first job":"3. 첫 작업 맡기기","Waiting for you":"내 결정 대기","Nothing needs your decision.":"결정이 필요한 항목이 없습니다.","In progress":"진행 중","No task is running right now.":"지금 실행 중인 작업이 없습니다.","System status":"시스템 상태","Cluster":"클러스터","CPUs / load (1m·5m·15m)":"CPU / 부하 (1분·5분·15분)","Memory used / total":"메모리 사용 / 전체","DB sessions (active/idle/total)":"DB 세션 (활성/유휴/전체)","Active":"활성","Running":"실행 중","Outbound":"외부 호출","Failed":"실패","Workers":"워커","serving this page":"이 페이지 제공 중","Recent tasks":"최근 작업","No tasks yet. Start one from General, Projects, or an agent on the Canvas.":"아직 작업이 없습니다. General, 프로젝트 또는 캔버스의 에이전트에서 시작하세요.","New agent":"새 에이전트","Name":"이름","Model":"모델","Provider":"제공자","Status":"상태","Permissions":"권한","Edit":"편집","running":"실행 중","System agents (6)":"시스템 에이전트 (6)","Internal agents and the seeded health_monitor example. Configure a model before running them.":"내부 에이전트와 예시 health_monitor입니다. 실행하기 전에 모델을 설정하세요.","Autonomy":"자율성","Not configured":"설정 안 됨","Create agent":"에이전트 만들기","Close":"닫기","System prompt":"시스템 프롬프트","— select —":"— 선택 —","The endpoint URL and API key come from the provider chosen above (see Settings); an agent cannot override them.":"엔드포인트 URL과 API 키는 위에서 고른 제공자의 것을 사용합니다(설정 참고). 에이전트가 바꿀 수 없습니다.","Create as draft (inactive until you configure and enable it)":"초안으로 만들기 (설정하고 켤 때까지 비활성)","Save":"저장","Edit agent":"에이전트 편집","Max steps":"최대 단계","Max retries":"최대 재시도","Max concurrent tasks":"동시 작업 최대","Max turn seconds (blank = uncapped)":"턴 최대 초 (비우면 제한 없음)","Max delegation depth":"위임 최대 깊이","Max session tasks":"세션당 작업 최대","Agent config (raw JSON)":"에이전트 설정 (JSON)","-- advanced, merges into the fields above":"-- 고급: 위 항목에 합쳐집니다","Proposals":"제안","History":"이력","Evaluate last change":"마지막 변경 평가","Assigned users":"할당된 사용자","Revoke":"회수","Grant":"부여","resource ref":"리소스 참조","view":"뷰","function":"함수","agent":"에이전트","http_host":"http_host","procedure":"프로시저","Execution approval rules":"실행 승인 규칙","Rules are checked immediately before a queued call runs.":"대기 중인 호출이 실행되기 직전에 규칙을 확인합니다.","All actions follow ordinary permission checks.":"모든 동작은 일반 권한 검사를 따릅니다.","call function":"함수 호출","execute SQL":"SQL 실행","run procedure":"프로시저 실행","resource or *":"리소스 또는 *","allow":"허용","require approval":"승인 필요","deny":"거부","Set rule":"규칙 설정","Copy this agent":"이 에이전트 복사","Same prompt, model, limits, permissions, rules and teams. Memories, tasks and schedules are not copied.":"프롬프트, 모델, 한도, 권한, 규칙, 팀이 같습니다. 기억, 작업, 스케줄은 복사되지 않습니다.","Copy agent":"에이전트 복사","Same prompt, model, limits, permissions, rules and teams. Memories, tasks, schedules and assigned users are not copied.":"프롬프트, 모델, 한도, 권한, 규칙, 팀이 같습니다. 기억, 작업, 스케줄, 할당된 사용자는 복사되지 않습니다.","Users":"사용자","Create user":"사용자 만들기","Username":"사용자 이름","Password":"비밀번호","Role":"역할","user":"사용자","admin":"관리자","Create":"만들기","Create or promote another admin first":"먼저 다른 관리자를 만들거나 승격하세요","Deactivate":"비활성화","Make user":"사용자로 변경","Rules":"규칙","Priority":"우선순위","Applies to":"적용 대상","Matches":"조건","Decider":"결정자","Then after":"이후","Lower runs first":"숫자가 작을수록 먼저","Add rule":"규칙 추가","No rules yet. Without a rule, an admin or the user assigned to the agent decides. Add one below to route requests to a role.":"아직 규칙이 없습니다. 규칙이 없으면 관리자나 에이전트에 할당된 사용자가 결정합니다. 아래에서 추가하면 요청이 역할로 전달됩니다.","Roles":"역할","What it is for":"용도","Add role":"역할 추가","Units":"조직 단위","Unit":"단위","Under":"상위","Add unit":"단위 추가","Person":"사람","Give role":"역할 부여","Delegation":"위임","From":"보내는 사람","To":"받는 사람","Until":"기한","Delegate":"위임","Active until":"유효 기한","No delegations.":"위임이 없습니다.","Nobody holds a role yet.":"역할을 가진 사람이 아직 없습니다.","No roles yet. A role names who is responsible for decisions, for example Marketing head.":"아직 역할이 없습니다. 역할은 결정 책임자를 이름 붙인 것입니다. 예: 마케팅 책임자.","General":"General","Rooms":"룸","Projects":"프로젝트","Team messages":"팀 메시지","Ask one assistant anything. A private conversation that continues where you left it.":"어시스턴트 한 명에게 무엇이든 물어보세요. 나만의 대화이며 이전 대화에 이어집니다.","My provider":"내 제공자","My model":"내 모델","Save for me":"내게 저장","Choose a provider and model above, then save before sending a message.":"위에서 제공자와 모델을 고르고 저장한 다음 메시지를 보내세요.","Start a fresh conversation. The earlier one stays under Activity.":"새 대화를 시작합니다. 이전 대화는 활동에 남습니다.","New chat":"새 채팅","Say hello to General.":"General에게 인사해 보세요.","Message General…":"General에게 메시지…","Send":"보내기","People and several agents talk in one room. Choose how much the agents may do on their own.":"사람과 여러 에이전트가 한 룸에서 대화합니다. 에이전트가 스스로 할 수 있는 범위를 고르세요.","No rooms yet. Make one below.":"아직 룸이 없습니다. 아래에서 만드세요.","New room":"새 룸","What it is for (optional)":"용도 (선택)","Create room":"룸 만들기","Pick or create a room.":"룸을 고르거나 만드세요.","New team":"새 팀","Team name":"팀 이름","team":"팀","division":"본부","project":"프로젝트","Create team":"팀 만들기","No teams yet. Create one above.":"아직 팀이 없습니다. 위에서 만드세요.","Handed over":"넘겨받은 일","Team":"팀","State":"상태","Result":"결과","Nothing has been handed to a team yet.":"팀에 넘겨진 일이 아직 없습니다.","Shared notes":"공유 노트","Add note":"노트 추가","Where":"위치","Note":"노트","By":"작성","No shared notes yet.":"아직 공유 노트가 없습니다.","Grants":"권한 부여","read":"읽기","write":"쓰기","Save grant":"권한 저장","Agent":"에이전트","Read":"읽기","Write":"쓰기","No grants.":"부여된 권한이 없습니다.","Work inside one project: manage its agents and talk with that project.":"프로젝트 하나 안에서 일합니다. 에이전트를 관리하고 그 프로젝트와 대화하세요.","Manage":"관리","Conversation":"대화","New project":"새 프로젝트","Description":"설명","Chat agent":"채팅 에이전트","Created":"생성","No projects yet. A project is a shared place to work with one agent; create one above.":"아직 프로젝트가 없습니다. 프로젝트는 에이전트 한 명과 함께 일하는 공유 공간입니다. 위에서 만드세요.","Fixes":"수정안","Decisions":"결정 기록","Mine":"내 것","All I can see":"볼 수 있는 모두","Mine is what you may decide.":"‘내 것’은 내가 결정할 수 있는 항목입니다.","No approvals need your attention. Requests from agents will appear here when they pause for a decision.":"확인할 승인이 없습니다. 에이전트가 결정을 기다리면 여기에 나타납니다.","Schedules":"스케줄","What agents did and are doing now.":"에이전트가 한 일과 지금 하는 일입니다.","Sessions":"세션","Tasks":"작업","Logs":"로그","Goal":"목표","Started":"시작","Nothing here yet.":"아직 아무것도 없습니다.","Work that starts by itself at set times.":"정해진 시간에 저절로 시작되는 일입니다.","Functions & procedures":"함수와 프로시저","Memories":"기억","What agents are able to do.":"에이전트가 할 수 있는 일입니다.","What agents remember.":"에이전트가 기억하는 것입니다.","Capability lifecycle":"능력 수명주기","Indexed":"색인됨","Embedded":"임베딩됨","Review queue":"검토 대기열","Searches":"검색","Type":"종류","Lifecycle":"수명주기","Versions":"버전","published":"게시됨","pending":"대기","Deprecate":"사용 중단","Refresh index":"색인 새로고침","LLM providers":"LLM 제공자","Kind":"종류","Purpose":"용도","Base URL":"기본 URL","Secret":"비밀 키","Private net":"사설망","blocked":"차단","allowed":"허용","untested":"테스트 안 됨","Add provider":"제공자 추가","Use one model for many":"모델 하나를 여러 곳에","Loading…":"불러오는 중…","Model prices":"모델 가격","Input $/1k":"입력 $/1k","Output $/1k":"출력 $/1k","Updated":"갱신","Set price":"가격 설정","No prices set yet. Set one so cost limits can count that model's calls.":"아직 가격이 없습니다. 가격을 설정하면 비용 한도가 그 모델의 호출을 셉니다.","API connections":"API 연결","Auth":"인증","Add connection":"연결 추가","No connections yet. Add one so agents can call an external API with a stored credential.":"아직 연결이 없습니다. 연결을 추가하면 에이전트가 저장된 자격 증명으로 외부 API를 호출할 수 있습니다.","Functions":"함수","Handler":"핸들러","Build":"빌드","Bound to":"연결 대상","Add function":"함수 추가","Procedures":"프로시저","Content":"내용","Body":"본문","Version":"버전","none":"없음","Add procedure":"프로시저 추가","Function model experiments":"함수 모델 실험","Function":"함수","Candidate":"후보","Canary":"카나리","Sample":"표본","Success rate":"성공률","Baseline":"기준","No experiments yet.":"아직 실험이 없습니다.","Apply a preset":"프리셋 적용","Apply":"적용","Every":"주기","Runs":"실행 횟수","Cost":"비용","Next / last":"다음 / 마지막","Add schedule":"스케줄 추가","No schedules yet. A schedule runs an agent on a goal at a regular interval; add one below.":"아직 스케줄이 없습니다. 스케줄은 에이전트가 정해진 간격으로 목표를 수행하게 합니다. 아래에서 추가하세요.","SQL sandbox allowlist":"SQL 샌드박스 허용 목록","Remove":"제거","Add":"추가","Dashboard access":"대시보드 접근","Set token":"토큰 설정","Clear token":"토큰 지우기","Run selftest":"자가 점검 실행","Set my name":"내 이름 설정","Theme":"테마","Dark":"다크","Light":"라이트","No token set for this browser tab. If the server requires one, requests will return 401.":"이 브라우저 탭에 토큰이 없습니다. 서버가 토큰을 요구하면 요청이 401로 거부됩니다.","Access & appearance":"접근과 화면","Audit log":"감사 로그","SQL console":"SQL 콘솔","Advanced: run SQL directly.":"고급: SQL을 직접 실행합니다.","Runs as":"실행 계정","Run":"실행","Models & prices":"모델과 가격","APIs":"API","MCP servers":"MCP 서버","Decision model":"결정 모델","Inbound events":"수신 이벤트","External APIs an agent may call with a stored credential. An agent only ever supplies a path, never a full URL, so the credential cannot be sent anywhere else.":"에이전트가 저장된 자격 증명으로 호출할 수 있는 외부 API입니다. 에이전트는 경로만 제공하고 전체 URL은 제공하지 않으므로 자격 증명이 다른 곳으로 보내질 수 없습니다.","Connect a server":"서버 연결","Address":"주소","Key (the server's LAYA_API_KEY, if it has one)":"키 (서버에 LAYA_API_KEY가 있다면)","The server is on this machine or a private network":"서버가 이 컴퓨터나 사설망에 있습니다","Connect and check":"연결하고 확인","No decision model connected. Everything is decided by people and rules.":"연결된 결정 모델이 없습니다. 모든 결정은 사람과 규칙이 합니다.","Hand decisions to the model":"모델에게 결정 맡기기","Watch":"관찰","Check":"확인","Hand over":"위임","Off":"끔","off":"끔","Nothing compared yet.":"아직 비교한 것이 없습니다.","checkpoint (optional)":"체크포인트 (선택)","Sure enough at":"확신 기준","Hand over for:":"위임 대상:","all agents":"모든 에이전트","Checkpoints and evaluation reports":"체크포인트와 평가 보고서","No report recorded.":"기록된 보고서가 없습니다.","checkpoint name":"체크포인트 이름","Record report":"보고서 기록","Recent questions to the model":"모델에게 한 최근 질문","Point":"지점","Model said":"모델 답","Person said":"사람 답","What happened":"결과","Nothing has been asked of the model yet.":"모델에게 물어본 것이 아직 없습니다.","Decide whether to approve this request from an agent to run or continue.":"에이전트가 실행하거나 계속하려는 이 요청을 승인할지 결정합니다.","Decide whether to approve this change that an agent proposed.":"에이전트가 제안한 이 변경을 승인할지 결정합니다.","Decide whether this task that the room's lead proposed should be started.":"룸의 리드가 제안한 이 작업을 시작할지 결정합니다.","Add a source":"소스 추가","Name (letters, digits, - and _)":"이름 (영문, 숫자, -, _)","Agent that handles it":"처리할 에이전트","Hold for a person":"사람이 확인할 때까지 보류","Start a task by itself":"작업을 자동으로 시작","Add source":"소스 추가","Sources":"소스","Source":"소스","What happens":"동작","No sources yet. Add one above.":"아직 소스가 없습니다. 위에서 추가하세요.","Recent events":"최근 이벤트","Received":"수신","Nothing has arrived yet.":"아직 도착한 것이 없습니다.","Time":"시간","Operator":"운영자","Action":"동작","Details":"세부 정보","(unlabeled)":"(이름 없음)","Write @agent-name to call one or several agents. Each message goes to whoever you mention.":"@에이전트이름 으로 하나 또는 여러 에이전트를 부르세요. 메시지는 언급한 대상에게 전달됩니다.","No messages yet.":"아직 메시지가 없습니다.","Cancel":"취소","Delete":"삭제","Rename":"이름 변경","Yes":"예","No":"아니요","Refresh":"새로고침","Submit":"제출","Approve":"승인","Reject":"거부","Accept":"수락","Decline":"거절","Enable":"켜기","Disable":"끄기","Test connection":"연결 테스트","Done":"완료","Back":"뒤로","Next":"다음","Search":"검색","Filter":"필터","approvals":"승인","proposals":"제안","kind (optional)":"종류 (선택)","any agent group":"모든 에이전트 그룹","decider role…":"결정자 역할…","any unit":"모든 단위","after hours":"업무 시간 이후","no escalation":"에스컬레이션 없음","role, e.g. Marketing head":"역할 (예: 마케팅 책임자)","what it decides (optional)":"무엇을 결정하는지 (선택)","unit, e.g. Marketing":"단위 (예: 마케팅)","top level":"최상위","person…":"사람…","role…":"역할…","anywhere":"어디서나","from…":"보내는 사람…","to…":"받는 사람…","A note everyone there should know":"모두가 알아야 할 노트","Risk / input":"위험 / 입력","Embedding":"임베딩","delegation":"위임","Theme":"테마","Talk directly with General. To call several agents with":"General과 직접 대화합니다. 여러 에이전트를 부르려면","@agent-name":"@에이전트이름",", use Team messages.":" 팀 메시지를 쓰세요.","Agent default:":"에이전트 기본값:"}/*KO_END*/;
+function uiLang(){try{const v=localStorage.getItem('allgres_canvas_lang');return v==='ko'?'ko':'en'}catch{return 'en'}}
+const TR_ORIG=new WeakMap(),TR_ATTR=['placeholder','title','aria-label'];
+let trBusy=false,trObs=null;
+function trString(raw,ko){const k=raw.trim();if(!k)return raw;const v=ko?KO_UI[k]:null;return v?raw.replace(k,v):raw}
+function trNode(n,ko){
+  const o=TR_ORIG.get(n);
+  if(ko){const base=o!==undefined?o:n.nodeValue,next=trString(base,true);if(next!==base){if(o===undefined)TR_ORIG.set(n,n.nodeValue);if(n.nodeValue!==next)n.nodeValue=next}}
+  else if(o!==undefined){n.nodeValue=o;TR_ORIG.delete(n)}
+}
+function trAttrs(el,ko){
+  for(const a of TR_ATTR){
+    if(!el.hasAttribute||!el.hasAttribute(a))continue;
+    const key='data-en-'+a,cur=el.getAttribute(a);
+    if(ko){const base=el.hasAttribute(key)?el.getAttribute(key):cur,next=trString(base,true);if(next!==base){if(!el.hasAttribute(key))el.setAttribute(key,cur);if(cur!==next)el.setAttribute(a,next)}}
+    else if(el.hasAttribute(key)){el.setAttribute(a,el.getAttribute(key));el.removeAttribute(key)}
+  }
+}
+function trWalk(root,ko){
+  if(!root)return;
+  if(root.nodeType===3){trNode(root,ko);return}
+  if(root.nodeType!==1||/^(SCRIPT|STYLE|TEXTAREA|CODE|PRE|IFRAME)$/.test(root.tagName)||root.classList.contains('mono'))return;
+  trAttrs(root,ko);
+  for(let c=root.firstChild;c;c=c.nextSibling)trWalk(c,ko);
+}
+function applyI18n(root){
+  const ko=uiLang()==='ko';
+  if(!ko&&!trObs)return;
+  trBusy=true;try{trWalk(root||document.body,ko)}finally{trBusy=false}
+}
+function startI18n(){
+  if(trObs)return;
+  trObs=new MutationObserver(ms=>{
+    if(trBusy)return;
+    trBusy=true;
+    try{const ko=uiLang()==='ko';for(const m of ms){if(m.type==='characterData')trNode(m.target,ko);else if(m.type==='attributes')trAttrs(m.target,ko);else m.addedNodes.forEach(n=>trWalk(n,ko))}}finally{trBusy=false}
+  });
+  trObs.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:TR_ATTR});
+}
+function setUiLang(l){
+  try{localStorage.setItem('allgres_canvas_lang',l)}catch{}
+  document.documentElement.lang=l;
+  startI18n();applyI18n();syncShell();
+}
+// The Canvas lives in an iframe under this top bar; it is told the theme and
+// language here instead of having controls of its own.
+function syncShell(){
+  const ko=uiLang()==='ko',th=document.documentElement.getAttribute('data-theme')==='light'?'light':'dark';
+  document.querySelectorAll('#langSeg button').forEach(b=>b.setAttribute('aria-pressed',(b.dataset.l==='ko')===ko));
+  const f=$('#canvasFrame');
+  if(f&&f.contentWindow)f.contentWindow.postMessage({type:'allgres-ui',theme:th,lang:uiLang()},location.origin);
+}
 
 // The dashboard token, when one is configured, lives in sessionStorage only.
 // Nothing persists it to disk and it is never placed in the page URL.
@@ -273,7 +333,14 @@ function nav(){
   n.innerHTML=groups.map(g=>`${g.label?`<div class="nav-group">${esc(g.label)}</div>`:''}${g.items.map(([p,label,kind])=>`<button class="nav-${kind} ${cur(p)?'active':''}" data-p="${p}">${esc(label)}</button>`).join('')}`).join('');
   n.querySelectorAll('button').forEach(b=>b.onclick=()=>{const p=b.dataset.p,h=hubOf(p);if(h&&hubOf(state.page)===h)return;const tab=h?HUBS[h].tabs.find(x=>x.page===p&&!x.mode)||HUBS[h].tabs[0]:null;h?openTab(tab):openPage(p)});
   renderWhoami();renderTabs();
-  const cv=$('#toCanvas');if(cv){cv.hidden=!admin;cv.onclick=()=>location.assign('/canvas')}
+  document.querySelectorAll('#langSeg button').forEach(b=>b.onclick=()=>setUiLang(b.dataset.l));
+  const tb=$('#themeBtn');if(tb)tb.onclick=()=>{setTheme(document.documentElement.getAttribute('data-theme')==='light'?'dark':'light');syncShell()};
+  syncShell();
+  const cv=$('#toCanvas'),dv=$('#toDashboard'),onC=state.page==='Canvas';
+  if(cv){cv.hidden=!admin;cv.setAttribute('aria-pressed',onC);cv.onclick=()=>{if(!onC)openPage('Canvas')}}
+  if(dv){dv.setAttribute('aria-pressed',!onC);dv.onclick=()=>{if(onC)openPage(state.lastDash&&state.lastDash!=='Canvas'?state.lastDash:'Overview')}}
+  document.body.classList.toggle('oncanvas',onC);
+  if(!onC)state.lastDash=state.page;
 }
 function renderWhoami(){const el=$('#whoami');if(!el)return;el.textContent=state.me?`${state.me.username} (${state.me.role})`:'';const lb=$('#logoutBtn');if(lb)lb.textContent=t('signOut')}
 function status(s){return `<span class="status s-${esc(s)}">${esc(s)}</span>`}
@@ -327,6 +394,7 @@ function chatText(l){
 // the screen after the operator has already moved to General.
 let pageLoadQueue=Promise.resolve();
 function loadPage(){pageLoadQueue=pageLoadQueue.catch(()=>{}).then(renderPage);return pageLoadQueue}
+function canvasBody(){$('#view').innerHTML='<iframe id="canvasFrame" title="Canvas" src="/canvas"></iframe>';$('#canvasFrame').onload=syncShell}
 async function renderPage(){
   // Chat/Messenger poll for an async reply on a setInterval; leaving the
   // page must stop it, or it keeps firing against DOM elements (#chatThread/
@@ -335,6 +403,7 @@ async function renderPage(){
   if(generalChatPollTimer){clearInterval(generalChatPollTimer);generalChatPollTimer=null}
   if(projectChatPollTimer){clearInterval(projectChatPollTimer);projectChatPollTimer=null}
   $('#pageTitle').textContent=hubOf(state.page)?HUBS[hubOf(state.page)].label:t(state.page); try{
+  if(state.page==='Canvas')canvasBody();
   if(state.page==='Overview')await overview();
   if(state.page==='Agents')await agents();
   if(state.page==='Projects')await projectsPage();
@@ -416,7 +485,7 @@ async function overview(){
   $('#hmTeams')&&($('#hmTeams').onclick=()=>openPage('Teams'));
   $('#hmInbound')&&($('#hmInbound').onclick=()=>openPage('Inbound'));
   $('#hmConnect')&&($('#hmConnect').onclick=()=>providerReady?(general?agentModal(general):openPage('Agents')):openPage('Models'));
-  $('#hmTeam')&&($('#hmTeam').onclick=()=>location.assign('/canvas'));
+  $('#hmTeam')&&($('#hmTeam').onclick=()=>openPage('Canvas'));
   $('#hmJob')&&($('#hmJob').onclick=()=>{state.chatMode='general';saveUi('chat_mode','general');openPage('Chat')});
   $('#hmAllApprovals').onclick=()=>openPage('Approvals');
   $('#hmActivity').onclick=()=>openPage('Activity');
@@ -1869,5 +1938,6 @@ async function boot(skipOauth){
   saveUi('page',state.page);
   nav();loadPage();startEvents();
 }
+document.documentElement.lang=uiLang();startI18n();applyI18n();
 boot();
 </script></body></html>
