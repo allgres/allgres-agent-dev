@@ -1995,7 +1995,33 @@ ALTER TABLE allgres_private.llm_providers
     CHECK (last_probe_status IS NULL OR last_probe_status IN ('ok', 'error')),
   ADD COLUMN IF NOT EXISTS last_probe_at timestamptz,
   ADD COLUMN IF NOT EXISTS last_probe_error text,
+  -- The same for a real chat message (not just the model list), with the model used.
+  ADD COLUMN IF NOT EXISTS last_chat_status text CHECK (last_chat_status IS NULL OR last_chat_status IN ('ok', 'error')),
+  ADD COLUMN IF NOT EXISTS last_chat_at timestamptz,
+  ADD COLUMN IF NOT EXISTS last_chat_error text,
+  ADD COLUMN IF NOT EXISTS last_chat_model text,
   ADD COLUMN IF NOT EXISTS available_models jsonb;
+
+-- A new address, kind or network setting makes an earlier "connected" mean
+-- nothing: forget both results until the provider is tested again. (A new
+-- key is handled where it is stored, fn_set_provider_secret.)
+CREATE OR REPLACE FUNCTION allgres_private.provider_reset_checks()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+  IF NEW.base_url IS DISTINCT FROM OLD.base_url
+     OR NEW.kind IS DISTINCT FROM OLD.kind
+     OR NEW.allow_private_network IS DISTINCT FROM OLD.allow_private_network THEN
+    NEW.last_probe_status := NULL; NEW.last_probe_at := NULL; NEW.last_probe_error := NULL;
+    NEW.last_chat_status := NULL; NEW.last_chat_at := NULL; NEW.last_chat_error := NULL; NEW.last_chat_model := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+DROP TRIGGER IF EXISTS provider_reset_checks ON allgres_private.llm_providers;
+CREATE TRIGGER provider_reset_checks BEFORE UPDATE ON allgres_private.llm_providers
+  FOR EACH ROW EXECUTE FUNCTION allgres_private.provider_reset_checks();
 
 CREATE TABLE IF NOT EXISTS allgres_private.oauth_states (
   state        text PRIMARY KEY,
@@ -2396,6 +2422,25 @@ CREATE TABLE IF NOT EXISTS allgres_private.provider_probes (
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now()
 );
+
+-- A test can be of a saved provider or of the Add/Edit form's own values
+-- (provider_id then NULL, or the provider being edited), a chat test as well
+-- as the model list, and a person's own trial of a model: see
+-- operator_runtime_and_integrations.sql. draft_secret holds a typed key,
+-- encrypted, only until the call completes.
+ALTER TABLE allgres_private.provider_probes
+  ALTER COLUMN provider_id DROP NOT NULL,
+  ADD COLUMN IF NOT EXISTS probe text NOT NULL DEFAULT 'models' CHECK (probe IN ('models', 'chat')),
+  ADD COLUMN IF NOT EXISTS method text NOT NULL DEFAULT 'GET',
+  ADD COLUMN IF NOT EXISTS request_body jsonb,
+  ADD COLUMN IF NOT EXISTS model text,
+  ADD COLUMN IF NOT EXISTS draft_kind text,
+  ADD COLUMN IF NOT EXISTS draft_secret text,
+  ADD COLUMN IF NOT EXISTS record_result boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS created_by uuid,
+  ADD COLUMN IF NOT EXISTS hint text,
+  ADD COLUMN IF NOT EXISTS reply text,
+  ADD COLUMN IF NOT EXISTS models jsonb;
 
 CREATE INDEX IF NOT EXISTS provider_probes_ready_idx
   ON allgres_private.provider_probes (created_at)
@@ -6921,6 +6966,28 @@ BEGIN
 END;
 $fn$;
 
+-- A chat server that answers HTTP 200 with just {"error": ...} (LM Studio does
+-- for a path it does not serve) has not given a reply: that body is an error,
+-- not the agent's answer. Plain text and anything shaped like a reply pass.
+CREATE OR REPLACE FUNCTION allgres_private.llm_body_is_error(p_body text)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+AS $fn$
+DECLARE
+  j jsonb;
+BEGIN
+  BEGIN
+    j := p_body::jsonb;
+  EXCEPTION WHEN others THEN
+    RETURN false;
+  END;
+  RETURN jsonb_typeof(j) = 'object'
+     AND j ? 'error' AND jsonb_typeof(j->'error') <> 'null'
+     AND NOT (j ? 'choices') AND NOT (j ? 'content');
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_private.llm_text_from_http(p_body text)
 RETURNS text
 LANGUAGE plpgsql
@@ -7247,7 +7314,7 @@ BEGIN
         );
       END IF;
     END IF;
-  ELSIF p_status IS NULL OR p_status >= 400 OR p_status < 200 THEN
+  ELSIF p_status IS NULL OR p_status >= 400 OR p_status < 200 OR allgres_private.llm_body_is_error(p_body) THEN
     -- Auto-detect a provider that rejects response_format outright (a real
     -- local-server incompatibility, not a hypothetical -- confirmed live
     -- against LM Studio) instead of leaving an operator to notice the same
@@ -7269,6 +7336,10 @@ BEGIN
     v_payload := jsonb_build_object(
       'type', 'error',
       'message', 'llm http ' || COALESCE(p_status::text, '0') || ': ' || left(COALESCE(p_body, ''), 2000)
+        || CASE WHEN p_status BETWEEN 200 AND 299
+                THEN ' (the server answered with an error instead of a chat reply'
+                     || CASE WHEN p_body ILIKE '%unexpected endpoint%' THEN '; the provider''s Base URL may need /v1 at the end' ELSE '' END || ')'
+                ELSE '' END
     );
   ELSE
     v_text := allgres_private.llm_text_from_http(p_body);
@@ -7712,10 +7783,13 @@ BEGIN
     FOR UPDATE SKIP LOCKED
   LOOP
     UPDATE allgres_private.provider_probes
-    SET status = 'lost', error = 'timeout', updated_at = now()
+    SET status = 'lost', error = 'timeout', draft_secret = NULL, updated_at = now()
     WHERE call_id = r.call_id;
     n := n + 1;
   END LOOP;
+  -- Tests of unsaved values and personal model trials are not kept.
+  DELETE FROM allgres_private.provider_probes
+  WHERE NOT record_result AND created_at < now() - interval '1 hour';
 
   -- Sign-in requests (finding the server's sign-in, registering, exchanging a
   -- code, refreshing) the worker never came back from, and tokens that run

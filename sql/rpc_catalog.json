@@ -1612,10 +1612,48 @@
   {
     "action": "providers.probe_start",
     "guards": [
-      "require_admin_if_accounts_exist"
+      "require_admin_if_accounts_exist",
+      "session_user"
     ],
     "params": [
+      "model",
+      "probe",
       "provider_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "providers.draft_probe_start",
+    "guards": [
+      "require_admin_if_accounts_exist",
+      "session_user"
+    ],
+    "params": [
+      "allow_private_network",
+      "api_key",
+      "base_url",
+      "kind",
+      "model",
+      "probe",
+      "provider_id",
+      "response_format_json_object",
+      "session_token"
+    ]
+  },
+  {
+    "action": "providers.test_model",
+    "guards": [],
+    "params": [
+      "model",
+      "provider",
+      "session_token"
+    ]
+  },
+  {
+    "action": "providers.test_status",
+    "guards": [],
+    "params": [
+      "call_id",
       "session_token"
     ]
   },

@@ -2405,7 +2405,29 @@ BEGIN
     -- fn_provider_probe_status is what the dashboard polls until it lands.
     WHEN 'providers.probe_start' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
-      RETURN allgres_public.fn_provider_probe_start((p_request->>'provider_id')::uuid);
+      RETURN allgres_public.fn_provider_probe_start(
+        (p_request->>'provider_id')::uuid, COALESCE(p_request->>'probe', 'models'), p_request->>'model',
+        (allgres_private.session_user(p_request->>'session_token')).user_id, true);
+
+    -- The Add/Edit form's own values, tested before anything is saved.
+    WHEN 'providers.draft_probe_start' THEN
+      PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
+      RETURN allgres_public.fn_provider_draft_probe_start(
+        p_request->>'kind', p_request->>'base_url', p_request->>'api_key',
+        COALESCE((p_request->>'allow_private_network')::boolean, false),
+        COALESCE(p_request->>'probe', 'models'), p_request->>'model',
+        COALESCE((p_request->>'response_format_json_object')::boolean, true),
+        NULLIF(p_request->>'provider_id', '')::uuid,
+        (allgres_private.session_user(p_request->>'session_token')).user_id);
+
+    -- A person trying the provider and model they chose (General).
+    WHEN 'providers.test_model' THEN
+      RETURN allgres_public.fn_provider_test_model(
+        p_request->>'session_token', p_request->>'provider', p_request->>'model');
+
+    WHEN 'providers.test_status' THEN
+      RETURN allgres_public.fn_provider_test_status(
+        p_request->>'session_token', (p_request->>'call_id')::uuid);
 
     WHEN 'providers.probe_status' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');

@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'agents.clone', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'agents.clone', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5376,6 +5376,7 @@ BEGIN
   v := v || allgres_private.chat_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.agent_clone_selftest_cases();
+  v := v || allgres_private.provider_test_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -7733,6 +7734,110 @@ BEGIN
     AND (SELECT (allgres.dashboard_rpc(jsonb_build_object('action', 'agents.clone', 'agent_id', src, 'name', 'zz13_named', 'session_token', ta)))->>'name') = 'zz13_named'
     AND (SELECT (allgres.dashboard_rpc(jsonb_build_object('action', 'agents.clone', 'agent_id', src, 'session_token', ta)))->>'name') = 'zz13_src_copy_2';
   v := v || jsonb_build_array(jsonb_build_object('name', 'a_copy_leaves_memories_behind_and_names_do_not_clash', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- Provider tests: a 2xx with the wrong body is not a pass; a form's own values
+-- can be tested before saving; a person can try their own model.
+CREATE OR REPLACE FUNCTION allgres_private.provider_test_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_user uuid; u_other uuid;
+  ta text := 'selftest-ptest-admin-token'; tu text := 'selftest-ptest-user-token'; to_ text := 'selftest-ptest-other-token';
+  v_prov uuid; v_call uuid; v_claim jsonb; c jsonb;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_ptest_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_ptest_user', 'x', 'user') RETURNING user_id INTO u_user;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_ptest_other', 'x', 'user') RETURNING user_id INTO u_other;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (ta, u_admin, now() + interval '1 hour'), (tu, u_user, now() + interval '1 hour'), (to_, u_other, now() + interval '1 hour');
+  INSERT INTO allgres_private.llm_providers (name, kind, base_url, allow_private_network)
+    VALUES ('zz14_prov', 'openai_compat', 'http://192.0.2.10:1234', true) RETURNING provider_id INTO v_prov;
+
+  -- LM Studio answers an unknown path with HTTP 200 and an error body.
+  v_call := (allgres_public.fn_provider_probe_start(v_prov)->>'call_id')::uuid;
+  PERFORM allgres_public.fn_claim_provider_probe(4);
+  PERFORM allgres_public.fn_complete_provider_probe(v_call, 200, '{"error":"Unexpected endpoint or method. (GET /models)"}');
+  r := allgres_public.fn_provider_probe_status(v_call);
+  ok := NOT (r->>'passed')::boolean AND r->>'error' LIKE '%not with a model list%' AND r->>'error' LIKE '%Unexpected endpoint%'
+    AND r->>'hint' LIKE '%/v1%'
+    AND (SELECT last_probe_status = 'error' FROM allgres_private.llm_providers WHERE provider_id = v_prov);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_200_with_an_error_body_is_not_a_connected_provider', 'ok', ok));
+
+  -- A chat test posts a message with the model, and a chat reply passes.
+  v_call := (allgres_public.fn_provider_probe_start(v_prov, 'chat', 'm1')->>'call_id')::uuid;
+  v_claim := allgres_public.fn_claim_provider_probe(4);
+  c := (SELECT e FROM jsonb_array_elements(v_claim->'calls') e WHERE e->>'call_id' = v_call::text);
+  ok := c->>'method' = 'POST' AND c->>'url' = 'http://192.0.2.10:1234/chat/completions' AND c->'body'->>'model' = 'm1';
+  PERFORM allgres_public.fn_complete_provider_probe(v_call, 200, '{"choices":[{"message":{"content":"{\"ok\": true}"}}]}');
+  r := allgres_public.fn_provider_probe_status(v_call);
+  ok := ok AND (r->>'passed')::boolean AND r->>'reply' LIKE '%ok%'
+    AND (SELECT last_chat_status = 'ok' AND last_chat_model = 'm1' FROM allgres_private.llm_providers WHERE provider_id = v_prov);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_chat_test_posts_a_message_and_a_reply_passes', 'ok', ok));
+
+  v_call := (allgres_public.fn_provider_probe_start(v_prov, 'chat', 'm1')->>'call_id')::uuid;
+  PERFORM allgres_public.fn_claim_provider_probe(4);
+  PERFORM allgres_public.fn_complete_provider_probe(v_call, 200, '{"error":"Unexpected endpoint or method. (POST /chat/completions)"}');
+  r := allgres_public.fn_provider_probe_status(v_call);
+  ok := NOT (r->>'passed')::boolean AND r->>'error' LIKE '%not with a chat reply%' AND r->>'hint' LIKE '%/v1%'
+    AND (SELECT last_chat_status = 'error' FROM allgres_private.llm_providers WHERE provider_id = v_prov);
+  -- An unreachable server says so and what to try.
+  v_call := (allgres_public.fn_provider_probe_start(v_prov)->>'call_id')::uuid;
+  PERFORM allgres_public.fn_claim_provider_probe(4);
+  PERFORM allgres_public.fn_complete_provider_probe(v_call, -1, 'connection refused');
+  r := allgres_public.fn_provider_probe_status(v_call);
+  ok := ok AND r->>'hint' LIKE '%host.docker.internal%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_chat_error_and_an_unreachable_server_come_with_what_to_try', 'ok', ok));
+
+  -- A new address forgets the earlier results.
+  UPDATE allgres_private.llm_providers SET base_url = 'http://192.0.2.10:1234/v1' WHERE provider_id = v_prov;
+  ok := (SELECT last_probe_status IS NULL AND last_chat_status IS NULL FROM allgres_private.llm_providers WHERE provider_id = v_prov);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_new_address_forgets_the_earlier_test_results', 'ok', ok));
+
+  -- The form's own values: tested without saving, the typed key only until the call completes.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.draft_probe_start', 'kind', 'openai_compat',
+    'base_url', 'http://192.0.2.20:1234/v1', 'api_key', 'sk-draft-test', 'allow_private_network', true, 'session_token', ta));
+  v_call := (r->>'call_id')::uuid;
+  v_claim := allgres_public.fn_claim_provider_probe(4);
+  c := (SELECT e FROM jsonb_array_elements(v_claim->'calls') e WHERE e->>'call_id' = v_call::text);
+  ok := (r->>'ok')::boolean AND c->'headers'->>'authorization' = 'Bearer sk-draft-test'
+    AND (SELECT count(*) = 0 FROM allgres_private.llm_providers WHERE base_url LIKE 'http://192.0.2.20%');
+  PERFORM allgres_public.fn_complete_provider_probe(v_call, 200, '{"data":[{"id":"zz14-model"}]}');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.probe_status', 'call_id', v_call, 'session_token', ta));
+  ok := ok AND (r->>'passed')::boolean AND r->'models' = '["zz14-model"]'::jsonb
+    AND (SELECT draft_secret IS NULL FROM allgres_private.provider_probes WHERE call_id = v_call)
+    AND (SELECT last_probe_status IS NULL FROM allgres_private.llm_providers WHERE provider_id = v_prov);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.draft_probe_start', 'kind', 'openai_compat',
+    'base_url', 'http://192.0.2.20:1234/v1', 'session_token', tu));
+  ok := ok AND r->>'error' IS NOT NULL;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_form_is_tested_before_saving_and_its_key_is_not_kept', 'ok', ok));
+
+  -- A person tries their own model: recorded nowhere, one at a time, private to them.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.test_model', 'provider', 'zz14_prov', 'model', 'm2', 'session_token', tu));
+  v_call := (r->>'call_id')::uuid;
+  ok := (r->>'ok')::boolean AND (SELECT NOT record_result AND created_by = u_user FROM allgres_private.provider_probes WHERE call_id = v_call);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.test_model', 'provider', 'zz14_prov', 'model', 'm2', 'session_token', tu));
+  ok := ok AND r->>'error' LIKE '%already running%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.test_status', 'call_id', v_call, 'session_token', to_));
+  ok := ok AND r->>'error' IS NOT NULL;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.test_status', 'call_id', v_call, 'session_token', tu));
+  ok := ok AND (r->>'ok')::boolean AND r->>'model' = 'm2';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_person_can_test_their_own_model_and_only_see_their_own_result', 'ok', ok));
+
+  -- A 200 with only an error in it is not the agent's answer.
+  ok := allgres_private.llm_body_is_error('{"error":"Unexpected endpoint or method. (POST /chat/completions)"}')
+    AND NOT allgres_private.llm_body_is_error('{"choices":[{"message":{"content":"hi"}}]}')
+    AND NOT allgres_private.llm_body_is_error('plain text')
+    AND NOT allgres_private.llm_body_is_error('{"error":null,"choices":[]}');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_200_with_only_an_error_body_is_an_error_not_an_answer', 'ok', ok));
 
   RETURN v;
 END;

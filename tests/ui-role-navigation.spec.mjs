@@ -846,6 +846,39 @@ test('an agent is copied with its setup', async ({ page }) => {
   await expect(page.locator('#cloneAgent')).toHaveCount(0);
 });
 
+test('a provider is tested before it is saved, and a 200 with an error body is not "connected"', async ({ page }) => {
+  const name = `ui_lms_${Date.now()}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await go(page, 'Models & prices');
+  await page.getByRole('button', { name: 'Add provider' }).click();
+  await page.locator('#npName').fill(name);
+  await page.locator('#npUrl').fill(baseURL + '/mockbad');
+  await page.locator('#npPrivate').check();
+  await page.locator('#npTestModel').fill('allgres-mock');
+  await page.locator('#testNew').click();
+  // The server answers 200 with {"error": "Unexpected endpoint…"}: not a model list.
+  await expect(page.locator('#npProbeOut')).toContainText('not with a model list', { timeout: 20000 });
+  await expect(page.locator('#npProbeOut')).toContainText('Unexpected endpoint');
+  await expect(page.locator('#npProbeOut')).toContainText('/v1');
+  // Nothing is saved by testing.
+  await expect(page.locator('#view')).not.toContainText(name);
+  // One click adds /v1 and tests again, this time through to a chat reply.
+  await page.locator('#probeFixV1').click();
+  await expect(page.locator('#npUrl')).toHaveValue(baseURL + '/mockbad/v1');
+  await expect(page.locator('#npProbeOut')).toContainText('Chat works', { timeout: 30000 });
+  await expect(page.locator('#npProbeOut')).toContainText('lists');
+  await page.locator('#saveNewP').click();
+  await expect(page.locator('#view')).toContainText(name);
+  // A person tries the model they chose in General without sending a chat.
+  await go(page, 'General');
+  await page.locator('#cmProvider').selectOption({ label: `${name} (openai_compat)` });
+  await page.locator('#cmModel').fill('allgres-mock');
+  await page.locator('#cmTest').click();
+  await expect(page.locator('#cmTestOut')).toContainText('The model answered', { timeout: 30000 });
+  await page.locator('#cmModel').fill('allgres-mock');
+  await expect(page.locator('#generalChatThread')).not.toContainText('Unexpected endpoint');
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(3);

@@ -76,6 +76,11 @@
 .u-font-size-12px-margin-top-10px-color-var-bad{font-size:12px;margin-top:10px;color:var(--bad)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg button{border:0;background:transparent;color:var(--muted);padding:5px 12px;font:inherit;cursor:pointer}.seg button.seg-on,.seg button[aria-pressed=true]{background:var(--accent);color:var(--on-accent)}.seg button:not(.seg-on):hover{color:var(--text)}.seg button[hidden]{display:none}
 #themeBtn{padding:4px 10px}
+.u-width-100{flex:1 0 100%;width:100%}
+/* Native pop-ups (drop-downs, date pickers, scrollbars) follow the page theme instead of the system's. */
+:root{color-scheme:dark}:root[data-theme="light"]{color-scheme:light}
+select option,select optgroup{background:var(--panel);color:var(--text)}
+select option:checked{background:var(--accent);color:var(--on-accent)}
 .abCard{display:block;width:100%;text-align:left;cursor:pointer;color:var(--text);font:inherit}.abCard:hover{border-color:var(--accent)}
 /* One fixed-height top bar: the buttons sit in the same place on every page. */
 @media(min-width:901px){.main>.top{flex-wrap:nowrap;height:64px;min-height:64px;margin-bottom:16px;gap:16px}.main>.top>div:first-child{min-width:0;flex:1 1 120px}.main>.top .title,.main>.top #pageSub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.main>.top>.row{flex:none;margin-left:auto;flex-wrap:nowrap;white-space:nowrap;gap:8px}.main>.top #whoami{min-width:0;max-width:170px;overflow:hidden;text-overflow:ellipsis;text-align:right}}
@@ -366,10 +371,51 @@ function probeErrorText(err){
 // Settings' own "Test connection" button) is the real signal. 'untested'
 // covers both a provider nobody has probed yet and a fresh install's seeded
 // rows, which start with last_probe_status NULL either way.
+// A test of a provider (or of a person's model) is queued, polled, and shown
+// as what came back: the server's own words and what to try next. A 2xx with
+// the wrong body is not a pass (the server side checks the shape).
+async function awaitProbe(action,callId,extra={}){
+  for(let i=0;i<45;i++){
+    const s=await rpc(action,{call_id:callId,...extra});
+    if(s.status!=='queued'&&s.status!=='in_flight')return s;
+    await new Promise(r=>setTimeout(r,1000));
+  }
+  return {status:'lost',error:'Timed out: the server did not answer in time.'};
+}
+function probeFailHtml(s,what){
+  return `<div>${status('error')} ${s.status==='lost'?'':`The ${esc(what)} test failed: `}${esc(probeErrorText(s.error))}</div>${s.hint?`<div class="muted u-font-size-12px u-margin-top-8px">${esc(s.hint)}</div>`:''}`;
+}
+// start(probe, model) queues one probe and returns its call_id.
+async function runProviderChecks({start,out,model,onModels,baseInput}){
+  out.innerHTML='Checking the server…';
+  const rerun=()=>runProviderChecks({start,out,model,onModels,baseInput});
+  const fixButton=s=>{
+    if(!baseInput||!/\/v1/.test(s.hint||''))return;
+    out.insertAdjacentHTML('beforeend','<div class="u-margin-top-8px"><button class="btn small" id="probeFixV1">Add /v1 and test again</button></div>');
+    $('#probeFixV1').onclick=()=>{baseInput.value=baseInput.value.replace(/\/+$/,'')+'/v1';rerun()};
+  };
+  try{
+    const a=await start('models','');
+    const s1=await awaitProbe('providers.probe_status',a.call_id);
+    if(!s1.passed){out.innerHTML=probeFailHtml(s1,'model list');fixButton(s1);return false}
+    if(onModels)onModels(s1.models||s1.available_models||[]);
+    const line=`<div>${status('ok')} Reached the server; it lists ${esc(s1.model_count)} model(s).</div>`;
+    if(!model){out.innerHTML=line+'<div class="muted u-font-size-12px u-margin-top-8px">Give a model name to test a chat message as well. Listing models does not prove a chat works.</div>';return true}
+    out.innerHTML=line+'<div class="muted">Sending a test message…</div>';
+    const b=await start('chat',model);
+    const s2=await awaitProbe('providers.probe_status',b.call_id);
+    out.innerHTML=line+(s2.passed?`<div>${status('ok')} Chat works${s2.reply?`: ${esc(s2.reply)}`:''}</div>`:probeFailHtml(s2,'chat'));
+    if(!s2.passed)fixButton(s2);
+    return !!s2.passed;
+  }catch(e){out.innerHTML=`${status('error')} ${esc(e.message)}`;return false}
+}
 function providerStatusBadge(p){
   if(!p.is_enabled)return status('disabled');
   if(p.kind==='oauth'&&p.oauth_status!=='connected')return status(p.oauth_status||'reconnect_required');
-  if(p.last_probe_status==='ok')return status('ok');
+  if(p.last_probe_status==='ok'){
+    if(p.last_chat_status==='error')return `<span title="${esc('Chat test failed: '+(p.last_chat_error||''))}">${status('error')}</span><div class="muted u-font-size-11px">chat failed</div>`;
+    return status('ok')+(p.last_chat_status==='ok'?'':'<div class="muted u-font-size-11px">chat not tested</div>');
+  }
   if(p.last_probe_status==='error')return `<span title="${esc(p.last_probe_error||'')}">${status('error')}</span>`;
   return status('untested');
 }
@@ -1407,33 +1453,33 @@ function providerModal(p){
   // and fills available_models, which every Model field's datalist reads
   // from. Available for every provider, not just oauth -- an API-key
   // provider needs this exactly as much (a typo'd key still "saves" fine).
-  const probeLine=p.last_probe_status==='ok'
+  const probeLine=(p.last_probe_status==='ok'
     ?`Last check: connected${p.last_probe_at?` (${esc(p.last_probe_at)})`:''}${(p.available_models||[]).length?`, ${p.available_models.length} model(s) found`:''}.`
     :p.last_probe_status==='error'
     ?`Last check failed: ${esc(p.last_probe_error||'unknown error')}`
-    :'Not tested yet.';
-  const probeRow=`<div class="row u-margin-14px-0"><button class="btn" id="testConn">Save &amp; test connection</button><span class="spacer"></span><span id="probeOut" class="muted u-font-size-12px">${probeLine}</span></div>`;
+    :'Not tested yet.')
+    +(p.last_chat_status==='ok'?` Chat worked with ${esc(p.last_chat_model||'a model')}.`
+      :p.last_chat_status==='error'?` Chat failed with ${esc(p.last_chat_model||'a model')}: ${esc(p.last_chat_error||'')}`:'');
+  const probeRow=isOauth?`<div class="row u-margin-14px-0"><button class="btn" id="testConn">Save &amp; test connection</button><span class="spacer"></span><span id="probeOut" class="muted u-font-size-12px">${probeLine}</span></div>`
+    :`<div class="field"><label>Model to test with <span class="muted">-- optional; tests a real chat message too</span></label><input class="input" id="pTestModel" list="pTestModels" value="${esc(p.last_chat_model||(p.available_models||[])[0]||'')}" placeholder="e.g. gpt-4o, llama3">${modelDatalist('pTestModels',p.available_models||[])}</div><div class="row u-margin-14px-0"><button class="btn" id="testDraft">Test connection</button><button class="btn" id="testConn">Save &amp; test</button></div><div id="probeOut" class="muted u-font-size-12px">${probeLine}</div>`;
   $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${esc(p.name)}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Purpose</label><div class="muted u-font-size-12px">${isEmbedding?'embedding -- powers search_agents only':'chat -- serves an agent\'s own turns'} (set at creation, cannot be changed here)</div></div>${embedField}<div class="field"><label>Base URL</label><input class="input" id="pUrl" value="${esc(p.base_url)}"></div>${isOauth?'':'<div class="field"><label>API key (leave blank to keep existing)</label><input type="password" class="input" id="pKey" autocomplete="new-password"></div>'}${oauthFields}<div class="field"><label><input type="checkbox" id="pEnabled" ${p.is_enabled?'checked':''}> Enabled</label></div><div class="field"><label><input type="checkbox" id="pPrivate" ${p.allow_private_network?'checked':''}> Allow loopback / private-network endpoint</label><div class="muted u-font-size-12px">Needed for a local Ollama or an in-cluster gateway. Leaving this off is what stops this endpoint from being pointed at an internal address.</div></div>${jsonModeField}${probeRow}${connectRow}<button class="btn primary" id="saveP">Save</button></div>`;
   $('#closeM').onclick=closeModal;
   const saveProvider=()=>{const body={provider_id:p.provider_id,base_url:$('#pUrl').value,is_enabled:$('#pEnabled').checked,allow_private_network:$('#pPrivate').checked,operator_name:opName(),session_token:sessTok()};if(!isOauth)body.response_format_json_object=$('#pJsonMode').checked;if(isOauth){body.oauth_auth_url=$('#pAuthUrl').value;body.oauth_token_url=$('#pTokenUrl').value;body.oauth_client_id=$('#pClientId').value;body.oauth_client_secret=$('#pClientSecret').value}else{body.api_key=$('#pKey').value}if(isEmbedding)body.embedding_model=$('#pEmbedModel').value;return api('/api/v1/settings/provider',{method:'POST',body:JSON.stringify(body)})};
+  // Test connection: the form's own values, nothing saved. Save & test: save, then test the saved provider.
+  const formValues=()=>({kind:p.kind,base_url:$('#pUrl').value,api_key:$('#pKey')?$('#pKey').value:'',allow_private_network:$('#pPrivate').checked,
+    response_format_json_object:$('#pJsonMode')?$('#pJsonMode').checked:true,provider_id:p.provider_id});
+  const modelOptions=list=>{if($('#pTestModels'))$('#pTestModels').innerHTML=list.map(m=>`<option value="${esc(m)}">`).join('');if($('#pTestModel')&&!$('#pTestModel').value&&list.length)$('#pTestModel').value=list[0]};
+  if($('#testDraft'))$('#testDraft').onclick=()=>runProviderChecks({
+    out:$('#probeOut'),model:$('#pTestModel').value.trim(),baseInput:$('#pUrl'),onModels:modelOptions,
+    start:(probe,model)=>rpc('providers.draft_probe_start',{...formValues(),probe,model})});
   $('#testConn').onclick=async()=>{
     const out=$('#probeOut');
-    out.textContent='Checking…';
+    out.textContent='Saving…';
     try{
       await saveProvider();
-      const start=await rpc('providers.probe_start',{provider_id:p.provider_id});
-      const callId=start.call_id;
-      const poll=async()=>{
-        let s;
-        try{s=await rpc('providers.probe_status',{call_id:callId})}
-        catch(e){out.textContent=e.message;return}
-        if(s.status==='queued'||s.status==='in_flight'){setTimeout(poll,1500);return}
-        if(s.status==='lost'){out.textContent='Timed out -- try again.';return}
-        out.textContent=s.last_probe_status==='ok'
-          ?`Connected.${(s.available_models||[]).length?` ${s.available_models.length} model(s) found.`:''}`
-          :`Failed: ${probeErrorText(s.last_probe_error)}`;
-      };
-      poll();
+      await runProviderChecks({out,model:$('#pTestModel')?$('#pTestModel').value.trim():'',baseInput:$('#pUrl'),onModels:modelOptions,
+        start:(probe,model)=>rpc('providers.probe_start',{provider_id:p.provider_id,probe,model})});
+      loadPage();
     }catch(e){out.textContent=e.message}
   };
   $('#saveP').onclick=async()=>{try{await saveProvider();closeModal();toast('Provider saved');loadPage()}catch(e){toast(e.message)}};
@@ -1484,10 +1530,17 @@ function providerModal(p){
 // openai, anthropic, ollama, openai_compat); an operator who wanted to
 // point at anything else had no way to add it.
 function newProviderModal(){
-  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Add provider</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Name</label><input class="input" id="npName" placeholder="e.g. my-openai-compat-endpoint"></div><div class="field"><label>Kind</label><select class="input" id="npKind"><option value="openai_compat">openai_compat</option><option value="anthropic">anthropic</option><option value="oauth">oauth</option></select></div><div class="field"><label>Purpose <span class="muted">-- embedding powers semantic delegate search and requires kind=openai_compat</span></label><select class="input" id="npPurpose"><option value="chat">chat -- serves an agent's own turns</option><option value="embedding">embedding -- powers search_agents only</option></select></div><div class="field" id="npEmbedModelField" hidden><label>Embedding model</label><input class="input" id="npEmbedModel" placeholder="e.g. text-embedding-3-small"></div><div class="field"><label>Base URL</label><input class="input" id="npUrl" placeholder="https://..."></div><div class="field" id="npKeyField"><label>API key (optional; can also be set later)</label><input type="password" class="input" id="npKey" autocomplete="new-password"></div><div id="npOauthFields" hidden><div class="field"><label>Authorization URL</label><input class="input" id="npAuthUrl" placeholder="https://.../authorize"></div><div class="field"><label>Token URL</label><input class="input" id="npTokenUrl" placeholder="https://.../token"></div><div class="field"><label>Client ID</label><input class="input" id="npClientId"></div><div class="field"><label>Client secret</label><input type="password" class="input" id="npClientSecret" autocomplete="new-password"></div></div><div class="field"><label><input type="checkbox" id="npPrivate"> Allow loopback / private-network endpoint</label><div class="muted u-font-size-12px">Needed for a local Ollama or an in-cluster gateway. Leaving this off blocks internal addresses.</div></div><div class="field" id="npJsonModeField"><label><input type="checkbox" id="npJsonMode" checked> Send OpenAI response_format</label></div><button class="btn primary" id="saveNewP">Add provider</button></div>`;
+  $('#modal').classList.remove('hidden');$('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Add provider</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Name</label><input class="input" id="npName" placeholder="e.g. my-openai-compat-endpoint"></div><div class="field"><label>Kind</label><select class="select" id="npKind"><option value="openai_compat">openai_compat</option><option value="anthropic">anthropic</option><option value="oauth">oauth</option></select></div><div class="field"><label>Purpose <span class="muted">-- embedding powers semantic delegate search and requires kind=openai_compat</span></label><select class="select" id="npPurpose"><option value="chat">chat -- serves an agent's own turns</option><option value="embedding">embedding -- powers search_agents only</option></select></div><div class="field" id="npEmbedModelField" hidden><label>Embedding model</label><input class="input" id="npEmbedModel" placeholder="e.g. text-embedding-3-small"></div><div class="field"><label>Base URL</label><input class="input" id="npUrl" placeholder="https://..."></div><div class="field" id="npKeyField"><label>API key (optional; can also be set later)</label><input type="password" class="input" id="npKey" autocomplete="new-password"></div><div id="npOauthFields" hidden><div class="field"><label>Authorization URL</label><input class="input" id="npAuthUrl" placeholder="https://.../authorize"></div><div class="field"><label>Token URL</label><input class="input" id="npTokenUrl" placeholder="https://.../token"></div><div class="field"><label>Client ID</label><input class="input" id="npClientId"></div><div class="field"><label>Client secret</label><input type="password" class="input" id="npClientSecret" autocomplete="new-password"></div></div><div class="field"><label><input type="checkbox" id="npPrivate"> Allow loopback / private-network endpoint</label><div class="muted u-font-size-12px">Needed for a local Ollama or an in-cluster gateway. Leaving this off blocks internal addresses.</div></div><div class="field" id="npJsonModeField"><label><input type="checkbox" id="npJsonMode" checked> Send OpenAI response_format</label></div><div id="npTestBlock"><div class="field"><label>Model to test with <span class="muted">-- optional; tests a real chat message too</span></label><input class="input" id="npTestModel" list="npTestModels" placeholder="e.g. gpt-4o, llama3"><datalist id="npTestModels"></datalist></div><div class="row u-margin-14px-0"><button class="btn" id="testNew">Test connection</button><span class="muted u-font-size-12px">Nothing is saved by testing.</span></div><div id="npProbeOut" class="muted u-font-size-12px u-margin-bottom-14px"></div></div><button class="btn primary u-margin-top-12px" id="saveNewP">Add provider</button></div>`;
   $('#closeM').onclick=closeModal;
   const syncProviderKind=()=>{const oauth=$('#npKind').value==='oauth',supportsEmbedding=$('#npKind').value==='openai_compat';$('#npOauthFields').hidden=!oauth;$('#npKeyField').hidden=oauth;$('#npJsonModeField').hidden=oauth;const embedding=$('#npPurpose').querySelector('option[value="embedding"]');embedding.disabled=!supportsEmbedding;if(!supportsEmbedding&&$('#npPurpose').value==='embedding')$('#npPurpose').value='chat';$('#npEmbedModelField').hidden=$('#npPurpose').value!=='embedding'};
   $('#npPurpose').onchange=syncProviderKind;$('#npKind').onchange=syncProviderKind;syncProviderKind();
+  const syncTestBlock=()=>{$('#npTestBlock').hidden=$('#npKind').value==='oauth'||$('#npPurpose').value==='embedding'};
+  $('#npKind').addEventListener('change',syncTestBlock);$('#npPurpose').addEventListener('change',syncTestBlock);syncTestBlock();
+  $('#testNew').onclick=()=>runProviderChecks({
+    out:$('#npProbeOut'),model:$('#npTestModel').value.trim(),baseInput:$('#npUrl'),
+    onModels:list=>{$('#npTestModels').innerHTML=list.map(m=>`<option value="${esc(m)}">`).join('')},
+    start:(probe,model)=>rpc('providers.draft_probe_start',{kind:$('#npKind').value,base_url:$('#npUrl').value,api_key:$('#npKey').value,
+      allow_private_network:$('#npPrivate').checked,response_format_json_object:$('#npJsonMode').checked,probe,model})});
   $('#saveNewP').onclick=async()=>{
     try{
       const created=await rpc('provider.create',{
@@ -1719,13 +1772,23 @@ function assignmentsModal(userId){
 // can route to any of several), so it stays out of that mode.
 function chatModelPicker(agent,providerOpts){
   if(!agent)return '';
-  return `<div class="row wrap u-margin-bottom-22px-gap-8px-align-items-flex-end"><div class="field u-margin-0-min-width-180px"><label>My provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field u-margin-0-min-width-180px"><label>My model</label><input class="input" id="cmModel" value="${esc(agent.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5" list="cmModelOptions">${modelDatalist('cmModelOptions',providerOpts.find(p=>p.name===agent.provider)?.available_models||[])}</div><button class="btn small" id="cmSave">Save for me</button>${agent.is_overridden?'<button class="btn small" id="cmReset">Use Agent default</button>':''}<div class="muted u-font-size-11px">Agent default: ${esc(agent.default_provider||'—')} / ${esc(agent.default_model||'—')}</div></div>`;
+  return `<div class="row wrap u-margin-bottom-22px-gap-8px-align-items-flex-end"><div class="field u-margin-0-min-width-180px"><label>My provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field u-margin-0-min-width-180px"><label>My model</label><input class="input" id="cmModel" value="${esc(agent.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5" list="cmModelOptions">${modelDatalist('cmModelOptions',providerOpts.find(p=>p.name===agent.provider)?.available_models||[])}</div><button class="btn small" id="cmSave">Save for me</button><button class="btn small" id="cmTest" title="Send one short message to this provider and model and show what comes back. Nothing is saved.">Test model</button>${agent.is_overridden?'<button class="btn small" id="cmReset">Use Agent default</button>':''}<div class="muted u-font-size-11px">Agent default: ${esc(agent.default_provider||'—')} / ${esc(agent.default_model||'—')}</div><div id="cmTestOut" class="muted u-font-size-12px u-width-100"></div></div>`;
 }
 function wireChatModelPicker(agent,providerOpts,onSaved){
   if(!agent||!$('#cmProvider'))return;
   $('#cmProvider').onchange=()=>{
     const p=providerOpts.find(x=>x.name===$('#cmProvider').value);
     $('#cmModelOptions').innerHTML=(p?.available_models||[]).map(m=>`<option value="${esc(m)}">`).join('')
+  };
+  $('#cmTest').onclick=async()=>{
+    const out=$('#cmTestOut'),model=$('#cmModel').value.trim();
+    if(!$('#cmProvider').value||!model){out.innerHTML=`${status('error')} Choose a provider and a model first.`;return}
+    out.textContent='Sending a test message…';
+    try{
+      const a=await rpc('providers.test_model',{provider:$('#cmProvider').value,model});
+      const s=await awaitProbe('providers.test_status',a.call_id);
+      out.innerHTML=s.passed?`${status('ok')} The model answered${s.reply?`: ${esc(s.reply)}`:''}`:probeFailHtml(s,'chat');
+    }catch(e){out.innerHTML=`${status('error')} ${esc(e.message)}`}
   };
   $('#cmSave').onclick=async()=>{
     try{

@@ -436,6 +436,26 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         return;
     }
 
+    // A double of a local server that serves only under /v1 and answers every
+    // other path with HTTP 200 and an error body (LM Studio does): used to
+    // check that Test connection does not call that "connected".
+    let rewritten;
+    let path = if let Some(rest) = path.strip_prefix("/mockbad/v1/") {
+        rewritten = format!("/mock/{rest}");
+        rewritten.as_str()
+    } else {
+        path
+    };
+    if path.starts_with("/mockbad/") || path == "/mockbad" {
+        if !cfg.mock_enabled {
+            respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
+            return;
+        }
+        let msg = format!("Unexpected endpoint or method. ({} {})", r.method, path.trim_start_matches("/mockbad"));
+        respond_json(&mut s, "200 OK", &json!({ "error": msg }).to_string());
+        return;
+    }
+
     if path == "/mock/models" || path == "/mock/v1/models" {
         if !cfg.mock_enabled {
             respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"not_found\"}");
