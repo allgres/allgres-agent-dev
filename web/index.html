@@ -410,6 +410,59 @@ async function runProviderChecks({start,out,model,onModels,baseInput}){
     return !!s2.passed;
   }catch(e){out.innerHTML=`${status('error')} ${esc(e.message)}`;return false}
 }
+// --- Reasoning and sampling settings, in the agent's settings and as a model's
+// defaults. Blank means "not sent": the model's own default applies. What each
+// kind of provider receives is stated under the fields (build_llm_http).
+const EFFORTS=['low','medium','high','xhigh','max'];
+function paramsFields(px,v,kind){
+  v=v||{};const th=v.thinking||{},val=x=>x==null?'':esc(x);
+  return `<div class="grid2">
+<div class="field"><label>Effort</label><select class="select" id="${px}Effort"><option value="">Model default</option>${EFFORTS.map(e=>`<option value="${e}" ${v.effort===e?'selected':''}>${e}</option>`).join('')}</select></div>
+<div class="field"><label>Thinking</label><select class="select" id="${px}Think"><option value="">Model default</option><option value="adaptive" ${th.type==='adaptive'?'selected':''}>Adaptive</option><option value="enabled" ${th.type==='enabled'?'selected':''}>With a token budget</option><option value="disabled" ${th.type==='disabled'?'selected':''}>Off</option></select></div>
+<div class="field" id="${px}BudgetF"><label>Thinking budget (tokens)</label><input class="input" id="${px}Budget" inputmode="numeric" placeholder="at least 1024" value="${val(th.budget_tokens)}"></div>
+<div class="field" id="${px}DisplayF"><label>Show thinking</label><select class="select" id="${px}Display"><option value="">Model default</option><option value="summarized" ${th.display==='summarized'?'selected':''}>Summarized</option><option value="omitted" ${th.display==='omitted'?'selected':''}>Omitted</option></select></div>
+<div class="field"><label>Temperature</label><input class="input" id="${px}Temp" inputmode="decimal" placeholder="Model default" value="${val(v.temperature)}"></div>
+<div class="field"><label>Top P</label><input class="input" id="${px}TopP" inputmode="decimal" placeholder="Model default" value="${val(v.top_p)}"></div>
+<div class="field"><label>Top K</label><input class="input" id="${px}TopK" inputmode="numeric" placeholder="Model default" value="${val(v.top_k)}"></div>
+<div class="field"><label>Max tokens</label><input class="input" id="${px}Max" inputmode="numeric" placeholder="Model default" value="${val(v.max_tokens)}"></div>
+</div><div class="field"><label>Stop sequences <span class="muted">-- one per line</span></label><textarea class="textarea u-min-height-60px" id="${px}Stop">${esc((v.stop||[]).join('\n'))}</textarea></div>
+<div class="muted u-font-size-12px" id="${px}Note"></div>`;
+}
+// getKind() says which kind of provider this is for ('anthropic', 'openai_compat', ...; '' unknown).
+function wireParams(px,getKind){
+  const el=id=>$('#'+px+id);
+  const sync=()=>{
+    const kind=getKind(),claude=kind==='anthropic',other=!!kind&&!claude;
+    for(const id of ['Temp','TopP','TopK'])el(id).disabled=claude;
+    for(const id of ['Think','Budget','Display'])el(id).disabled=other;
+    const think=el('Think').value;
+    el('BudgetF').classList.toggle('hidden',think!=='enabled');
+    el('DisplayF').classList.toggle('hidden',!think||think==='disabled');
+    el('Note').textContent=claude?'Sent to Claude: max tokens (4096 when blank), stop sequences, thinking and effort. Temperature, top P and top K are not sent: the current Claude models reject them.'
+      :other?'Sent to this provider: temperature, top P, top K, max tokens, stop sequences and effort (as reasoning_effort). The thinking settings are Claude\'s and are not used here. A server that does not know a setting may ignore or reject it. Blank means the server\'s default.'
+      :'Choose a provider to see which of these it receives.';
+  };
+  el('Think').addEventListener('change',sync);sync();
+  return sync;
+}
+function readParams(px){
+  const val=id=>$('#'+px+id).value.trim(),num=id=>val(id)===''?null:Number(val(id));
+  const think=val('Think'),lines=$('#'+px+'Stop').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  return {effort:val('Effort')||null,
+    thinking:think?{type:think,...(think==='enabled'?{budget_tokens:num('Budget')}:{}),...(think!=='disabled'&&val('Display')?{display:val('Display')}:{})}:null,
+    temperature:num('Temp'),top_p:num('TopP'),top_k:num('TopK'),max_tokens:num('Max'),stop:lines.length?lines:null};
+}
+function paramsSummary(v){
+  v=v||{};const bits=[];
+  if(v.effort)bits.push('effort '+v.effort);
+  if(v.thinking?.type)bits.push('thinking '+v.thinking.type);
+  if(v.temperature!=null)bits.push('temperature '+v.temperature);
+  if(v.top_p!=null)bits.push('top P '+v.top_p);
+  if(v.top_k!=null)bits.push('top K '+v.top_k);
+  if(v.max_tokens!=null)bits.push('max '+v.max_tokens);
+  if((v.stop||[]).length)bits.push('stop');
+  return bits.join(', ')||'model defaults';
+}
 function providerStatusBadge(p){
   if(!p.is_enabled)return status('disabled');
   if(p.kind==='oauth'&&p.oauth_status!=='connected')return status(p.oauth_status||'reconnect_required');
@@ -600,6 +653,8 @@ async function agentModal(a){
     const groups=(reg.providers||[]).filter(p=>(p.models||[]).length);
     allowedHtml=`<details class="field" id="amBox" ${mine.size?'open':''}><summary><b>Models this agent may use</b> <span class="muted">${mine.size?`${mine.size} chosen`:'any model that is on'}</span></summary><div class="muted u-font-size-12px u-margin-top-8px">Tick some to hold this agent to them (its own model, a person's choice in General, a model picked for one task). Tick none to allow any model that is switched on in Models &amp; prices.</div>${groups.map(p=>`<div class="u-margin-top-12px"><div class="muted u-font-size-12px">${esc(p.name)}</div>${p.models.map(m=>`<label class="row"><input type="checkbox" class="amModel" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" ${mine.has(p.name+'\u0000'+m.model)?'checked':''} ${m.is_enabled||mine.has(p.name+'\u0000'+m.model)?'':'disabled'}> <span class="mono">${esc(m.model)}</span>${m.is_enabled?'':' <span class="muted">off</span>'}</label>`).join('')}</div>`).join('')||'<div class="muted u-margin-top-12px">No models in the list yet. Add some in Models &amp; prices.</div>'}</details>`;
   }
+  const curKind=providerOpts.find(p=>p.name===curProvider)?.kind||'';
+  const reasonHtml=!isNew&&!locked?`<details class="field" id="rpBox" ${paramsSummary(a.llm_config)!=='model defaults'?'open':''}><summary><b>Reasoning and sampling</b> <span class="muted">${esc(paramsSummary(a.llm_config))}</span></summary><div class="muted u-font-size-12px u-margin-top-8px">Leave a setting blank to use the model's own default (set in Models &amp; prices).</div>${paramsFields('ap',a.llm_config,curKind)}</details>`:'';
   $('#modal').classList.remove('hidden');
   $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>${isNew?'Create agent':'Edit agent'}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div>
 ${locked?`<div class="banner">System agent -- not editable from the dashboard. Connect directly to the database to change its prompt, config, or permissions. Autonomy level below is the one exception.</div>`:''}
@@ -609,6 +664,7 @@ ${locked?`<div class="banner">System agent -- not editable from the dashboard. C
 ${!isNew&&!locked&&a.is_active&&a.model_issue?`<div class="banner" id="aModelIssue">This agent cannot run: ${esc(a.model_issue)}.</div>`:''}
 <div class="muted u-font-size-12px-margin-4px-0-8px">The endpoint URL and API key come from the provider chosen above (see Settings); an agent cannot override them. ${!providerOpts.length?'No provider is configured yet. Create a draft, or add a provider in Models &amp; prices.':''}</div>
 ${allowedHtml}
+${reasonHtml}
 ${isNew?`<div class="field"><label><input type="checkbox" id="aDraft" ${providerOpts.length?'':'checked'}> Create as draft (inactive until you configure and enable it)</label></div>`:''}
 ${isNew?'':`<div class="grid2"><div class="field"><label>Max steps</label><input type="number" class="input" id="aSteps" value="${esc(a.max_steps||20)}" ${locked?'disabled':''}></div><div class="field"><label>Max retries</label><input type="number" class="input" id="aRetries" value="${esc(a.max_retries||2)}" ${locked?'disabled':''}></div></div>
 <div class="grid2"><div class="field"><label>Max concurrent tasks</label><input type="number" class="input" id="aConcurrent" value="${esc(a.max_concurrent_tasks||4)}" ${locked?'disabled':''}></div><div class="field"><label>Max turn seconds (blank = uncapped)</label><input type="number" class="input" id="aTurnSecs" value="${a.max_turn_seconds??''}" ${locked?'disabled':''}></div></div>
@@ -643,6 +699,7 @@ ${isNew||a.is_system?'':`<div class="field"><label>Copy this agent</label><div c
     $('#viewProposals').onclick=()=>{state.proposalAgentFilter=a.agent_id;state.approvalsTab='Proposals';saveUi('approvals_tab','Proposals');closeModal();openPage('Approvals')};
     $('#viewAssigned').onclick=()=>assignedUsersModal(a.agent_id);
   }
+  if($('#rpBox')){const syncKind=wireParams('ap',()=>providerOpts.find(p=>p.name===$('#aProvider').value)?.kind||'');$('#aProvider').addEventListener('change',syncKind)}
   $('#saveA').onclick=async()=>{try{if(locked){
     if($('#aAutonomy'))await rpc('agents.set_autonomy',{agent_id:a.agent_id,autonomy_level:$('#aAutonomy').value});
     closeModal();toast('Saved');agents();return;
@@ -655,7 +712,7 @@ ${isNew||a.is_system?'':`<div class="field"><label>Copy this agent</label><div c
     try{agentConfig=JSON.parse($('#aConfigRaw').value||'{}')}catch(e){toast('Agent config is not valid JSON');return}
     if($('#acCompactionThreshold'))agentConfig.compaction_threshold=$('#acCompactionThreshold').value===''?null:+$('#acCompactionThreshold').value;
     if($('#acCompactionKeepRecent'))agentConfig.compaction_keep_recent=$('#acCompactionKeepRecent').value===''?null:+$('#acCompactionKeepRecent').value;
-    await api('/api/v1/agents/'+encodeURIComponent(a.agent_id),{method:'PATCH',body:JSON.stringify({system_prompt:$('#aPrompt').value,is_active:$('#aActive').checked,max_steps:+$('#aSteps').value,max_retries:+$('#aRetries').value,max_concurrent_tasks:+$('#aConcurrent').value,max_turn_seconds:$('#aTurnSecs').value===''?null:+$('#aTurnSecs').value,max_delegation_depth:+$('#aDelegDepth').value,max_session_tasks:+$('#aSessTasks').value,llm_config:{provider:$('#aProvider').value,model:$('#aModel').value},agent_config:agentConfig,session_token:sessTok(),operator_name:opName()})});if($('#aAutonomy'))await rpc('agents.set_autonomy',{agent_id:a.agent_id,autonomy_level:$('#aAutonomy').value});if($('#amBox'))await rpc('agents.set_allowed_models',{agent_id:a.agent_id,models:[...document.querySelectorAll('.amModel:checked')].map(c=>({provider:c.dataset.prov,model:c.dataset.model}))})}closeModal();toast('Saved');agents()}catch(e){toast(e.message)}}
+    await api('/api/v1/agents/'+encodeURIComponent(a.agent_id),{method:'PATCH',body:JSON.stringify({system_prompt:$('#aPrompt').value,is_active:$('#aActive').checked,max_steps:+$('#aSteps').value,max_retries:+$('#aRetries').value,max_concurrent_tasks:+$('#aConcurrent').value,max_turn_seconds:$('#aTurnSecs').value===''?null:+$('#aTurnSecs').value,max_delegation_depth:+$('#aDelegDepth').value,max_session_tasks:+$('#aSessTasks').value,llm_config:{provider:$('#aProvider').value,model:$('#aModel').value,...($('#rpBox')?readParams('ap'):{})},agent_config:agentConfig,session_token:sessTok(),operator_name:opName()})});if($('#aAutonomy'))await rpc('agents.set_autonomy',{agent_id:a.agent_id,autonomy_level:$('#aAutonomy').value});if($('#amBox'))await rpc('agents.set_allowed_models',{agent_id:a.agent_id,models:[...document.querySelectorAll('.amModel:checked')].map(c=>({provider:c.dataset.prov,model:c.dataset.model}))})}closeModal();toast('Saved');agents()}catch(e){toast(e.message)}}
 }
 // Assigned users (item 32's own "admin should be able to grant this from
 // the Agents page too"): the reverse direction of the Users page's own
@@ -924,7 +981,7 @@ async function modelsApplyPanel(){
   const def=reg.default,provs=reg.providers||[];
   const price=m=>m.input_price_per_1k==null?'<span class="muted">no price</span>':`$${esc(m.input_price_per_1k)} / $${esc(m.output_price_per_1k)}`;
   const used=m=>{const n=(m.agents||[]).length;return n||m.functions?`<span title="${esc((m.agents||[]).join(', '))}">${n} agent${n===1?'':'s'}${m.functions?`, ${m.functions} function/procedure${m.functions===1?'':'s'}`:''}</span>`:'<span class="muted">not used</span>'};
-  const row=(p,m)=>`<tr data-model="${esc(m.model)}"><td><label class="row"><input type="checkbox" class="mrOn" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" ${m.is_enabled?'checked':''} aria-label="On"> <b class="mono">${esc(m.model)}</b>${m.is_default?' <span class="status s-ok" title="New agents start with this model">default</span>':''}${m.is_enabled?'':' <span class="muted">off</span>'}</label>${m.note?`<div class="muted u-font-size-12px">${esc(m.note)}</div>`:''}</td><td class="mono u-font-size-12px">${price(m)}</td><td>${used(m)}</td><td class="u-text-align-right"><button class="btn small mrUse" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" ${m.is_enabled&&p.is_enabled?'':'disabled'}>Use on agents…</button> <button class="btn small mrPrice" data-prov="${esc(p.name)}" data-pid="${esc(p.provider_id)}" data-model="${esc(m.model)}">Price</button> <button class="btn small mrNote" data-prov="${esc(p.name)}" data-model="${esc(m.model)}">Note</button> <button class="btn small danger mrRemove" data-prov="${esc(p.name)}" data-model="${esc(m.model)}">Remove</button></td></tr>`;
+  const row=(p,m)=>`<tr data-model="${esc(m.model)}"><td><label class="row"><input type="checkbox" class="mrOn" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" ${m.is_enabled?'checked':''} aria-label="On"> <b class="mono">${esc(m.model)}</b>${m.is_default?' <span class="status s-ok" title="New agents start with this model">default</span>':''}${m.is_enabled?'':' <span class="muted">off</span>'}</label>${m.note?`<div class="muted u-font-size-12px">${esc(m.note)}</div>`:''}</td><td class="mono u-font-size-12px">${price(m)}</td><td>${used(m)}</td><td class="u-text-align-right"><button class="btn small mrUse" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" ${m.is_enabled&&p.is_enabled?'':'disabled'}>Use on agents…</button> <button class="btn small mrPrice" data-prov="${esc(p.name)}" data-pid="${esc(p.provider_id)}" data-model="${esc(m.model)}">Price</button> <button class="btn small mrNote" data-prov="${esc(p.name)}" data-model="${esc(m.model)}">Note</button> <button class="btn small mrParams" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" title="${esc(paramsSummary(m.params))}">Settings</button> <button class="btn small danger mrRemove" data-prov="${esc(p.name)}" data-model="${esc(m.model)}">Remove</button></td></tr>`;
   const prov=p=>{
     const on=(p.models||[]).filter(m=>m.is_enabled).length;
     const isOpen=open[p.name]??(provs.length<=3);
@@ -951,6 +1008,14 @@ ${provs.map(prov).join('')||'<div class="muted">No chat providers yet. Add one a
     $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Price of ${esc(m.model)}</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="muted u-margin-bottom-10px">US dollars per 1,000 tokens. Only a priced model's calls count toward a cost limit.</div><div class="grid2"><div class="field"><label>Input $/1k</label><input class="input" id="mrIn" inputmode="decimal" value="${esc(m.input_price_per_1k??'')}"></div><div class="field"><label>Output $/1k</label><input class="input" id="mrOut" inputmode="decimal" value="${esc(m.output_price_per_1k??'')}"></div></div><button class="btn primary" id="mrSavePrice">Save price</button></div>`;
     $('#closeM').onclick=closeModal;
     $('#mrSavePrice').onclick=()=>act(async()=>{await rpc('model_prices.set',{provider_id:b.dataset.pid,model:m.model,input_price_per_1k:$('#mrIn').value,output_price_per_1k:$('#mrOut').value});closeModal()},'Price saved');
+  });
+  box.querySelectorAll('.mrParams').forEach(b=>b.onclick=()=>{
+    const p=provs.find(x=>x.name===b.dataset.prov),m=p.models.find(x=>x.model===b.dataset.model);
+    $('#modal').classList.remove('hidden');
+    $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Settings of <span class="mono">${esc(m.model)}</span></h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="muted u-margin-bottom-10px">Defaults for this model. An agent's own setting wins; leave a setting blank to use the server's default.</div>${paramsFields('mp',m.params,p.kind)}<button class="btn primary u-margin-top-12px" id="mrSaveParams">Save</button></div>`;
+    $('#closeM').onclick=closeModal;
+    wireParams('mp',()=>p.kind);
+    $('#mrSaveParams').onclick=()=>act(async()=>{await rpc('models.registry_set',{provider:p.name,model:m.model,params:readParams('mp')});closeModal()},'Saved');
   });
   box.querySelectorAll('.mrUse').forEach(b=>b.onclick=()=>useOnAgentsDialog(b.dataset.prov,b.dataset.model,reload));
   $('#maClearDefault')&&($('#maClearDefault').onclick=()=>act(()=>rpc('models.default_clear'),'New agents start with no model again'));

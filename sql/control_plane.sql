@@ -2659,6 +2659,79 @@ CREATE TRIGGER agents_ensure_policy
 -- the worker (carrying the provider API key) at an arbitrary address.  The
 -- endpoint now comes only from allgres_private.llm_providers, which is
 -- operator-managed and validated by the outbound guard.
+-- What an inference setting may be. Raises a plain message for the first one
+-- that is not valid; an absent or null setting is fine (it is not sent).
+CREATE OR REPLACE FUNCTION allgres_private.llm_params_check(p jsonb)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+AS $fn$
+DECLARE
+  t jsonb;
+  s jsonb;
+BEGIN
+  IF p IS NULL OR jsonb_typeof(p) <> 'object' THEN
+    RETURN;
+  END IF;
+  IF jsonb_typeof(p->'temperature') NOT IN ('number', 'null') AND p ? 'temperature' THEN
+    RAISE EXCEPTION 'temperature must be a number' USING ERRCODE = 'P0001';
+  END IF;
+  IF jsonb_typeof(p->'temperature') = 'number' AND ((p->>'temperature')::numeric < 0 OR (p->>'temperature')::numeric > 2) THEN
+    RAISE EXCEPTION 'temperature must be between 0 and 2' USING ERRCODE = 'P0001';
+  END IF;
+  IF p ? 'top_p' AND jsonb_typeof(p->'top_p') NOT IN ('number', 'null') THEN
+    RAISE EXCEPTION 'top_p must be a number' USING ERRCODE = 'P0001';
+  END IF;
+  IF jsonb_typeof(p->'top_p') = 'number' AND ((p->>'top_p')::numeric <= 0 OR (p->>'top_p')::numeric > 1) THEN
+    RAISE EXCEPTION 'top_p must be above 0 and at most 1' USING ERRCODE = 'P0001';
+  END IF;
+  IF p ? 'top_k' AND jsonb_typeof(p->'top_k') NOT IN ('number', 'null') THEN
+    RAISE EXCEPTION 'top_k must be a whole number' USING ERRCODE = 'P0001';
+  END IF;
+  IF jsonb_typeof(p->'top_k') = 'number' AND ((p->>'top_k')::numeric <> trunc((p->>'top_k')::numeric) OR (p->>'top_k')::numeric < 1 OR (p->>'top_k')::numeric > 100000) THEN
+    RAISE EXCEPTION 'top_k must be a whole number from 1 to 100000' USING ERRCODE = 'P0001';
+  END IF;
+  IF p ? 'max_tokens' AND jsonb_typeof(p->'max_tokens') NOT IN ('number', 'null') THEN
+    RAISE EXCEPTION 'max_tokens must be a whole number' USING ERRCODE = 'P0001';
+  END IF;
+  IF jsonb_typeof(p->'max_tokens') = 'number' AND ((p->>'max_tokens')::numeric <> trunc((p->>'max_tokens')::numeric) OR (p->>'max_tokens')::numeric < 1 OR (p->>'max_tokens')::numeric > 1000000) THEN
+    RAISE EXCEPTION 'max_tokens must be a whole number from 1 to 1000000' USING ERRCODE = 'P0001';
+  END IF;
+  IF p ? 'stop' AND jsonb_typeof(p->'stop') NOT IN ('array', 'null') THEN
+    RAISE EXCEPTION 'stop must be a list of texts' USING ERRCODE = 'P0001';
+  END IF;
+  IF jsonb_typeof(p->'stop') = 'array' THEN
+    IF jsonb_array_length(p->'stop') > 16 THEN
+      RAISE EXCEPTION 'at most 16 stop sequences' USING ERRCODE = 'P0001';
+    END IF;
+    FOR s IN SELECT * FROM jsonb_array_elements(p->'stop') LOOP
+      IF jsonb_typeof(s) <> 'string' OR length(s #>> '{}') < 1 OR length(s #>> '{}') > 100 THEN
+        RAISE EXCEPTION 'each stop sequence is a text of 1 to 100 characters' USING ERRCODE = 'P0001';
+      END IF;
+    END LOOP;
+  END IF;
+  IF NULLIF(p->>'effort', '') IS NOT NULL AND (p->>'effort') NOT IN ('low', 'medium', 'high', 'xhigh', 'max') THEN
+    RAISE EXCEPTION 'effort must be low, medium, high, xhigh or max' USING ERRCODE = 'P0001';
+  END IF;
+  t := p->'thinking';
+  IF p ? 'thinking' AND jsonb_typeof(t) NOT IN ('object', 'null') THEN
+    RAISE EXCEPTION 'thinking must be an object' USING ERRCODE = 'P0001';
+  END IF;
+  IF jsonb_typeof(t) = 'object' THEN
+    IF COALESCE(t->>'type', '') NOT IN ('adaptive', 'enabled', 'disabled') THEN
+      RAISE EXCEPTION 'thinking type must be adaptive, enabled or disabled' USING ERRCODE = 'P0001';
+    END IF;
+    IF t->>'type' = 'enabled' AND (jsonb_typeof(t->'budget_tokens') <> 'number'
+        OR (t->>'budget_tokens')::numeric <> trunc((t->>'budget_tokens')::numeric) OR (t->>'budget_tokens')::numeric < 1024) THEN
+      RAISE EXCEPTION 'a thinking budget is a whole number of at least 1024 tokens' USING ERRCODE = 'P0001';
+    END IF;
+    IF NULLIF(t->>'display', '') IS NOT NULL AND (t->>'display') NOT IN ('summarized', 'omitted', 'updates') THEN
+      RAISE EXCEPTION 'thinking display must be summarized, omitted or updates' USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_private.sanitize_llm_config(p jsonb)
 RETURNS jsonb
 LANGUAGE sql
@@ -2668,7 +2741,15 @@ AS $fn$
     'model',       NULLIF(p->>'model', ''),
     'temperature', p->'temperature',
     'max_tokens',  p->'max_tokens',
-    'provider',    NULLIF(p->>'provider', '')
+    'provider',    NULLIF(p->>'provider', ''),
+    -- Inference settings (llm_params_check says what is valid; build_llm_http
+    -- says how each kind of provider receives them). A key that is absent or
+    -- null is not sent: the model server's own default applies.
+    'top_p',       p->'top_p',
+    'top_k',       p->'top_k',
+    'stop',        CASE WHEN jsonb_typeof(p->'stop') = 'array' AND jsonb_array_length(p->'stop') > 0 THEN p->'stop' END,
+    'effort',      NULLIF(p->>'effort', ''),
+    'thinking',    CASE WHEN jsonb_typeof(p->'thinking') = 'object' THEN p->'thinking' END
   ))
 $fn$;
 
@@ -6152,6 +6233,9 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
+  -- A model's own default settings (Models & prices) sit under the agent's.
+  v_cfg := allgres_private.llm_model_params(v_name, v_model) || v_cfg;
+
   -- A model switched off in Models & prices is refused for everyone; an agent
   -- with a list of models it may use is held to it, except where a function
   -- or procedure override or a model experiment chose the model.
@@ -6191,23 +6275,47 @@ BEGIN
       'content-type', 'application/json',
       'anthropic-version', '2023-06-01'
     );
+    -- Claude: max_tokens is required (4096 when nothing is set); thinking and
+    -- effort are Claude's own settings. temperature, top_p and top_k are not
+    -- sent: the current Claude models reject them.
     v_body := jsonb_build_object(
       'model', v_model,
-      'max_tokens', COALESCE((v_cfg->>'max_tokens')::int, 1024),
+      'max_tokens', COALESCE((v_cfg->>'max_tokens')::int, 4096),
       'system', v_system,
       'messages', v_rest
     );
+    IF jsonb_typeof(v_cfg->'stop') = 'array' THEN
+      v_body := v_body || jsonb_build_object('stop_sequences', v_cfg->'stop');
+    END IF;
+    IF v_cfg->'thinking'->>'type' IN ('adaptive', 'enabled', 'disabled') THEN
+      v_body := v_body || jsonb_build_object('thinking', jsonb_strip_nulls(jsonb_build_object(
+        'type', v_cfg->'thinking'->>'type',
+        'budget_tokens', CASE WHEN v_cfg->'thinking'->>'type' = 'enabled' THEN (v_cfg->'thinking'->>'budget_tokens')::int END,
+        'display', CASE WHEN v_cfg->'thinking'->>'type' IN ('adaptive', 'enabled') THEN NULLIF(v_cfg->'thinking'->>'display', '') END)));
+    END IF;
+    IF NULLIF(v_cfg->>'effort', '') IS NOT NULL THEN
+      v_body := v_body || jsonb_build_object('output_config', jsonb_build_object('effort', v_cfg->>'effort'));
+    END IF;
   ELSE
     v_url := v_url || '/chat/completions';
     v_headers := jsonb_build_object(
       'content-type', 'application/json'
     );
-    v_body := jsonb_build_object(
-      'model', v_model,
-      'messages', v_msgs,
-      'temperature', COALESCE((v_cfg->>'temperature')::float, 0.2),
-      'max_tokens', COALESCE((v_cfg->>'max_tokens')::int, 1024)
-    );
+    -- OpenAI-compatible: only what is set is sent, so the model server's own
+    -- defaults apply to the rest (a reasoning model may refuse a temperature,
+    -- and a fixed small max_tokens can end in the middle of its thinking).
+    -- effort becomes reasoning_effort (xhigh and max are "high"); the thinking
+    -- settings are Claude's and are not used here.
+    v_body := jsonb_build_object('model', v_model, 'messages', v_msgs) || jsonb_strip_nulls(jsonb_build_object(
+      'temperature', v_cfg->'temperature',
+      'top_p', v_cfg->'top_p',
+      'top_k', v_cfg->'top_k',
+      'max_tokens', v_cfg->'max_tokens',
+      'stop', CASE WHEN jsonb_typeof(v_cfg->'stop') = 'array' THEN v_cfg->'stop' END,
+      'reasoning_effort', CASE v_cfg->>'effort'
+                            WHEN 'low' THEN 'low' WHEN 'medium' THEN 'medium'
+                            WHEN 'high' THEN 'high' WHEN 'xhigh' THEN 'high' WHEN 'max' THEN 'high' END
+    ));
     -- Per-provider, not a name check -- see response_format_json_object's
     -- own comment on allgres_private.llm_providers.
     IF v_prov.response_format_json_object THEN
