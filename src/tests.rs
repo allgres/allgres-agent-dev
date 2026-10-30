@@ -10,7 +10,7 @@ use crate::web::{
     csrf_ok, mint_sse_ticket, percent_decode, rate_limited, record_auth_failure, WebConfig,
     RATE_AUTH_FAIL_LIMIT, RATE_GENERAL_LIMIT, RATE_GENERAL_WINDOW, RATE_LIMIT, SSE_TICKETS,
 };
-use crate::{CANVAS_HTML, DASHBOARD_HTML, SSE_TICKET_TTL};
+use crate::{CANVAS_HTML, DASHBOARD_HTML, I18N_PACKS, SSE_TICKET_TTL};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -261,6 +261,20 @@ fn truncation_keeps_utf8_boundaries() {
 #[test]
 fn dashboard_html_carries_the_csp_nonce_placeholder() {
     assert_eq!(DASHBOARD_HTML.matches("__CSP_NONCE__").count(), 3);
+}
+
+#[test]
+fn translation_packs_are_valid_and_named_after_their_language() {
+    assert!(I18N_PACKS.iter().any(|(c, _)| *c == "en"));
+    for (code, raw) in I18N_PACKS {
+        let v: serde_json::Value = serde_json::from_str(raw).unwrap_or_else(|e| panic!("{code}.json: {e}"));
+        assert_eq!(v["meta"]["code"], *code, "{code}.json: meta.code must match the file name");
+        for (_, items) in v["sections"].as_object().expect("sections") {
+            for (k, t) in items.as_object().expect("a section is an object") {
+                assert!(t.is_string(), "{code}.json: {k} must map to a string");
+            }
+        }
+    }
 }
 
 #[test]

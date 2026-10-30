@@ -44,6 +44,12 @@ pub(crate) const DASHBOARD_HTML: &str = include_str!("../web/index.html");
 /// Built from web/canvas (React) and committed, so building the extension
 /// never needs Node.js -- see docs/canvas.md, "Building".
 pub(crate) const CANVAS_HTML: &str = include_str!("../web/canvas.html");
+/// Translation packs, one JSON file per language (docs/i18n.md). English is the
+/// source text itself, so its pack only carries the language's own name.
+pub(crate) const I18N_PACKS: &[(&str, &str)] = &[
+    ("en", include_str!("../web/i18n/en.json")),
+    ("ko", include_str!("../web/i18n/ko.json")),
+];
 
 /// Outbound HTTP threads, and therefore the maximum number of calls claimed
 /// per pump.  The SQL watchdog timeout must stay above `HTTP_TIMEOUT`.

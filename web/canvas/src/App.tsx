@@ -144,7 +144,7 @@ function Canvas() {
     const on = (e: MessageEvent) => {
       if (e.origin !== window.location.origin || e.data?.type !== 'allgres-ui') return;
       if (e.data.theme === 'light' || e.data.theme === 'dark') document.documentElement.setAttribute('data-theme', e.data.theme);
-      if (e.data.lang === 'ko' || e.data.lang === 'en') setLang(e.data.lang);
+      if (typeof e.data.lang === 'string' && /^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(e.data.lang)) setLang(e.data.lang);
     };
     window.addEventListener('message', on);
     return () => window.removeEventListener('message', on);
@@ -1133,14 +1133,6 @@ function Canvas() {
               </button>
               <button type="button" className="icon-tool" onClick={() => flow.zoomIn({ duration: 150 })} aria-label={t('Zoom in')}>
                 +
-              </button>
-            </div>
-            <div className="seg lang" role="group" aria-label={t('Language')} hidden={embedded}>
-              <button type="button" className={lang === 'ko' ? 'on' : ''} aria-pressed={lang === 'ko'} onClick={() => setLang('ko')}>
-                한
-              </button>
-              <button type="button" className={lang === 'en' ? 'on' : ''} aria-pressed={lang === 'en'} onClick={() => setLang('en')}>
-                EN
               </button>
             </div>
             <div className="more">

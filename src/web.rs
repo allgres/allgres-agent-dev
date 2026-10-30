@@ -6,7 +6,7 @@
 
 use crate::config::{configured_http_addr, rpc_socket_path};
 use crate::http_protocol::{parse_form_body, read_http_request, HttpRequest};
-use crate::{CANVAS_HTML, DASHBOARD_HTML, MAX_WEB_THREADS, SSE_INTERVAL, SSE_TICKET_TTL, SSE_TOTAL};
+use crate::{CANVAS_HTML, DASHBOARD_HTML, I18N_PACKS, MAX_WEB_THREADS, SSE_INTERVAL, SSE_TICKET_TTL, SSE_TOTAL};
 use pgrx::bgworkers::{BackgroundWorker, SignalWakeFlags};
 use pgrx::prelude::*;
 use serde_json::{json, Value};
@@ -940,6 +940,25 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
         })
         .to_string();
         respond_json(&mut s, "200 OK", &body);
+        return;
+    }
+
+    // Translation packs: static text, no secrets, read before sign-in too (the
+    // sign-in page is translated). `/i18n/index.json` lists the languages.
+    if path == "/i18n/index.json" {
+        let list: Vec<Value> = I18N_PACKS
+            .iter()
+            .filter_map(|(_, raw)| serde_json::from_str::<Value>(raw).ok())
+            .map(|v| v.get("meta").cloned().unwrap_or(Value::Null))
+            .collect();
+        respond(&mut s, "200 OK", "application/json", &json!({ "languages": list }).to_string(), "");
+        return;
+    }
+    if let Some(code) = path.strip_prefix("/i18n/").and_then(|p| p.strip_suffix(".json")) {
+        match I18N_PACKS.iter().find(|(c, _)| *c == code) {
+            Some((_, raw)) => respond(&mut s, "200 OK", "application/json", raw, ""),
+            None => respond_json(&mut s, "404 Not Found", "{\"ok\":false,\"error\":\"no such language\"}"),
+        }
         return;
     }
 
