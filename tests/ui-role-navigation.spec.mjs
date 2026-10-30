@@ -827,16 +827,21 @@ test('one model is put on chosen agents at once, and can be the default for new 
   await prov.locator('tr[data-model="ma-model-1"] .mrOn').uncheck();
   await expect(prov.locator('tr[data-model="ma-model-1"] .mrUse')).toBeDisabled();
   await prov.locator('tr[data-model="ma-model-1"] .mrOn').check();
+  // The list redraws after each change; wait for it before the next click.
+  await expect(prov.locator('tr[data-model="ma-model-1"] .mrUse')).toBeEnabled();
   await prov.locator('tr[data-model="ma-model-1"] .mrRemove').click();
   await expect(page.locator('#toast')).toContainText('still in use');
   // A model nobody uses can be priced and removed.
   await prov.locator('.mrAddName').fill('ma-spare');
   await prov.locator('.mrAdd').click();
   const spare = prov.locator('tr[data-model="ma-spare"]');
+  await expect(spare).toBeVisible();
   await spare.locator('.mrPrice').click();
   await page.locator('#mrIn').fill('0.001');
   await page.locator('#mrOut').fill('0.002');
   await page.locator('#mrSavePrice').click();
+  await expect(spare).toContainText('$0.001');
+  await expect(page.locator('#modal')).toHaveClass(/hidden/);
   await expect(spare).toContainText('$0.001');
   await spare.locator('.mrRemove').click();
   await expect(prov.locator('tr[data-model="ma-spare"]')).toHaveCount(0);
