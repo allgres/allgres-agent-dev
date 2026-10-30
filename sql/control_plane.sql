@@ -2705,6 +2705,55 @@ AS $fn$
   END
 $fn$;
 
+-- What a model sent back, without the wrapping some local servers leave in:
+-- gpt-oss's "<|channel|>final_answer<|message|>{...}" and <think>...</think>.
+-- When a JSON action can be read out of it, that action is what is kept;
+-- otherwise the markers are only taken off. Text without markers is returned
+-- as it came.
+CREATE OR REPLACE FUNCTION allgres_private.model_text_clean(p text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $fn$
+DECLARE
+  v_text text := p;
+  j jsonb;
+BEGIN
+  IF p IS NULL OR (p NOT LIKE '%<|%' AND p NOT LIKE '%<think>%') THEN
+    RETURN p;
+  END IF;
+  v_text := regexp_replace(v_text, '<think>.*?</think>', '', 'gs');
+  j := allgres_private.extract_first_json(v_text);
+  IF j IS NOT NULL AND jsonb_typeof(j) = 'object' AND j ? 'action' THEN
+    RETURN j::text;
+  END IF;
+  RETURN btrim(regexp_replace(v_text, '<\|[a-z_]+\|>', '', 'g'));
+END;
+$fn$;
+
+-- What a chat bubble shows for one log line: the agent's answer when its
+-- turn ended with one, the cleaned text of anything else.
+CREATE OR REPLACE FUNCTION allgres_private.chat_display_text(p_role text, p_content jsonb)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $fn$
+DECLARE
+  v_text text := allgres_private.log_content_text(p_content);
+  j jsonb;
+BEGIN
+  IF p_role <> 'assistant' THEN
+    RETURN v_text;
+  END IF;
+  v_text := allgres_private.model_text_clean(v_text);
+  j := allgres_private.extract_first_json(v_text);
+  IF j IS NOT NULL AND jsonb_typeof(j) = 'object' AND j->>'action' = 'final_answer' AND jsonb_typeof(j->'answer') = 'string' THEN
+    RETURN j->>'answer';
+  END IF;
+  RETURN v_text;
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_private.append_log(
   p_task_id uuid,
   p_step int,
@@ -4590,7 +4639,7 @@ BEGIN
   -- llm_response
   PERFORM allgres_private.append_log(
     p_task_id, t.step_count + 1, 'assistant',
-    to_jsonb(COALESCE(p_payload->>'content', ''))
+    to_jsonb(COALESCE(allgres_private.model_text_clean(p_payload->>'content'), ''))
   );
 
   v_parsed := p_payload->'parsed';

@@ -365,7 +365,7 @@ SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
-    'group_id', g.group_id, 'name', g.name, 'kind', g.kind,
+    'group_id', g.group_id, 'name', g.name, 'kind', g.kind, 'parent_group_id', g.parent_group_id,
     'members', COALESCE((
       SELECT jsonb_agg(jsonb_build_object('agent_id', a.agent_id, 'name', a.name, 'first_team', m.first_team) ORDER BY a.name)
       FROM (SELECT agent_id, true AS first_team FROM allgres_private.agent_group_members WHERE group_id = g.group_id

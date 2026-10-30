@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5373,6 +5373,7 @@ BEGIN
   v := v || allgres_private.team_selftest_cases();
   v := v || allgres_private.creator_selftest_cases();
   v := v || allgres_private.delegation_selftest_cases();
+  v := v || allgres_private.chat_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -7526,6 +7527,65 @@ BEGIN
   ok := ok AND r->>'error' LIKE '%below the bar%'
     AND (SELECT checkpoint = 'zz9-v2' FROM allgres_private.decision_delegation WHERE point_key = 'approval_decision');
   v := v || jsonb_build_array(jsonb_build_object('name', 'checkpoint_switch_needs_a_report_that_meets_the_bar', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- What a chat shows and starting a fresh chat (sql/control_plane.sql,
+-- sql/operator_accounts_and_chat.sql).
+CREATE OR REPLACE FUNCTION allgres_private.chat_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u uuid; a uuid; v_sid uuid; v_sid2 uuid; v_tid uuid;
+  tk text := 'selftest-chat-user-token';
+  harmony text := '<|channel|>final_answer<|message|>{"action":"final_answer","answer":"Hello! What can I do?"}';
+BEGIN
+  -- Model text: wrapping removed, a plain answer left alone.
+  ok := allgres_private.model_text_clean(harmony) = '{"action": "final_answer", "answer": "Hello! What can I do?"}'
+    AND allgres_private.model_text_clean('<|start|>assistant<|channel|>analysis<|message|>thinking...<|end|><|start|>assistant<|channel|>final<|message|>{"action":"final_answer","answer":"ok"}') LIKE '%"answer": "ok"%'
+    AND allgres_private.model_text_clean('<think>step one</think>{"action":"final_answer","answer":"x"}') = '{"action": "final_answer", "answer": "x"}'
+    AND allgres_private.model_text_clean('<|channel|>final<|message|>just words') = 'finaljust words'
+    AND allgres_private.model_text_clean('plain text, no markers') = 'plain text, no markers'
+    AND allgres_private.model_text_clean(NULL) IS NULL;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'model_text_clean_removes_local_server_wrapping_and_keeps_plain_text', 'ok', ok));
+
+  -- A chat shows the answer, not the protocol JSON; other actions stay as they are.
+  ok := allgres_private.chat_display_text('assistant', to_jsonb(harmony)) = 'Hello! What can I do?'
+    AND allgres_private.chat_display_text('assistant', to_jsonb('{"action":"final_answer","answer":"Hi"}'::text)) = 'Hi'
+    AND allgres_private.chat_display_text('assistant', to_jsonb('{"action":"execute_sql","sql":"SELECT 1"}'::text)) LIKE '%execute_sql%'
+    AND allgres_private.chat_display_text('user', to_jsonb('{"action":"final_answer","answer":"typed by a person"}'::text)) LIKE '%final_answer%'
+    AND allgres_private.chat_display_text('assistant', to_jsonb('just a sentence'::text)) = 'just a sentence';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'chat_shows_the_answer_and_not_the_protocol_json', 'ok', ok));
+
+  -- A fresh chat: the next message makes a new session; the old one stays.
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_chat_user', 'x', 'admin') RETURNING user_id INTO u;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (tk, u, now() + interval '1 hour');
+  a := (allgres_public.fn_create_agent('zz10_chat', 'chat fixture')->>'agent_id')::uuid;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'chat.send', 'agent_id', a, 'message', 'first question', 'session_token', tk));
+  v_sid := (r->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  PERFORM allgres_private.append_log(v_tid, 90, 'assistant', to_jsonb(harmony));
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'chat.history', 'agent_id', a, 'session_token', tk));
+  ok := r->>'session_id' = v_sid::text
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'messages') m WHERE m->>'role' = 'assistant' AND m->>'content' = 'Hello! What can I do?');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'chat.new', 'agent_id', a, 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean
+    AND (allgres.dashboard_rpc(jsonb_build_object('action', 'chat.history', 'agent_id', a, 'session_token', tk))->'messages') = '[]'::jsonb;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'chat.send', 'agent_id', a, 'message', 'second question', 'session_token', tk));
+  v_sid2 := (r->>'session_id')::uuid;
+  ok := ok AND v_sid2 IS NOT NULL AND v_sid2 <> v_sid
+    AND EXISTS (SELECT 1 FROM allgres_private.sessions WHERE session_id = v_sid)
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(
+          allgres.dashboard_rpc(jsonb_build_object('action', 'chat.history', 'agent_id', a, 'session_token', tk))->'messages') m
+        WHERE m->>'content' = 'first question');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'new_chat_starts_a_fresh_session_and_keeps_the_old_one', 'ok', ok));
 
   RETURN v;
 END;

@@ -927,6 +927,24 @@ BEGIN
 END;
 $fn$;
 
+-- A fresh conversation with the agent: the next message starts a new session.
+-- The earlier one is not deleted; it stays under Activity.
+CREATE OR REPLACE FUNCTION allgres_public.fn_chat_new(p_session_token text, p_agent_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  u allgres_private.users%ROWTYPE;
+BEGIN
+  u := allgres_private.require_agent_access(p_session_token, p_agent_id);
+  DELETE FROM allgres_private.user_agent_chat_sessions WHERE user_id = u.user_id AND agent_id = p_agent_id;
+  PERFORM allgres_private.audit('chat.new', jsonb_build_object('agent_id', p_agent_id, 'user_id', u.user_id));
+  RETURN jsonb_build_object('ok', true);
+END;
+$fn$;
+
 -- The full thread for a user's ongoing chat with one agent -- same
 -- session-wide, root-tasks-only stitching fn_next_step itself now uses,
 -- read back for display rather than to build a prompt.
@@ -956,7 +974,7 @@ BEGIN
     'status', (SELECT status FROM allgres_private.sessions WHERE session_id = v_sid),
     'messages', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
-        'role', l.role, 'content', allgres_private.log_content_text(l.content), 'created_at', l.created_at
+        'role', l.role, 'content', allgres_private.chat_display_text(l.role, l.content), 'created_at', l.created_at
       ) ORDER BY l.created_at)
       FROM allgres_private.execution_logs l
       JOIN allgres_private.tasks t USING (task_id)
@@ -1039,7 +1057,7 @@ BEGIN
     'status', (SELECT status FROM allgres_private.sessions WHERE session_id = v_sid),
     'messages', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
-        'role', l.role, 'content', allgres_private.log_content_text(l.content), 'created_at', l.created_at
+        'role', l.role, 'content', allgres_private.chat_display_text(l.role, l.content), 'created_at', l.created_at
       ) ORDER BY l.created_at)
       FROM allgres_private.execution_logs l
       JOIN allgres_private.tasks t USING (task_id)

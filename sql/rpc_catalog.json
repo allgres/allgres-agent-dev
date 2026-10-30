@@ -541,6 +541,14 @@
     ]
   },
   {
+    "action": "chat.new",
+    "guards": [],
+    "params": [
+      "agent_id",
+      "session_token"
+    ]
+  },
+  {
     "action": "messenger.post",
     "guards": [],
     "params": [

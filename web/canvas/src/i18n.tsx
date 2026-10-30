@@ -53,6 +53,8 @@ const KO: Record<string, string> = {
   'Saved teams': '저장한 팀',
   '{n} agents': '에이전트 {n}명',
   '1 agent': '에이전트 1명',
+  'New chat': '새 대화',
+  'Start a new chat? The earlier one stays under Activity.': '새 대화를 시작할까요? 이전 대화는 활동 탭에 남습니다.',
   'Their first team sets what they may do. Change this on the Teams page.': '처음 소속된 팀이 할 수 있는 일을 정합니다. 바꾸려면 Teams 화면을 쓰세요.',
   'Example team': '예시 팀',
   'A lead with two members, ready to edit': '팀장 1명과 팀원 2명, 바로 고쳐 쓸 수 있습니다',
@@ -321,9 +323,10 @@ function initial(): Lang {
     const v = localStorage.getItem('allgres_canvas_lang');
     if (v === 'en' || v === 'ko') return v;
   } catch {
-    /* storage blocked: fall back to the browser language */
+    /* storage blocked: use the default */
   }
-  return navigator.language?.toLowerCase().startsWith('ko') ? 'ko' : 'en';
+  // English is the main language; Korean is one click away (한 / EN).
+  return 'en';
 }
 
 export function LangProvider({ children }: { children: ReactNode }) {
