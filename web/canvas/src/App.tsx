@@ -1079,9 +1079,12 @@ function Canvas() {
         <a className="brand" href="/">
           Allgres
         </a>
-        <a className="btn ghost back" href="/">
-          {t('← Dashboard')}
-        </a>
+        <div className="viewswitch" role="group" aria-label={t('Switch view')}>
+          <a href="/">{t('Dashboard')}</a>
+          <a href="/canvas" className="on" aria-current="page">
+            {t('Canvas')}
+          </a>
+        </div>
         {gate.kind === 'ready' && (
           <>
             <div className="seg" role="group" aria-label={t('Canvas')}>

@@ -378,3 +378,8 @@ kbd { font: 600 11px -apple-system, system-ui, sans-serif; border: 1px solid var
 .edge-delegate.selected .react-flow__edge-textbg { opacity: 1; }
 
 .chat-tools { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+
+.viewswitch{display:inline-flex;border:1px solid var(--line, #3a4150);border-radius:8px;overflow:hidden}
+.viewswitch a{padding:5px 12px;color:inherit;text-decoration:none;opacity:.7}
+.viewswitch a:hover{opacity:1}
+.viewswitch a.on{background:var(--accent, #7487b8);color:#fff;opacity:1}

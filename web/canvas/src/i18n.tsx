@@ -9,6 +9,8 @@ const KO: Record<string, string> = {
   // Shell
   Canvas: '캔버스',
   '← Dashboard': '← 대시보드',
+  'Switch view': '화면 전환',
+  Dashboard: '대시보드',
   Organization: '조직',
   Flow: '흐름',
   Undo: '실행 취소',
