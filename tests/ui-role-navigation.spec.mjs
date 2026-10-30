@@ -737,6 +737,32 @@ test('one model is put on chosen agents at once, and can be the default for new 
   await expect(page.locator('#maBody')).toContainText('No default for new agents');
 });
 
+test('an agent is copied with its setup', async ({ page }) => {
+  const src = `ui_copy_src_${Date.now()}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.evaluate(async (name) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const c = await call({ action: 'agents.create', name, system_prompt: 'copy me exactly', is_active: false });
+    if (c.ok === false) throw new Error(c.error);
+    await call({ action: 'permissions.grant', agent_id: c.agent_id, type: 'http_host', ref: 'example.com' });
+  }, src);
+  await go(page, 'Agents');
+  await page.locator('#view tr', { hasText: src }).first().locator('.editAgent').click();
+  await expect(page.locator('#cloneAgent')).toBeVisible();
+  await page.locator('#cloneAgent').click();
+  await expect(page.locator('#view')).toContainText(`${src}_copy`);
+  await page.locator('#view tr', { hasText: `${src}_copy` }).first().locator('.editAgent').click();
+  await expect(page.locator('#aPrompt')).toHaveValue('copy me exactly');
+  await expect(page.locator('#permList')).toContainText('example.com');
+  await page.locator('#closeM').click();
+  // The Agents list is the only place that hides system agents' copy button.
+  await page.locator('#view details summary', { hasText: 'System agents' }).click();
+  await page.locator('#view details tr', { hasText: 'health_monitor' }).first().locator('.editAgent').click();
+  await expect(page.locator('#cloneAgent')).toHaveCount(0);
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(3);

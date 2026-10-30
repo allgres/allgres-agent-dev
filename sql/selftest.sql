@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'agents.clone', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'agents.clone', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5375,6 +5375,7 @@ BEGIN
   v := v || allgres_private.delegation_selftest_cases();
   v := v || allgres_private.chat_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
+  v := v || allgres_private.agent_clone_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -7667,6 +7668,71 @@ BEGIN
   ok := ok AND (r->>'ok')::boolean
     AND (SELECT COALESCE(llm_config->>'model', '') = '' FROM allgres_private.policies WHERE agent_id = a3);
   v := v || jsonb_build_array(jsonb_build_object('name', 'default_model_is_copied_onto_new_agents_only', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- Copying an agent (sql/agent_clone.sql).
+CREATE OR REPLACE FUNCTION allgres_private.agent_clone_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_user uuid;
+  ta text := 'selftest-clone-admin-token'; tu text := 'selftest-clone-user-token';
+  src uuid; dst uuid; g uuid; g2 uuid; a_sys uuid;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_clone_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_clone_user', 'x', 'user') RETURNING user_id INTO u_user;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (ta, u_admin, now() + interval '1 hour'), (tu, u_user, now() + interval '1 hour');
+  src := (allgres_public.fn_create_agent('zz13_src', 'be careful')->>'agent_id')::uuid;
+  PERFORM allgres_public.fn_set_policy(src, NULL, 9, 4, '{"provider":"p","model":"m"}'::jsonb, 3, 120, false, 2, 6);
+  PERFORM allgres_public.fn_set_agent_autonomy(src, 'self_approve');
+  PERFORM allgres_public.fn_grant_permission(src, 'http_host', 'example.com');
+  PERFORM allgres_public.fn_set_execution_rule(src, 'execute_sql', '*', 'approve');
+  UPDATE allgres_private.agents SET allow_task_model = true, agent_config = '{"compaction_threshold":7}'::jsonb WHERE agent_id = src;
+  INSERT INTO allgres_private.agent_groups (name, kind) VALUES ('zz13_team', 'team') RETURNING group_id INTO g;
+  INSERT INTO allgres_private.agent_groups (name, kind) VALUES ('zz13_other', 'team') RETURNING group_id INTO g2;
+  INSERT INTO allgres_private.agent_group_members (agent_id, group_id) VALUES (src, g);
+  INSERT INTO allgres_private.agent_group_secondary (agent_id, group_id) VALUES (src, g2);
+  INSERT INTO allgres_private.agent_memories (agent_id, memory_type, content) VALUES (src, 'semantic', 'remember me');
+  SELECT agent_id INTO a_sys FROM allgres_private.agents WHERE is_system LIMIT 1;
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'agents.clone', 'agent_id', src, 'session_token', tu));
+  ok := r->>'error' IS NOT NULL;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'agents.clone', 'agent_id', a_sys, 'session_token', ta));
+  ok := ok AND r->>'error' LIKE '%system agent%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'agents.clone', 'agent_id', src, 'name', 'zz13_src', 'session_token', ta));
+  ok := ok AND r->>'error' LIKE '%already exists%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'copying_needs_an_admin_an_ordinary_agent_and_a_free_name', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'agents.clone', 'agent_id', src, 'session_token', ta));
+  dst := (r->>'agent_id')::uuid;
+  ok := (r->>'ok')::boolean AND r->>'name' = 'zz13_src_copy' AND dst IS NOT NULL AND dst <> src
+    AND (SELECT pg_role IS NOT NULL AND pg_role <> (SELECT pg_role FROM allgres_private.agents WHERE agent_id = src) FROM allgres_private.agents WHERE agent_id = dst)
+    AND EXISTS (SELECT 1 FROM allgres_private.policies d JOIN allgres_private.policies s USING (system_prompt, max_steps, max_retries, llm_config, max_concurrent_tasks, max_delegation_depth, max_session_tasks)
+                WHERE d.agent_id = dst AND s.agent_id = src AND d.max_turn_seconds = 120 AND s.max_turn_seconds = 120)
+    AND (SELECT autonomy_level = 'self_approve' AND allow_task_model AND agent_config->>'compaction_threshold' = '7' FROM allgres_private.agents WHERE agent_id = dst);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_copy_has_the_same_prompt_limits_model_autonomy_and_config', 'ok', ok));
+
+  ok := EXISTS (SELECT 1 FROM allgres_private.permissions WHERE agent_id = dst AND resource_type = 'http_host' AND resource_ref = 'example.com')
+    AND EXISTS (SELECT 1 FROM allgres_private.execution_rules WHERE agent_id = dst AND action = 'execute_sql' AND decision = 'approve')
+    AND EXISTS (SELECT 1 FROM allgres_private.agent_group_members WHERE agent_id = dst AND group_id = g)
+    AND EXISTS (SELECT 1 FROM allgres_private.agent_group_secondary WHERE agent_id = dst AND group_id = g2)
+    AND EXISTS (SELECT 1 FROM allgres_private.audit_log WHERE action = 'agents.clone' AND details->>'agent_id' = dst::text AND details->>'copied_from' = src::text);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_copy_has_the_same_permissions_rules_and_teams_and_is_audited', 'ok', ok));
+
+  ok := NOT EXISTS (SELECT 1 FROM allgres_private.agent_memories WHERE agent_id = dst)
+    AND (SELECT count(*) FROM allgres_private.agents WHERE agent_id IN (src, dst)) = 2
+    AND (SELECT (allgres.dashboard_rpc(jsonb_build_object('action', 'agents.clone', 'agent_id', src, 'name', 'zz13_named', 'session_token', ta)))->>'name') = 'zz13_named'
+    AND (SELECT (allgres.dashboard_rpc(jsonb_build_object('action', 'agents.clone', 'agent_id', src, 'session_token', ta)))->>'name') = 'zz13_src_copy_2';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_copy_leaves_memories_behind_and_names_do_not_clash', 'ok', ok));
 
   RETURN v;
 END;
