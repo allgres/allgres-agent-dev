@@ -108,6 +108,8 @@ DECLARE
   v_procs int := 0;
 BEGIN
   PERFORM allgres_private.models_check_target(p_provider, p_model);
+  PERFORM allgres_private.models_check_enabled(p_provider, p_model);
+  PERFORM allgres_private.models_register(p_provider, p_model);
   v_cfg := jsonb_build_object('provider', p_provider, 'model', btrim(p_model));
   FOR v_agent IN
     SELECT a.agent_id, a.name, p.llm_config
@@ -181,6 +183,219 @@ BEGIN
   PERFORM allgres_private.require_admin(p_token);
   DELETE FROM allgres_private.model_defaults;
   PERFORM allgres_private.audit('models.default_clear', '{}'::jsonb);
+  RETURN jsonb_build_object('ok', true);
+END;
+$fn$;
+
+-- ---------------------------------------------------------------------------
+-- The model registry: which models each provider offers to this installation.
+-- A model is a row under its provider (on or off, with a note and its default
+-- inference settings); its price stays in llm_model_prices. An agent's model is
+-- still its own provider and model in its policy; the registry is what an
+-- administrator picks from, and what a model row's "use on agents" acts on.
+-- A model an agent already uses is added by itself (source 'used'), so nothing
+-- that worked before is lost.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS allgres_private.llm_models (
+  provider_id uuid NOT NULL REFERENCES allgres_private.llm_providers(provider_id) ON DELETE CASCADE,
+  model       text NOT NULL CHECK (btrim(model) <> ''),
+  is_enabled  boolean NOT NULL DEFAULT true,
+  source      text NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'listed', 'used')),
+  note        text,
+  params      jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(params) = 'object'),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_id, model)
+);
+
+CREATE OR REPLACE FUNCTION allgres_private.models_register(p_provider text, p_model text, p_source text DEFAULT 'used')
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = allgres_private, pg_temp
+AS $fn$
+BEGIN
+  IF btrim(COALESCE(p_model, '')) = '' OR btrim(COALESCE(p_provider, '')) = '' THEN
+    RETURN;
+  END IF;
+  INSERT INTO allgres_private.llm_models (provider_id, model, source)
+  SELECT provider_id, btrim(p_model), p_source FROM allgres_private.llm_providers WHERE name = p_provider
+  ON CONFLICT (provider_id, model) DO NOTHING;
+END;
+$fn$;
+
+-- Whatever model a policy names is a registry row.
+CREATE OR REPLACE FUNCTION allgres_private.register_used_model()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+BEGIN
+  PERFORM allgres_private.models_register(NEW.llm_config->>'provider', NEW.llm_config->>'model');
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RETURN NEW;
+END;
+$fn$;
+DROP TRIGGER IF EXISTS register_used_model ON allgres_private.policies;
+CREATE TRIGGER register_used_model
+  AFTER INSERT OR UPDATE OF llm_config ON allgres_private.policies
+  FOR EACH ROW EXECUTE FUNCTION allgres_private.register_used_model();
+
+-- What already exists: agents, function and procedure overrides, prices, the default.
+INSERT INTO allgres_private.llm_models (provider_id, model, source)
+SELECT DISTINCT pr.provider_id, btrim(x.model), 'used'
+FROM (
+  SELECT llm_config->>'provider' AS provider, llm_config->>'model' AS model FROM allgres_private.policies
+  UNION SELECT llm_override->>'provider', llm_override->>'model' FROM allgres_private.functions WHERE llm_override IS NOT NULL
+  UNION SELECT llm_override->>'provider', llm_override->>'model' FROM allgres_private.procedures WHERE llm_override IS NOT NULL
+  UNION SELECT provider, model FROM allgres_private.model_defaults
+) x
+JOIN allgres_private.llm_providers pr ON pr.name = x.provider
+WHERE btrim(COALESCE(x.model, '')) <> ''
+ON CONFLICT (provider_id, model) DO NOTHING;
+INSERT INTO allgres_private.llm_models (provider_id, model, source)
+SELECT provider_id, model, 'used' FROM allgres_private.llm_model_prices
+ON CONFLICT (provider_id, model) DO NOTHING;
+
+-- A model that is switched off cannot be put on agents.
+CREATE OR REPLACE FUNCTION allgres_private.models_check_enabled(p_provider text, p_model text)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+BEGIN
+  IF EXISTS (SELECT 1 FROM allgres_private.llm_models m JOIN allgres_private.llm_providers p USING (provider_id)
+             WHERE p.name = p_provider AND m.model = btrim(p_model) AND NOT m.is_enabled) THEN
+    RAISE EXCEPTION 'the model % is switched off; turn it on first', btrim(p_model) USING ERRCODE = 'P0001';
+  END IF;
+END;
+$fn$;
+
+-- Providers with their models, what each costs, who uses it, and what the
+-- provider itself lists that is not added yet.
+CREATE OR REPLACE FUNCTION allgres_public.fn_models_registry(p_token text)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_out jsonb;
+BEGIN
+  PERFORM allgres_private.require_admin(p_token);
+  SELECT jsonb_build_object(
+    'default', (SELECT jsonb_build_object('provider', provider, 'model', model) FROM allgres_private.model_defaults),
+    'providers', COALESCE(jsonb_agg(jsonb_build_object(
+      'provider_id', p.provider_id, 'name', p.name, 'kind', p.kind, 'is_enabled', p.is_enabled,
+      'last_probe_status', p.last_probe_status, 'last_chat_status', p.last_chat_status,
+      'models', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'model', m.model, 'is_enabled', m.is_enabled, 'source', m.source, 'note', m.note, 'params', m.params,
+          'input_price_per_1k', pr.input_price_per_1k, 'output_price_per_1k', pr.output_price_per_1k,
+          'agents', COALESCE((SELECT jsonb_agg(a.name ORDER BY a.name)
+                              FROM allgres_private.policies po JOIN allgres_private.agents a ON a.agent_id = po.agent_id
+                              WHERE NOT a.is_system AND po.llm_config->>'provider' = p.name AND po.llm_config->>'model' = m.model), '[]'::jsonb),
+          'functions', (SELECT count(*) FROM allgres_private.functions f WHERE f.llm_override->>'provider' = p.name AND f.llm_override->>'model' = m.model)
+                     + (SELECT count(*) FROM allgres_private.procedures q WHERE q.llm_override->>'provider' = p.name AND q.llm_override->>'model' = m.model),
+          'is_default', EXISTS (SELECT 1 FROM allgres_private.model_defaults d WHERE d.provider = p.name AND d.model = m.model)
+        ) ORDER BY m.model)
+        FROM allgres_private.llm_models m
+        LEFT JOIN allgres_private.llm_model_prices pr ON pr.provider_id = m.provider_id AND pr.model = m.model
+        WHERE m.provider_id = p.provider_id), '[]'::jsonb),
+      'available', COALESCE((
+        SELECT jsonb_agg(x ORDER BY x) FROM (
+          SELECT e AS x FROM jsonb_array_elements_text(COALESCE(p.available_models, '[]'::jsonb)) e
+          WHERE NOT EXISTS (SELECT 1 FROM allgres_private.llm_models m WHERE m.provider_id = p.provider_id AND m.model = e)
+          LIMIT 500) t), '[]'::jsonb)
+    ) ORDER BY p.name), '[]'::jsonb))
+  INTO v_out
+  FROM allgres_private.llm_providers p
+  WHERE p.purpose = 'chat';
+  RETURN v_out;
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_public.fn_models_registry_add(
+  p_token text, p_provider text, p_models text[], p_enabled boolean DEFAULT true
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_id uuid;
+  v_n int;
+BEGIN
+  PERFORM allgres_private.require_admin(p_token);
+  SELECT provider_id INTO v_id FROM allgres_private.llm_providers WHERE name = p_provider AND purpose = 'chat';
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'pick a chat provider' USING ERRCODE = 'P0001';
+  END IF;
+  INSERT INTO allgres_private.llm_models (provider_id, model, is_enabled, source)
+  SELECT v_id, btrim(m), COALESCE(p_enabled, true), 'manual'
+  FROM unnest(COALESCE(p_models, ARRAY[]::text[])) m WHERE btrim(m) <> ''
+  ON CONFLICT (provider_id, model) DO NOTHING;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  PERFORM allgres_private.audit('models.registry_add', jsonb_build_object('provider', p_provider, 'added', v_n));
+  RETURN jsonb_build_object('ok', true, 'added', v_n);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_public.fn_models_registry_set(
+  p_token text, p_provider text, p_model text,
+  p_enabled boolean DEFAULT NULL, p_note text DEFAULT NULL, p_params jsonb DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_id uuid;
+BEGIN
+  PERFORM allgres_private.require_admin(p_token);
+  SELECT provider_id INTO v_id FROM allgres_private.llm_providers WHERE name = p_provider;
+  IF NOT EXISTS (SELECT 1 FROM allgres_private.llm_models WHERE provider_id = v_id AND model = p_model) THEN
+    RAISE EXCEPTION 'that model is not in the list' USING ERRCODE = 'P0001';
+  END IF;
+  IF p_params IS NOT NULL AND jsonb_typeof(p_params) <> 'object' THEN
+    RAISE EXCEPTION 'settings must be an object' USING ERRCODE = 'P0001';
+  END IF;
+  UPDATE allgres_private.llm_models
+  SET is_enabled = COALESCE(p_enabled, is_enabled),
+      note = CASE WHEN p_note IS NULL THEN note ELSE NULLIF(btrim(p_note), '') END,
+      params = COALESCE(p_params, params)
+  WHERE provider_id = v_id AND model = p_model;
+  PERFORM allgres_private.audit('models.registry_set', jsonb_build_object(
+    'provider', p_provider, 'model', p_model, 'enabled', p_enabled));
+  RETURN jsonb_build_object('ok', true);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_public.fn_models_registry_remove(p_token text, p_provider text, p_model text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_id uuid;
+  v_used int;
+BEGIN
+  PERFORM allgres_private.require_admin(p_token);
+  SELECT provider_id INTO v_id FROM allgres_private.llm_providers WHERE name = p_provider;
+  SELECT (SELECT count(*) FROM allgres_private.policies po JOIN allgres_private.agents a ON a.agent_id = po.agent_id
+          WHERE po.llm_config->>'provider' = p_provider AND po.llm_config->>'model' = p_model)
+       + (SELECT count(*) FROM allgres_private.functions WHERE llm_override->>'provider' = p_provider AND llm_override->>'model' = p_model)
+       + (SELECT count(*) FROM allgres_private.procedures WHERE llm_override->>'provider' = p_provider AND llm_override->>'model' = p_model)
+       + (SELECT count(*) FROM allgres_private.model_defaults WHERE provider = p_provider AND model = p_model)
+  INTO v_used;
+  IF v_used > 0 THEN
+    RAISE EXCEPTION 'that model is still in use (% place(s)); switch it off, or move them to another model first', v_used USING ERRCODE = 'P0001';
+  END IF;
+  DELETE FROM allgres_private.llm_models WHERE provider_id = v_id AND model = p_model;
+  PERFORM allgres_private.audit('models.registry_remove', jsonb_build_object('provider', p_provider, 'model', p_model));
   RETURN jsonb_build_object('ok', true);
 END;
 $fn$;

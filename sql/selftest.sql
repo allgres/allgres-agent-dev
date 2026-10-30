@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5375,6 +5375,7 @@ BEGIN
   v := v || allgres_private.delegation_selftest_cases();
   v := v || allgres_private.chat_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
+  v := v || allgres_private.model_registry_selftest_cases();
   v := v || allgres_private.agent_clone_selftest_cases();
   v := v || allgres_private.provider_test_selftest_cases();
 
@@ -7839,6 +7840,65 @@ BEGIN
     AND NOT allgres_private.llm_body_is_error('{"error":null,"choices":[]}');
   v := v || jsonb_build_array(jsonb_build_object('name', 'a_200_with_only_an_error_body_is_an_error_not_an_answer', 'ok', ok));
 
+  RETURN v;
+END;
+$fn$;
+
+-- The model registry (sql/models_apply.sql).
+CREATE OR REPLACE FUNCTION allgres_private.model_registry_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_user uuid;
+  ta text := 'selftest-reg-admin-token'; tu text := 'selftest-reg-user-token';
+  v_prov uuid; a1 uuid; e jsonb;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_reg_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_reg_user', 'x', 'user') RETURNING user_id INTO u_user;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (ta, u_admin, now() + interval '1 hour'), (tu, u_user, now() + interval '1 hour');
+  INSERT INTO allgres_private.llm_providers (name, kind, base_url, available_models)
+    VALUES ('zz15_prov', 'openai_compat', 'https://example.invalid/v1', '["zz15-a","zz15-b","zz15-c"]'::jsonb) RETURNING provider_id INTO v_prov;
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.registry', 'session_token', tu));
+  ok := r->>'error' IS NOT NULL;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'the_model_list_is_for_admins', 'ok', ok));
+
+  -- A model an agent uses is in the list by itself, with who uses it.
+  a1 := (allgres_public.fn_create_agent('zz15_agent', 'x')->>'agent_id')::uuid;
+  PERFORM allgres_public.fn_set_policy(a1, NULL, NULL, NULL, '{"provider":"zz15_prov","model":"zz15-a"}'::jsonb);
+  PERFORM allgres_public.fn_set_model_price(v_prov, 'zz15-a', 0.001, 0.002);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.registry', 'session_token', ta));
+  e := (SELECT x FROM jsonb_array_elements(r->'providers') x WHERE x->>'name' = 'zz15_prov');
+  ok := (r->>'ok')::boolean
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(e->'models') m
+                WHERE m->>'model' = 'zz15-a' AND m->>'source' = 'used' AND m->'agents' = '["zz15_agent"]'::jsonb
+                  AND (m->>'input_price_per_1k')::numeric = 0.001)
+    AND e->'available' = '["zz15-b","zz15-c"]'::jsonb;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_model_in_use_is_listed_with_its_price_and_agents_and_the_rest_is_available', 'ok', ok));
+
+  -- Add by name or from the provider's list; switch off; remove only when unused.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.registry_add', 'provider', 'zz15_prov', 'models', jsonb_build_array('zz15-b', 'zz15-manual'), 'session_token', ta));
+  ok := (r->>'added')::int = 2;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.registry_set', 'provider', 'zz15_prov', 'model', 'zz15-b', 'enabled', false, 'note', 'too slow', 'session_token', ta));
+  ok := ok AND (r->>'ok')::boolean AND (SELECT NOT is_enabled AND note = 'too slow' FROM allgres_private.llm_models WHERE provider_id = v_prov AND model = 'zz15-b');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'zz15_prov', 'model', 'zz15-b', 'agent_ids', jsonb_build_array(a1), 'session_token', ta));
+  ok := ok AND r->>'error' LIKE '%switched off%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.registry_remove', 'provider', 'zz15_prov', 'model', 'zz15-a', 'session_token', ta));
+  ok := ok AND r->>'error' LIKE '%still in use%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.registry_remove', 'provider', 'zz15_prov', 'model', 'zz15-manual', 'session_token', ta));
+  ok := ok AND (r->>'ok')::boolean AND NOT EXISTS (SELECT 1 FROM allgres_private.llm_models WHERE provider_id = v_prov AND model = 'zz15-manual');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'models_are_added_switched_off_and_removed_only_when_unused', 'ok', ok));
+
+  -- Putting a new model on agents adds it to the list.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'zz15_prov', 'model', 'zz15-c', 'agent_ids', jsonb_build_array(a1), 'session_token', ta));
+  ok := (r->>'ok')::boolean AND EXISTS (SELECT 1 FROM allgres_private.llm_models WHERE provider_id = v_prov AND model = 'zz15-c' AND source = 'used');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'applying_a_model_adds_it_to_the_list', 'ok', ok));
   RETURN v;
 END;
 $fn$;

@@ -794,11 +794,16 @@ test('one model is put on chosen agents at once, and can be the default for new 
     headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
     body: JSON.stringify({ action: 'models.targets', session_token: sessionStorage.getItem('allgres_session_token') }) })).json()));
   await go(page, 'Models & prices');
-  await expect(page.locator('#maBody')).toContainText('Pick a model once');
-  await page.locator('#maProvider').selectOption('ui_ma_mock');
-  await page.locator('#maModel').fill('ma-model-1');
-  await page.locator('input[name=maScope][value=pick]').check();
-  for (const n of ['ui_ma_a', 'ui_ma_b']) await page.locator('label', { hasText: n }).locator('input.maAgent').check();
+  // Each provider folds open to its models; add one by name, then put it on chosen agents.
+  const prov = page.locator('details.mrProv[data-prov="ui_ma_mock"]');
+  await expect(prov).toBeVisible();
+  if ((await prov.getAttribute('open')) === null) await prov.locator('summary').click();
+  await prov.locator('.mrAddName').fill('ma-model-1');
+  await prov.locator('.mrAdd').click();
+  const mrow = prov.locator('tr[data-model="ma-model-1"]');
+  await expect(mrow).toBeVisible();
+  await mrow.locator('.mrUse').click();
+  for (const n of ['ui_ma_a', 'ui_ma_b']) await page.locator('#modal label', { hasText: n }).locator('input.maAgent').check();
   await expect(page.locator('#maSummary')).toContainText('Will change 2 agents');
   await page.locator('#maDefault').check();
   await page.locator('#maApply').click();
@@ -818,6 +823,23 @@ test('one model is put on chosen agents at once, and can be the default for new 
   // Put things back so later tests start clean.
   await page.getByRole('button', { name: 'Stop doing that' }).click();
   await expect(page.locator('#maBody')).toContainText('No default for new agents');
+  // A model that is switched off cannot be put on agents, and a model in use cannot be removed.
+  await prov.locator('tr[data-model="ma-model-1"] .mrOn').uncheck();
+  await expect(prov.locator('tr[data-model="ma-model-1"] .mrUse')).toBeDisabled();
+  await prov.locator('tr[data-model="ma-model-1"] .mrOn').check();
+  await prov.locator('tr[data-model="ma-model-1"] .mrRemove').click();
+  await expect(page.locator('#toast')).toContainText('still in use');
+  // A model nobody uses can be priced and removed.
+  await prov.locator('.mrAddName').fill('ma-spare');
+  await prov.locator('.mrAdd').click();
+  const spare = prov.locator('tr[data-model="ma-spare"]');
+  await spare.locator('.mrPrice').click();
+  await page.locator('#mrIn').fill('0.001');
+  await page.locator('#mrOut').fill('0.002');
+  await page.locator('#mrSavePrice').click();
+  await expect(spare).toContainText('$0.001');
+  await spare.locator('.mrRemove').click();
+  await expect(prov.locator('tr[data-model="ma-spare"]')).toHaveCount(0);
 });
 
 test('an agent is copied with its setup', async ({ page }) => {
