@@ -35,7 +35,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Home','Agents','People','General','Rooms','Projects','Team messages','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Teams','Access & appearance','Audit log'];
+  const labels = ['Home','Agents','Users','General','Rooms','Projects','Team messages','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Teams','Access & appearance','Audit log'];
   for (const label of labels) {
     await go(page, label);
     await expect(page.locator('#nav button.active')).toHaveCount(1);
@@ -56,14 +56,17 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   });
 });
 
-test('the top bar stays put: Canvas is only the body, and theme and language follow', async ({ page }) => {
+test('the top bar stays put: Canvas is only the body; language is set in Settings and theme follows', async ({ page }) => {
   await login(page, 'ui_admin', 'ui-admin-password');
+  // English is the default, and there is no language button in the bar.
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('.top').getByRole('button', { name: '한' })).toHaveCount(0);
   const top = await page.locator('.top').elementHandle();
   await page.locator('#toCanvas').click();
   const cv = page.frameLocator('#canvasFrame');
   await expect(cv.locator('.agent-node').first()).toBeVisible();
   // The bar has one size and its buttons one place on every page, in both languages.
-  const spots = async () => page.evaluate(() => ['#toDashboard', '#toCanvas', '#langSeg', '#themeBtn', '#logoutBtn'].map(q => {
+  const spots = async () => page.evaluate(() => ['#toDashboard', '#toCanvas', '#themeBtn', '#logoutBtn'].map(q => {
     const r = document.querySelector(q).getBoundingClientRect(); return [q, Math.round(r.x), Math.round(r.y), Math.round(r.width)]; }).concat([['bar', Math.round(document.querySelector('.top').getBoundingClientRect().height)]]));
   const home = await spots();
   for (const id of ['Agents', 'Chat', 'Approvals', 'Settings', 'Canvas']) {
@@ -71,32 +74,62 @@ test('the top bar stays put: Canvas is only the body, and theme and language fol
     await expect(page.locator('#pageTitle')).not.toHaveText('');
     expect(await spots()).toEqual(home);
   }
-  await page.locator('#langSeg button[data-l=ko]').click();
-  await page.evaluate(() => openPage('Settings'));
-  const ko = await spots();
-  await page.evaluate(() => openPage('Canvas'));
-  expect(await spots()).toEqual(ko);
-  await page.locator('#langSeg button[data-l=en]').click();
-  await page.evaluate(() => openPage('Overview'));
-  await page.locator('#toCanvas').click();
   // Same header element before and after; the Canvas brings no header of its own.
   expect(await top.evaluate(el => el.isConnected)).toBe(true);
   await expect(cv.locator('.brand')).toHaveCount(0);
-  // Korean from the dashboard's own button reaches the dashboard and the Canvas.
-  await page.locator('#langSeg button[data-l=ko]').click();
+  // Korean is chosen in Settings → Language; it reaches the dashboard and the Canvas.
+  await page.evaluate(() => openPage('Settings'));
+  await expect(page.locator('#uiLangSel option')).toHaveCount(2);
+  await page.locator('#uiLangSel').selectOption('ko');
   await expect(page.locator('#nav').getByRole('button', { name: '채팅', exact: true })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
+  const ko = await spots();
+  await page.evaluate(() => openPage('Canvas'));
   await expect(page.locator('#pageTitle')).toHaveText('캔버스');
   await expect(cv.getByRole('button', { name: '조직' })).toBeVisible();
+  expect(await spots()).toEqual(ko);
+  // It is remembered across a reload.
+  await page.reload();
+  await expect(page.locator('#nav').getByRole('button', { name: '채팅', exact: true })).toBeVisible();
   // Light theme too.
   await page.locator('#themeBtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(cv.locator('html')).toHaveAttribute('data-theme', 'light');
-  // Back to English and the dashboard: the whole page changes with it.
-  await page.locator('#langSeg button[data-l=en]').click();
+  // Back to English.
+  await page.evaluate(() => openPage('Settings'));
+  await page.locator('#uiLangSel').selectOption('en');
   await page.locator('#toDashboard').click();
   await expect(page.locator('#nav').getByRole('button', { name: 'Chat', exact: true })).toBeVisible();
   await page.locator('#themeBtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+});
+
+test('functions and procedures are made from one Create screen and land back on the list', async ({ page }) => {
+  const fn = `ui_made_fn_${Date.now()}`, pc = `ui-made-pc-${Date.now()}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await go(page, 'Functions & procedures');
+  await expect(page.locator('#newFunc')).toHaveCount(0);
+  await page.locator('#createAbility').click();
+  await expect(page.locator('#pageTitle')).toHaveText('Create');
+  // Pick which one, then fill it in.
+  await page.locator('#abPickFn').click();
+  await page.locator('#nfName').fill(fn);
+  await page.locator('#nfDesc').fill('Made on the Create screen.');
+  await page.locator('#nfUrl').fill('https://example.com/status');
+  await page.locator('#saveNewFunc').click();
+  await expect(page.locator('#pageTitle')).toHaveText('Abilities');
+  await expect(page.locator('#view')).toContainText(fn);
+  // A procedure the same way; Back goes to the choice, not out.
+  await page.locator('#createAbility').click();
+  await page.locator('#abPickFn').click();
+  await expect(page.locator('#saveNewFunc')).toBeVisible();
+  await page.locator('#abBack').click();
+  await page.locator('#abPickPc').click();
+  await page.locator('#npcName').fill(pc);
+  await page.locator('#npcContent').fill('1. Look. 2. Report.');
+  await page.locator('#saveNewPc').click();
+  await expect(page.locator('#pageTitle')).toHaveText('Abilities');
+  await expect(page.locator('#view')).toContainText(pc);
 });
 
 // One test for the whole Canvas walk-through: the web listener allows 120
@@ -831,7 +864,7 @@ test('regular user sees only scoped chat and personal settings', async ({ page }
   await go(page, 'General');
   await expect(page.locator('#generalChatThread')).toBeAttached();
   await expect(page.getByText('not assigned to your account')).toHaveCount(0);
-  for (const forbidden of ['Home','Canvas','SQL','Agents','People','Memories','Audit log','Connections'])
+  for (const forbidden of ['Home','Canvas','SQL','Agents','Users','Memories','Audit log','Connections'])
     await expect(page.locator('#nav').getByRole('button',{name:forbidden,exact:true})).toHaveCount(0);
   await page.goto(baseURL + '/canvas');
   await expect(page.getByText('Admins only')).toBeVisible();
@@ -846,7 +879,7 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Mine', exact: true }).click();
   await expect(page.getByText('Nothing is waiting on you')).toBeVisible();
-  await go(page, 'People');
+  await go(page, 'Users');
   await expect(page.getByRole('heading', { name: 'Rules' })).toBeVisible();
   // A role, a unit, a person who holds the role, and a rule that names it.
   await page.locator('#roName').fill(role);
@@ -888,7 +921,7 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await page.getByRole('button', { name: 'Export training set' }).first().click();
   await expect(page.locator('#toast')).toContainText(/Nothing to export|Exported/);
   // Clean up: deleting the role takes its rule and membership with it.
-  await go(page, 'People');
+  await go(page, 'Users');
   await panel('Roles').locator('tr', { hasText: role }).getByRole('button', { name: 'Delete' }).click();
   await expect(panel('Roles').locator('table')).not.toContainText(role);
   await expect(panel('Rules').locator('table')).not.toContainText('kind execution');
@@ -904,7 +937,7 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await go(page, 'Approvals');
   await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Decisions', exact: true })).toHaveCount(0);
-  await expect(page.locator('#nav').getByRole('button', { name: 'People', exact: true })).toHaveCount(0);
+  await expect(page.locator('#nav').getByRole('button', { name: 'Users', exact: true })).toHaveCount(0);
 });
 
 test('mobile navigation remains keyboard reachable', async ({ page }) => {
