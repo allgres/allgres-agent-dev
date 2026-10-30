@@ -44,7 +44,8 @@ mismatched `Origin`. `/api/v1/events` is exempt from the header rule because
 cross-origin page cannot read.
 
 Dashboard HTML is served with a per-response CSP nonce, `frame-ancestors
-'none'`, and `nosniff`.
+'self'`, and `nosniff`. Only this origin may frame a page: the dashboard shows the
+Canvas in an iframe under its own top bar, and no other site can embed either.
 
 ## Event stream auth and rate limiting
 
