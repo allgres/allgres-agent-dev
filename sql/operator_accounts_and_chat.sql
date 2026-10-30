@@ -1148,7 +1148,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = allgres_private, allgres_public, pg_temp
 AS $fn$
-DECLARE u allgres_private.users%ROWTYPE;
+DECLARE u allgres_private.users%ROWTYPE; v_issue text;
 BEGIN
   u := allgres_private.require_agent_access(p_session_token, p_agent_id);
   IF p_provider IS NULL AND p_model IS NULL THEN
@@ -1164,6 +1164,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM allgres_private.llm_providers
                  WHERE name=p_provider AND is_enabled AND purpose <> 'embedding') THEN
     RAISE EXCEPTION 'provider is not configured or enabled' USING ERRCODE='P0001';
+  END IF;
+  v_issue := allgres_private.agent_model_issue(p_agent_id, p_provider, btrim(p_model));
+  IF v_issue IS NOT NULL THEN
+    RAISE EXCEPTION '%', v_issue USING ERRCODE='P0001';
   END IF;
   INSERT INTO allgres_private.user_agent_preferences(user_id,agent_id,llm_config)
   VALUES (u.user_id,p_agent_id,

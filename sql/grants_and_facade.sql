@@ -715,6 +715,8 @@ BEGIN
             'max_turn_seconds', p.max_turn_seconds,
             'max_delegation_depth', p.max_delegation_depth,
             'max_session_tasks', p.max_session_tasks,
+            'allowed_models', allgres_private.agent_allowed_models(a.agent_id),
+            'model_issue', allgres_private.agent_model_issue(a.agent_id, p.llm_config->>'provider', p.llm_config->>'model'),
             'execution_rules', COALESCE((
               SELECT jsonb_agg(jsonb_build_object(
                 'action', r.action, 'resource', r.resource, 'decision', r.decision,
@@ -1336,6 +1338,10 @@ BEGIN
     WHEN 'models.registry_remove' THEN
       RETURN allgres_public.fn_models_registry_remove(
         p_request->>'session_token', p_request->>'provider', p_request->>'model');
+
+    WHEN 'agents.set_allowed_models' THEN
+      RETURN allgres_public.fn_agent_set_allowed_models(
+        p_request->>'session_token', (p_request->>'agent_id')::uuid, COALESCE(p_request->'models', '[]'::jsonb));
 
     WHEN 'models.default_clear' THEN
       RETURN allgres_public.fn_model_default_clear(p_request->>'session_token');

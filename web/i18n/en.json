@@ -295,7 +295,11 @@
    "Copy this agent": "Copy this agent",
    "Same prompt, model, limits, permissions, rules and teams. Memories, tasks and schedules are not copied.": "Same prompt, model, limits, permissions, rules and teams. Memories, tasks and schedules are not copied.",
    "Copy agent": "Copy agent",
-   "Same prompt, model, limits, permissions, rules and teams. Memories, tasks, schedules and assigned users are not copied.": "Same prompt, model, limits, permissions, rules and teams. Memories, tasks, schedules and assigned users are not copied."
+   "Same prompt, model, limits, permissions, rules and teams. Memories, tasks, schedules and assigned users are not copied.": "Same prompt, model, limits, permissions, rules and teams. Memories, tasks, schedules and assigned users are not copied.",
+   "Models this agent may use": "Models this agent may use",
+   "any model that is on": "any model that is on",
+   "Tick some to hold this agent to them (its own model, a person's choice in General, a model picked for one task). Tick none to allow any model that is switched on in Models & prices.": "Tick some to hold this agent to them (its own model, a person's choice in General, a model picked for one task). Tick none to allow any model that is switched on in Models & prices.",
+   "No models in the list yet. Add some in Models & prices.": "No models in the list yet. Add some in Models & prices."
   },
   "People": {
    "Create user": "Create user",

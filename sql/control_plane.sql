@@ -6102,6 +6102,7 @@ DECLARE
   v_system text := '';
   v_rest jsonb := '[]'::jsonb;
   v_el jsonb;
+  v_issue text;
 BEGIN
   -- Fail closed on the requested provider, never silently substitute a
   -- different one. This used to fall back to whichever enabled provider
@@ -6149,6 +6150,18 @@ BEGIN
   IF v_model IS NULL THEN
     RAISE EXCEPTION 'agent has no llm_config.model configured -- set a provider and model before running this agent'
       USING ERRCODE = 'P0001';
+  END IF;
+
+  -- A model switched off in Models & prices is refused for everyone; an agent
+  -- with a list of models it may use is held to it, except where a function
+  -- or procedure override or a model experiment chose the model.
+  IF p_spec ? 'agent_id' THEN
+    v_issue := allgres_private.agent_model_issue(
+      (p_spec->>'agent_id')::uuid, v_name, v_model,
+      COALESCE(p_spec->>'procedure_function_id', p_spec->>'procedure_id', p_spec->>'experiment_id') IS NOT NULL);
+    IF v_issue IS NOT NULL THEN
+      RAISE EXCEPTION '%', v_issue USING ERRCODE = 'P0001';
+    END IF;
   END IF;
 
   -- The endpoint comes only from the provider row.  Per-agent llm_config can no

@@ -624,6 +624,7 @@ DECLARE
   a allgres_private.agents%ROWTYPE;
   v_created jsonb;
   v_override jsonb;
+  v_issue text;
 BEGIN
   a := allgres_private.canvas_require_agent(p_agent_id);
   IF NULLIF(btrim(p_model), '') IS NOT NULL OR NULLIF(btrim(p_provider), '') IS NOT NULL THEN
@@ -642,6 +643,12 @@ BEGIN
     v_override := allgres_private.sanitize_llm_config(jsonb_build_object(
       'provider', NULLIF(btrim(p_provider), ''), 'model', btrim(p_model)
     ));
+    IF v_override->>'provider' IS NOT NULL THEN
+      v_issue := allgres_private.agent_model_issue(p_agent_id, v_override->>'provider', v_override->>'model');
+      IF v_issue IS NOT NULL THEN
+        RAISE EXCEPTION '%', v_issue USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
   END IF;
   v_created := allgres_public.fn_create_session(p_agent_id, p_goal);
   IF v_override IS NOT NULL THEN

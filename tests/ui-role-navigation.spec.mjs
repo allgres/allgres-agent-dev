@@ -847,6 +847,45 @@ test('one model is put on chosen agents at once, and can be the default for new 
   await expect(prov.locator('tr[data-model="ma-spare"]')).toHaveCount(0);
 });
 
+test('an agent is held to the models ticked for it, and the list warns when its model is not among them', async ({ page }) => {
+  test.setTimeout(90000);
+  const name = `ui_am_agent_${Date.now()}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.evaluate(async ([base, name]) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const p = await call({ action: 'provider.create', name: 'ui_am_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    await call({ action: 'models.registry_add', provider: 'ui_am_mock', models: ['allgres-mock', 'am-other'] });
+    const a = await call({ action: 'agents.create', name, system_prompt: 'x', llm_config: { provider: 'ui_am_mock', model: 'allgres-mock' }, is_active: true });
+    if (a.ok === false) throw new Error(a.error);
+  }, [baseURL, name]);
+  await go(page, 'Agents');
+  const row = () => page.locator('#view tr', { hasText: name }).first();
+  await expect(row()).toBeVisible();
+  await expect(row().locator('.agentModelIssue')).toHaveCount(0);
+  // Tick only the other model: this agent's own model is no longer among them.
+  await row().locator('.editAgent').click();
+  await page.locator('#amBox summary').click();
+  await page.locator('.amModel[data-prov="ui_am_mock"][data-model="am-other"]').check();
+  await page.locator('#saveA').click();
+  await expect(row().locator('.agentModelIssue')).toContainText('not among the models this agent may use');
+  await row().locator('.editAgent').click();
+  await expect(page.locator('#aModelIssue')).toContainText('cannot run');
+  // Tick its own model too: the warning goes.
+  await page.locator('.amModel[data-prov="ui_am_mock"][data-model="allgres-mock"]').check();
+  await page.locator('#saveA').click();
+  await expect(row().locator('.agentModelIssue')).toHaveCount(0);
+  // Switching the model off in Models & prices warns too.
+  await page.evaluate(async () => (await fetch('/api/v1/rpc', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+    body: JSON.stringify({ action: 'models.registry_set', provider: 'ui_am_mock', model: 'allgres-mock', enabled: false, session_token: sessionStorage.getItem('allgres_session_token') }) })).json());
+  await go(page, 'Home');
+  await go(page, 'Agents');
+  await expect(row().locator('.agentModelIssue')).toContainText('switched off');
+});
+
 test('an agent is copied with its setup', async ({ page }) => {
   const src = `ui_copy_src_${Date.now()}`;
   await login(page, 'ui_admin', 'ui-admin-password');

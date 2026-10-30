@@ -15,3 +15,14 @@
 - **Price** and **Note** are per model.
 
 Actions: `models.registry`, `models.registry_add`, `models.registry_set`, `models.registry_remove`, `models.apply`, `models.targets`, `models.clear_overrides`, `models.default_clear`. Table: `llm_models` (provider, model, on/off, note, default settings).
+
+## Models an agent may use
+
+In an agent's settings (**Agents → Edit → Models this agent may use**) tick the models it may use. Tick none and any model that is switched on is allowed.
+
+- The agent's own model, a person's choice in General (*My model*) and a model picked for one task must be among the ticked ones.
+- A function or procedure's own override and a model experiment are the administrator's choice and are not held to the list.
+- A model switched off in Models & prices is refused for everyone.
+- An agent whose model cannot be used shows the reason in the Agents list and in its settings, and its turns fail with that reason instead of calling the model: no model chosen, the provider or the model is off, or the model is not among the ticked ones.
+
+Action: `agents.set_allowed_models` (`agent_id`, `models`: a list of `{provider, model}`). Table: `agent_models`.
