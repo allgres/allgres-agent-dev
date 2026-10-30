@@ -376,3 +376,5 @@ kbd { font: 600 11px -apple-system, system-ui, sans-serif; border: 1px solid var
 .edge-delegate.edge-active .react-flow__edge-textbg,
 .edge-delegate.selected .react-flow__edge-text,
 .edge-delegate.selected .react-flow__edge-textbg { opacity: 1; }
+
+.chat-tools { display: flex; justify-content: flex-end; margin-bottom: 6px; }

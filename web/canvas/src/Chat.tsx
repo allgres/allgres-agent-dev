@@ -58,6 +58,24 @@ export function Chat({ agentId, agentName, note }: { agentId: string; agentName:
   return (
     <div className="chat">
       {note && <p className="muted small">{note}</p>}
+      <div className="chat-tools">
+        <button
+          type="button"
+          className="btn ghost"
+          onClick={async () => {
+            if (!window.confirm(t('Start a new chat? The earlier one stays under Activity.'))) return;
+            try {
+              await rpc('chat.new', { agent_id: agentId });
+              setHistory(null);
+              await load();
+            } catch (e) {
+              setError(e instanceof RpcError ? e.code : String(e));
+            }
+          }}
+        >
+          {t('New chat')}
+        </button>
+      </div>
       <div className="msgs" ref={list} aria-live="polite">
         {history?.messages.map((m, i) => (
           <div key={i} className={`msg ${m.role === 'assistant' ? 'them' : 'me'}`}>

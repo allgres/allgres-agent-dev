@@ -496,7 +496,7 @@ test('teams: a second team, a window that waits for a person, and shared notes',
   // The page can re-render under the click; adding twice is harmless, so retry the pair.
   await expect(async () => {
     await team('ui-team-two').locator('.tmSecAgent').selectOption({ label: 'ui_tm_a' });
-    await team('ui-team-two').getByRole('button', { name: 'Add as second team' }).click();
+    await team('ui-team-two').getByRole('button', { name: 'Also in this team' }).click();
     await expect(team('ui-team-two').locator('.status', { hasText: 'second team' })).toBeVisible({ timeout: 4000 });
   }).toPass({ timeout: 40000 });
   // The window waits for a person; hand work to it, then pick who takes it.
@@ -625,6 +625,53 @@ test('decision model: watch a point, compare with a person, and meet the gate be
     const list = (await call({ action: 'approvals.list', limit: 200 })).approvals || [];
     for (const ap of list.filter(x => x.agent === 'ui_dg_agent')) await call({ action: 'approvals.decide', approval_id: ap.approval_id, accept: false });
   });
+});
+
+test('teams are made, renamed and deleted from the dashboard', async ({ page }) => {
+  test.setTimeout(90000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  page.on('dialog', d => d.accept());
+  await page.locator('#nav button', { hasText: 'Teams' }).click();
+  await page.locator('#tnewName').fill('ui-made-team');
+  await page.locator('#tnewGo').click();
+  const box = page.locator('#view .panel[data-team="ui-made-team"]');
+  await expect(box).toBeVisible();
+  await box.locator('summary', { hasText: 'Rename' }).click();
+  await box.locator('.tmName').fill('ui-renamed-team');
+  await box.locator('.tmKind').selectOption('division');
+  await box.getByRole('button', { name: 'Save', exact: true }).click();
+  const renamed = page.locator('#view .panel[data-team="ui-renamed-team"]');
+  await expect(renamed).toBeVisible();
+  await expect(renamed).toContainText('division');
+  await renamed.locator('summary', { hasText: 'Rename' }).click();
+  await renamed.getByRole('button', { name: 'Delete team' }).click();
+  await expect(page.locator('#view .panel[data-team="ui-renamed-team"]')).toHaveCount(0);
+});
+
+test('General chat shows only the answer and can start a new chat', async ({ page }) => {
+  test.setTimeout(90000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  page.on('dialog', d => d.accept());
+  await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const p = await call({ action: 'provider.create', name: 'ui_chat_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    const ags = (await call({ action: 'agents.list' })).agents;
+    const g = ags.find(a => a.name === 'general');
+    const r = await call({ action: 'agents.update', agent_id: g.agent_id, llm_config: { provider: 'ui_chat_mock', model: 'allgres-mock' }, is_active: true });
+    if (r.ok === false) throw new Error(JSON.stringify(r));
+  }, baseURL);
+  await page.locator('#nav button', { hasText: 'General' }).click();
+  await page.locator('#generalChatInput').fill('hello there');
+  await page.locator('#generalChatSend').click();
+  const reply = page.locator('#generalChatThread', { hasText: 'Allgres mock runtime OK' });
+  await expect(reply).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('#generalChatThread')).not.toContainText('"action"');
+  await page.locator('#generalChatNew').click();
+  await expect(page.locator('#generalChatThread')).toContainText('Say hello to General.');
+  await expect(page.locator('#generalChatThread')).not.toContainText('hello there');
 });
 
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {

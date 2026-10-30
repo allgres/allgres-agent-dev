@@ -1294,6 +1294,9 @@ BEGIN
         p_request->>'session_token', (p_request->>'agent_id')::uuid
       );
 
+    WHEN 'chat.new' THEN
+      RETURN allgres_public.fn_chat_new(p_request->>'session_token', (p_request->>'agent_id')::uuid);
+
     WHEN 'messenger.post' THEN
       RETURN allgres_public.fn_messenger_post(p_request->>'session_token', p_request->>'text');
 
