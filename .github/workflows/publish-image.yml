@@ -94,10 +94,10 @@ jobs:
             TAGS="${IMAGE}:${REF},${IMAGE}:${REF#v},${IMAGE}:latest"
             echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           else
-            # A commit on main: :main moves with it, and :sha-<7> stays on
-            # exactly this commit, so a build can be pinned or rolled back to.
+            # A commit on main: only :main, which moves with it. Version tags
+            # come with a release (a v* tag), once releases begin.
             REF="${GITHUB_REF#refs/heads/}"
-            echo "tags=${IMAGE}:${REF},${IMAGE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "tags=${IMAGE}:${REF}" >> "$GITHUB_OUTPUT"
           fi
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
@@ -195,10 +195,10 @@ jobs:
             TAGS="${IMAGE}:${REF},${IMAGE}:${REF#v},${IMAGE}:latest"
             echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           else
-            # A commit on main: :main moves with it, and :sha-<7> stays on
-            # exactly this commit, so a build can be pinned or rolled back to.
+            # A commit on main: only :main, which moves with it. Version tags
+            # come with a release (a v* tag), once releases begin.
             REF="${GITHUB_REF#refs/heads/}"
-            echo "tags=${IMAGE}:${REF},${IMAGE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "tags=${IMAGE}:${REF}" >> "$GITHUB_OUTPUT"
           fi
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
 
