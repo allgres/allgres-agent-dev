@@ -1318,6 +1318,25 @@ BEGIN
       RETURN allgres_public.fn_agent_clone(
         p_request->>'session_token', (p_request->>'agent_id')::uuid, p_request->>'name');
 
+    -- The model registry: providers with their models, added, switched, removed.
+    WHEN 'models.registry' THEN
+      RETURN allgres_public.fn_models_registry(p_request->>'session_token') || jsonb_build_object('ok', true);
+
+    WHEN 'models.registry_add' THEN
+      RETURN allgres_public.fn_models_registry_add(
+        p_request->>'session_token', p_request->>'provider',
+        ARRAY(SELECT x FROM jsonb_array_elements_text(COALESCE(p_request->'models', jsonb_build_array(p_request->>'model'))) x),
+        COALESCE((p_request->>'enabled')::boolean, true));
+
+    WHEN 'models.registry_set' THEN
+      RETURN allgres_public.fn_models_registry_set(
+        p_request->>'session_token', p_request->>'provider', p_request->>'model',
+        (p_request->>'enabled')::boolean, p_request->>'note', p_request->'params');
+
+    WHEN 'models.registry_remove' THEN
+      RETURN allgres_public.fn_models_registry_remove(
+        p_request->>'session_token', p_request->>'provider', p_request->>'model');
+
     WHEN 'models.default_clear' THEN
       RETURN allgres_public.fn_model_default_clear(p_request->>'session_token');
 

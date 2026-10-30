@@ -582,6 +582,45 @@
     ]
   },
   {
+    "action": "models.registry",
+    "guards": [],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "models.registry_add",
+    "guards": [],
+    "params": [
+      "enabled",
+      "model",
+      "models",
+      "provider",
+      "session_token"
+    ]
+  },
+  {
+    "action": "models.registry_set",
+    "guards": [],
+    "params": [
+      "enabled",
+      "model",
+      "note",
+      "params",
+      "provider",
+      "session_token"
+    ]
+  },
+  {
+    "action": "models.registry_remove",
+    "guards": [],
+    "params": [
+      "model",
+      "provider",
+      "session_token"
+    ]
+  },
+  {
     "action": "models.default_clear",
     "guards": [],
     "params": [
