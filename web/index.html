@@ -74,7 +74,9 @@
 .u-max-width-360px{max-width:360px}
 .u-margin-bottom-20px{margin-bottom:20px}
 .u-font-size-12px-margin-top-10px-color-var-bad{font-size:12px;margin-top:10px;color:var(--bad)}
-</style></head><body><div class="app"><aside class="side"><div class="brand">Allgres</div><div class="tag">Postgres Is All You Need.</div><nav class="nav" id="nav"></nav></aside><main class="main"><div class="top"><div><div class="title" id="pageTitle">Overview</div><div class="muted" id="pageSub">PostgreSQL-native agent control plane</div></div><div class="row"><span class="muted mono u-font-size-12px" id="whoami"></span><button class="btn small" id="logoutBtn">Sign out</button><div class="pill"><span class="dot"></span><span id="health">connecting</span></div></div></div><div id="view"></div></main></div><div id="modal" class="modal hidden" role="dialog" aria-modal="true" tabindex="-1"></div><div id="toast" class="toast" role="status" aria-live="polite"></div>
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.seg button{border:0;background:transparent;color:var(--muted);padding:5px 12px;font:inherit;cursor:pointer}.seg button.seg-on{background:var(--accent);color:var(--on-accent)}.seg button:not(.seg-on):hover{color:var(--text)}.seg button[hidden]{display:none}
+#pageTabs{margin:0 0 14px}.hubtabs{display:flex;gap:2px;border-bottom:1px solid var(--line);flex-wrap:wrap}.hubtab{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:8px 14px;font:inherit;cursor:pointer;margin-bottom:-1px}.hubtab:hover{color:var(--text)}.hubtab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}.hubhint{margin-top:8px;font-size:12.5px}
+</style></head><body><div class="app"><aside class="side"><div class="brand">Allgres</div><div class="tag">Postgres Is All You Need.</div><nav class="nav" id="nav"></nav></aside><main class="main"><div class="top"><div><div class="title" id="pageTitle">Overview</div><div class="muted" id="pageSub">PostgreSQL-native agent control plane</div></div><div class="row"><div class="seg" role="group" aria-label="Switch view"><button class="seg-on" aria-pressed="true" id="toDashboard">Dashboard</button><button id="toCanvas" aria-pressed="false" hidden>Canvas</button></div><span class="muted mono u-font-size-12px" id="whoami"></span><button class="btn small" id="logoutBtn">Sign out</button><div class="pill"><span class="dot"></span><span id="health">connecting</span></div></div></div><div id="pageTabs" hidden></div><div id="view"></div></main></div><div id="modal" class="modal hidden" role="dialog" aria-modal="true" tabindex="-1"></div><div id="toast" class="toast" role="status" aria-live="polite"></div>
 <style nonce="__CSP_NONCE__">
 /* Responsive/accessibility restoration after the dashboard source split.
    Keep this override separate from the compact base sheet above so future
@@ -168,7 +170,7 @@ function scrollBottom(id){const el=$(id);if(el)el.scrollTop=el.scrollHeight}
 // nav labels, page chrome, and common actions/empty-states, not because
 // more than one language is selectable.
 const I18N={
-  Overview:'Home',Agents:'Agents',People:'People',Chat:'General',Rooms:'Rooms',Teams:'Teams',Approvals:'Approvals',Activity:'Activity',Schedules:'Schedules',Abilities:'Functions & procedures',Models:'Models & prices',APIs:'APIs',MCP:'MCP servers',Decision:'Decision model',Inbound:'Inbound events',Projects:'Projects',Run:'Run',Memories:'Memories',Audit:'Audit log',Settings:'Access & appearance','My Agents':'My agents',
+  Overview:'Home',Agents:'Agents',People:'People',Chat:'Chat',Rooms:'Rooms',Teams:'Teams',Approvals:'Approvals',Activity:'Activity',Schedules:'Schedules',Abilities:'Functions & procedures',Models:'Models & prices',APIs:'APIs',MCP:'MCP servers',Decision:'Decision model',Inbound:'Inbound events',Projects:'Projects',Run:'Run',Memories:'Memories',Audit:'Audit log',Settings:'Access & appearance','My Agents':'My agents',
   general:'General',messenger:'Messenger',project:'Project',
   save:'Save',cancel:'Cancel',close:'Close',edit:'Edit',create:'Create',approve:'Approve',reject:'Reject',send:'Send',delete:'Delete',
   signIn:'Sign in',signOut:'Sign out',username:'Username',password:'Password',
@@ -233,20 +235,45 @@ async function api(path,opt={}){
 const rpc=(action,body={})=>api('/api/v1/rpc',{method:'POST',body:JSON.stringify({action,operator_name:opName(),session_token:sessTok(),...body})});
 
 function openPage(page){if(!pagesForRole().includes(page))page=pagesForRole()[0];state.page=page;saveUi('page',page);nav();loadPage()}
+// Sidebar entries are hubs. A hub is one place with a tab strip; every tab is
+// still an ordinary page id, so saved pages and openPage('Rooms') keep working.
+const HUBS={
+  Chat:{label:'Chat',tabs:[
+    {label:'General',page:'Chat',mode:'general',hint:'Ask one assistant anything. A private conversation that continues where you left it.'},
+    {label:'Rooms',page:'Rooms',hint:'People and several agents talk in one room. Choose how much the agents may do on their own.'},
+    {label:'Projects',page:'Projects',hint:'Work inside one project: manage its agents and talk with that project.'},
+    {label:'Team messages',page:'Chat',mode:'messenger',hint:'Write @agent-name to call one or several agents. Each message goes to whoever you mention.'}]},
+  Activity:{label:'Activity',tabs:[{label:'Activity',page:'Activity',hint:'What agents did and are doing now.'},{label:'Schedules',page:'Schedules',hint:'Work that starts by itself at set times.'}]},
+  Abilities:{label:'Abilities',tabs:[{label:'Functions & procedures',page:'Abilities',hint:'What agents are able to do.'},{label:'Memories',page:'Memories',hint:'What agents remember.'}]},
+  Connections:{label:'Connections',tabs:[{label:'Models & prices',page:'Models'},{label:'APIs',page:'APIs'},{label:'MCP servers',page:'MCP'},{label:'Decision model',page:'Decision'},{label:'Inbound events',page:'Inbound'}]},
+  Settings:{label:'Settings',tabs:[{label:'Access & appearance',page:'Settings'},{label:'Audit log',page:'Audit'},{label:'SQL console',page:'SQL',hint:'Advanced: run SQL directly.'}]}
+};
+function hubOf(page){return Object.keys(HUBS).find(k=>HUBS[k].tabs.some(x=>x.page===page))||null}
+function tabActive(x){return x.page===state.page&&(!x.mode||x.mode===state.chatMode)}
+function openTab(x){if(tabActive(x))return;if(x.mode){state.chatMode=x.mode;saveUi('chat_mode',x.mode)}else if(x.page==='Chat'){state.chatMode='general';saveUi('chat_mode','general')}openPage(x.page)}
+function renderTabs(){
+  const el=$('#pageTabs'),h=hubOf(state.page);
+  if(!el)return;
+  const tabs=h?HUBS[h].tabs.filter(x=>pagesForRole().includes(x.page)):[];
+  if(!h||tabs.length<2){el.innerHTML='';el.hidden=true;return}
+  el.hidden=false;
+  const cur=tabs.find(tabActive);
+  el.innerHTML=`<div class="hubtabs" role="tablist">${tabs.map((x,i)=>`<button role="tab" class="hubtab${x===cur?' active':''}" aria-selected="${x===cur}" data-i="${i}">${esc(x.label)}</button>`).join('')}</div>${cur?.hint?`<div class="muted hubhint">${esc(cur.hint)}</div>`:''}`;
+  el.querySelectorAll('.hubtab').forEach(b=>b.onclick=()=>openTab(tabs[+b.dataset.i]));
+}
 function nav(){
   const n=$('#nav'),admin=state.me?.role==='admin';
   const groups=admin?
     [{label:'',items:[['Overview','Home','top']]},
-     {label:'Organization',items:[['Canvas','Canvas','sub'],['Agents','Agents','sub'],['People','People','sub']]},
-     {label:'Work',items:[['Chat','General','sub'],['Rooms','Rooms','sub'],['Teams','Teams','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub'],['Activity','Activity','sub'],['Schedules','Schedules','sub']]},
-     {label:'Abilities',items:[['Abilities','Functions & procedures','sub'],['Memories','Memories','sub'],['SQL','SQL','sub']]},
-     {label:'Connections',items:[['Models','Models & prices','sub'],['APIs','APIs','sub'],['MCP','MCP servers','sub'],['Decision','Decision model','sub'],['Inbound','Inbound events','sub']]},
-     {label:'Settings',items:[['Settings','Access & appearance','sub'],['Audit','Audit log','sub']]}]:
-    [{label:'Work',items:[['Chat','General','sub'],['Rooms','Rooms','sub'],['Projects','Projects','sub'],['Approvals','Approvals','sub']]},{label:'Settings',items:[['My Agents','My agents','sub']]}];
-  n.innerHTML=groups.map(g=>`${g.label?`<div class="nav-group">${esc(g.label)}</div>`:''}${g.items.map(([p,label,kind])=>`<button class="nav-${kind} ${state.page===p?'active':''}" data-p="${p}">${esc(label)}</button>`).join('')}`).join('');
-  // Canvas is its own document (/canvas, built from web/canvas), not a view
-  // inside this one. Same tab, so it reads the same sessionStorage login.
-  n.querySelectorAll('button').forEach(b=>b.onclick=()=>b.dataset.p==='Canvas'?location.assign('/canvas'):openPage(b.dataset.p));renderWhoami()
+     {label:'Work',items:[['Chat','Chat','sub'],['Approvals','Approvals','sub'],['Activity','Activity','sub']]},
+     {label:'Organization',items:[['Agents','Agents','sub'],['Teams','Teams','sub'],['People','People','sub'],['Abilities','Abilities','sub']]},
+     {label:'System',items:[['Models','Connections','sub'],['Settings','Settings','sub']]}]:
+    [{label:'Work',items:[['Chat','Chat','sub'],['Approvals','Approvals','sub'],['My Agents','My agents','sub']]}];
+  const cur=p=>state.page===p||hubOf(state.page)&&hubOf(state.page)===hubOf(p);
+  n.innerHTML=groups.map(g=>`${g.label?`<div class="nav-group">${esc(g.label)}</div>`:''}${g.items.map(([p,label,kind])=>`<button class="nav-${kind} ${cur(p)?'active':''}" data-p="${p}">${esc(label)}</button>`).join('')}`).join('');
+  n.querySelectorAll('button').forEach(b=>b.onclick=()=>{const p=b.dataset.p,h=hubOf(p);if(h&&hubOf(state.page)===h)return;const tab=h?HUBS[h].tabs.find(x=>x.page===p&&!x.mode)||HUBS[h].tabs[0]:null;h?openTab(tab):openPage(p)});
+  renderWhoami();renderTabs();
+  const cv=$('#toCanvas');if(cv){cv.hidden=!admin;cv.onclick=()=>location.assign('/canvas')}
 }
 function renderWhoami(){const el=$('#whoami');if(!el)return;el.textContent=state.me?`${state.me.username} (${state.me.role})`:'';const lb=$('#logoutBtn');if(lb)lb.textContent=t('signOut')}
 function status(s){return `<span class="status s-${esc(s)}">${esc(s)}</span>`}
@@ -307,7 +334,7 @@ async function renderPage(){
   if(msgPollTimer){clearInterval(msgPollTimer);msgPollTimer=null}
   if(generalChatPollTimer){clearInterval(generalChatPollTimer);generalChatPollTimer=null}
   if(projectChatPollTimer){clearInterval(projectChatPollTimer);projectChatPollTimer=null}
-  $('#pageTitle').textContent=t(state.page); try{
+  $('#pageTitle').textContent=hubOf(state.page)?HUBS[hubOf(state.page)].label:t(state.page); try{
   if(state.page==='Overview')await overview();
   if(state.page==='Agents')await agents();
   if(state.page==='Projects')await projectsPage();
@@ -456,7 +483,7 @@ ${agentConfigFields(a,locked)}
 ${locked?'':`<div class="row u-margin-top-8px"><select class="select u-max-width-130px" id="permType"><option value="view">view</option><option value="function">function</option><option value="agent">agent</option><option value="http_host">http_host</option><option value="procedure">procedure</option></select><input class="input" id="permRef" placeholder="resource ref" list="permRefOptions"><datalist id="permRefOptions"></datalist><button class="btn" id="grantP">Grant</button></div>`}
 </div>`}
 ${isNew?'':`<div class="field"><div class="row"><label class="u-margin-0">Execution approval rules</label><span class="spacer"></span><span class="muted u-font-size-11px">Rules are checked immediately before a queued call runs.</span></div><div id="executionRuleList">${(a.execution_rules||[]).map(r=>`<div class="row u-padding-4px-0"><span class="mono u-font-size-12px">${esc(r.action)}: ${esc(r.resource)} → ${esc(r.decision)}</span></div>`).join('')||'<div class="muted u-font-size-12px">All actions follow ordinary permission checks.</div>'}</div><div class="row u-margin-top-8px"><select class="select u-max-width-180px" id="execAction"><option value="call_function">call function</option><option value="execute_sql">execute SQL</option><option value="run_procedure">run procedure</option></select><input class="input" id="execResource" value="*" placeholder="resource or *"><select class="select u-max-width-140px" id="execDecision"><option value="allow">allow</option><option value="approve">require approval</option><option value="deny">deny</option></select><button class="btn" id="saveExecutionRule">Set rule</button></div></div>`}
-<button class="btn primary" id="saveA">${locked?'Save autonomy level':'Save'}</button></div>`;
+${isNew||a.is_system?'':`<div class="field"><label>Copy this agent</label><div class="row"><input class="input" id="cloneName" placeholder="${esc(a.name)}_copy"><button class="btn" id="cloneAgent" title="Same prompt, model, limits, permissions, rules and teams. Memories, tasks and schedules are not copied.">Copy agent</button></div><div class="muted u-font-size-12px">Same prompt, model, limits, permissions, rules and teams. Memories, tasks, schedules and assigned users are not copied.</div></div>`}<button class="btn primary" id="saveA">${locked?'Save autonomy level':'Save'}</button></div>`;
   $('#closeM').onclick=closeModal;
   if($('#aProvider')&&!$('#aProvider').disabled){
     $('#aProvider').onchange=()=>{
@@ -470,6 +497,7 @@ ${isNew?'':`<div class="field"><div class="row"><label class="u-margin-0">Execut
     $('#grantP').onclick=async()=>{try{await rpc('permissions.grant',{agent_id:a.agent_id,type:$('#permType').value,ref:$('#permRef').value});closeModal();toast('Granted');agents()}catch(e){toast(e.message)}};
     document.querySelectorAll('.revokeP').forEach(b=>b.onclick=async()=>{try{await rpc('permissions.revoke',{agent_id:a.agent_id,type:b.dataset.type,ref:b.dataset.ref});closeModal();toast('Revoked');agents()}catch(e){toast(e.message)}});
   }
+  if($('#cloneAgent'))$('#cloneAgent').onclick=async()=>{try{const r=await rpc('agents.clone',{agent_id:a.agent_id,name:$('#cloneName').value.trim()||undefined});closeModal();toast('Copied as '+r.name);agents()}catch(e){toast(e.message)}};
   if(!isNew&&$('#saveExecutionRule'))$('#saveExecutionRule').onclick=async()=>{try{await rpc('agents.set_execution_rule',{agent_id:a.agent_id,rule_action:$('#execAction').value,resource:$('#execResource').value.trim(),decision:$('#execDecision').value});closeModal();toast('Execution rule saved');agents()}catch(e){toast(e.message)}};
   if(!isNew){
     $('#viewHistory').onclick=async()=>{try{const h=await rpc('policy.history',{agent_id:a.agent_id});historyModal(a.agent_id,h.history||[],a.is_system)}catch(e){toast(e.message)}};
@@ -1603,13 +1631,10 @@ function wireChatModelPicker(agent,providerOpts,onSaved){
   if($('#cmReset'))$('#cmReset').onclick=async()=>{try{await rpc('agents.set_my_model',{agent_id:agent.agent_id,provider:'',model:''});toast('Using Agent default');if(onSaved)onSaved()}catch(e){toast(e.message)}};
 }
 async function chatPage(){
-  if(!['general','messenger','sessions'].includes(state.chatMode))state.chatMode='general';
-  const modes=[['general','General'],['messenger','Team messages'],['sessions','Sessions']];
-  $('#view').innerHTML=`<div class="chatPanel"><div class="row u-margin-bottom-22px">${modes.map(([m,label])=>`<button class="btn small chatModeBtn${state.chatMode===m?' primary':''}" data-mode="${m}">${esc(label)}</button>`).join('')}</div><div id="chatModeBody"></div></div>`;
-  document.querySelectorAll('.chatModeBtn').forEach(b=>b.onclick=()=>{state.chatMode=b.dataset.mode;saveUi('chat_mode',state.chatMode);chatPage()});
+  if(!['general','messenger'].includes(state.chatMode))state.chatMode='general';
+  $('#view').innerHTML=`<div class="chatPanel"><div id="chatModeBody"></div></div>`;
   const body=$('#chatModeBody');
-  if(state.chatMode==='sessions')await sessionsPage(body);
-  else if(state.chatMode==='messenger')await messengerPage(body);
+  if(state.chatMode==='messenger')await messengerPage(body);
   else await generalChatMode(body);
 }
 // General is a direct, continuing conversation with the seeded 'general'

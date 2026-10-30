@@ -1,5 +1,5 @@
 /target/
-/node_modules/
+/node_modules
 /test-results/
 **/*.rs.bk
 
@@ -13,5 +13,5 @@
 # They contain live database files and must never enter Git or an image build.
 *-pgdata/
 pgdata/
-/web/canvas/node_modules/
+/web/canvas/node_modules
 /web/canvas/dist/

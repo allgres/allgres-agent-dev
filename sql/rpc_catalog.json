@@ -573,6 +573,15 @@
     ]
   },
   {
+    "action": "agents.clone",
+    "guards": [],
+    "params": [
+      "agent_id",
+      "name",
+      "session_token"
+    ]
+  },
+  {
     "action": "models.default_clear",
     "guards": [],
     "params": [

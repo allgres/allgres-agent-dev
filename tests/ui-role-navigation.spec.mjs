@@ -12,21 +12,41 @@ async function login(page, username, password) {
   await expect(page.locator('#whoami')).toContainText(username);
 }
 
+
+// Menu entries are hubs (Chat, Activity, Abilities, Connections, Settings);
+// the pages inside one are tabs. go() walks it the way a person does.
+const HUB = {
+  General: ['Chat', 'General'], Rooms: ['Chat', 'Rooms'], Projects: ['Chat', 'Projects'], 'Team messages': ['Chat', 'Team messages'],
+  Activity: ['Activity', 'Activity'], Schedules: ['Activity', 'Schedules'],
+  'Functions & procedures': ['Abilities', 'Functions & procedures'], Memories: ['Abilities', 'Memories'],
+  'Models & prices': ['Connections', 'Models & prices'], APIs: ['Connections', 'APIs'], 'MCP servers': ['Connections', 'MCP servers'],
+  'Decision model': ['Connections', 'Decision model'], 'Inbound events': ['Connections', 'Inbound events'],
+  'Access & appearance': ['Settings', 'Access & appearance'], 'Audit log': ['Settings', 'Audit log'], SQL: ['Settings', 'SQL console'],
+};
+async function go(page, label) {
+  const [nav, tab] = HUB[label] || [label];
+  await page.locator('#nav').getByRole('button', { name: nav, exact: true }).click();
+  // The hub opens on its first tab; clicking the tab that is already open does nothing.
+  const t = page.locator('#pageTabs').getByRole('tab', { name: tab, exact: true });
+  if (tab && (await t.getAttribute('aria-selected')) !== 'true') await t.click();
+}
+
 test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Home','Agents','People','General','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Rooms','Teams','Access & appearance','Audit log'];
+  const labels = ['Home','Agents','People','General','Rooms','Projects','Team messages','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Teams','Access & appearance','Audit log'];
   for (const label of labels) {
-    const button = page.locator('#nav button', { hasText: label }).first();
-    await expect(button).toBeVisible();
-    await button.click();
-    await expect(button).toHaveClass(/active/);
+    await go(page, label);
+    await expect(page.locator('#nav button.active')).toHaveCount(1);
+    if (HUB[label]) await expect(page.locator('#pageTabs .hubtab.active')).toHaveText(HUB[label][1]);
   }
-  await page.locator('#nav button', { hasText: 'General' }).click();
+  await expect(page.locator('#nav').getByRole('button', { name: 'Canvas' })).toHaveCount(0);
+  await expect(page.locator('#toCanvas')).toBeVisible();
+  await go(page, 'General');
   await expect(page.locator('#generalChatThread')).toBeAttached();
   await expect(page.locator('#msgInput')).toHaveCount(0);
-  await page.locator('#nav button', { hasText: 'Access & appearance' }).click();
+  await go(page, 'Access & appearance');
   await expect(page.locator('#bulkApply')).toHaveCount(0);
   expect(cspErrors).toEqual([]);
   await page.evaluate(async () => {
@@ -44,7 +64,7 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   const stamp=Date.now();
   const lead=`ui_lead_${stamp}`, worker=`ui_worker_${stamp}`, team=`UI team ${stamp}`;
   await login(page, 'ui_admin', 'ui-admin-password');
-  await page.locator('#nav button', { hasText: 'Canvas' }).click();
+  await page.locator('#toCanvas').click();
   await expect(page).toHaveURL(/\/canvas$/);
   const general = page.locator('.agent-node', { hasText: 'general' }).first();
   await expect(general).toBeVisible();
@@ -105,7 +125,7 @@ test('admin opens the canvas and builds a team', async ({ page }) => {
   await expect(page.locator('.agent-node.is-system').first()).toBeVisible();
   await page.locator('#showSystem').uncheck();
   await expect(page.locator('.agent-node.is-system')).toHaveCount(0);
-  await page.getByRole('link', { name: '← Dashboard' }).click();
+  await page.getByRole('group', { name: 'Switch view' }).getByRole('link', { name: 'Dashboard' }).click();
   await expect(page.locator('#whoami')).toContainText('ui_admin');
   expect(cspErrors).toEqual([]);
 });
@@ -114,7 +134,7 @@ test('admin data tables fit a narrow viewport', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await login(page, 'ui_admin', 'ui-admin-password');
   for(const label of ['Agents','SQL','Audit log']){
-    await page.getByRole('button',{name:label,exact:true}).first().click();
+    await go(page,label);
     const width=await page.evaluate(()=>({document:document.documentElement.scrollWidth,viewport:document.documentElement.clientWidth}));
     expect(width.document).toBeLessThanOrEqual(width.viewport);
   }
@@ -133,7 +153,7 @@ test('first-run setup keeps unconfigured agents in drafts', async ({ page }) => 
   await expect(page.getByText('Nothing needs your decision.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'In progress' })).toBeVisible();
   await expect(page.getByText('System status')).toBeVisible();
-  await page.locator('#nav button', { hasText: 'Agents' }).click();
+  await go(page, 'Agents');
   await expect(page.getByText('System agents (')).toBeVisible();
   await page.getByText('System agents (').click();
   await expect(page.locator('#view details').getByRole('cell', { name: 'health_monitor' })).toBeVisible();
@@ -152,7 +172,7 @@ test('first-run setup keeps unconfigured agents in drafts', async ({ page }) => 
 
 test('admin connects an MCP server, confirms tool risk, and registers a tool', async ({ page }) => {
   await login(page, 'ui_admin', 'ui-admin-password');
-  await page.locator('#nav button', { hasText: 'MCP servers' }).click();
+  await go(page, 'MCP servers');
   await page.locator('#mcName').fill('ui_mock_mcp');
   await page.locator('#mcUrl').fill(baseURL + '/mock/mcp');
   await page.locator('#mcPrivate').check();
@@ -170,16 +190,16 @@ test('admin connects an MCP server, confirms tool risk, and registers a tool', a
   await row('get_status').getByRole('button', { name: 'Register' }).click();
   await expect(row('get_status').getByText('Give an agent the ability')).toBeVisible();
   // The registered tool shows up as a function an agent can be given.
-  await page.locator('#nav button', { hasText: 'Functions & procedures' }).click();
+  await go(page, 'Functions & procedures');
   await expect(page.locator('#view')).toContainText('ui_mock_mcp_get_status');
   // A server's tools do not appear on the APIs page.
-  await page.locator('#nav button', { hasText: 'APIs' }).click();
+  await go(page, 'APIs');
   await expect(page.locator('#view')).not.toContainText('/mock/mcp');
 });
 
 test('admin signs in to an MCP server with OAuth', async ({ page }) => {
   await login(page, 'ui_admin', 'ui-admin-password');
-  await page.locator('#nav button', { hasText: 'MCP servers' }).click();
+  await go(page, 'MCP servers');
   await page.locator('#mcName').fill('ui_mock_oauth');
   await page.locator('#mcUrl').fill(baseURL + '/mock/mcp-oauth');
   await page.locator('#mcAuth').selectOption('oauth');
@@ -192,7 +212,7 @@ test('admin signs in to an MCP server with OAuth', async ({ page }) => {
   await server().getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Signed in' })).toBeVisible({ timeout: 30000 });
   await page.getByRole('link', { name: 'Open Allgres' }).click();
-  await page.locator('#nav button', { hasText: 'MCP servers' }).click();
+  await go(page, 'MCP servers');
   await expect(server().getByText('Signed in until')).toBeVisible({ timeout: 20000 });
   await expect(server().getByText('connected', { exact: true })).toBeVisible({ timeout: 20000 });
   await expect(server().locator('tbody tr', { hasText: 'get_status' })).toBeVisible();
@@ -217,12 +237,12 @@ test('admin tests an API connection and accepts a reported model price', async (
     const c = await call({ action: 'connections.create', name: 'ui_ping_mock', base_url: base + '/healthz', auth_kind: 'none', allow_private_network: true });
     if (c.ok === false) throw new Error(c.error);
   }, baseURL);
-  await page.locator('#nav button', { hasText: 'APIs' }).click();
+  await go(page, 'APIs');
   const row = page.locator('#view tbody tr', { hasText: 'ui_ping_mock' });
   await expect(row.getByText('not tested')).toBeVisible();
   await row.getByRole('button', { name: 'Test' }).click();
   await expect(row.getByText('reachable', { exact: true })).toBeVisible({ timeout: 20000 });
-  await page.locator('#nav button', { hasText: 'Models & prices' }).click();
+  await go(page, 'Models & prices');
   const block = page.locator('#unpricedBlock');
   await expect(block).toContainText('no price', { timeout: 20000 });
   const model = block.locator('tbody tr', { hasText: 'allgres-mock' }).filter({ hasText: 'ui_price_mock' }).filter({ hasNotText: 'embed' });
@@ -234,7 +254,7 @@ test('admin tests an API connection and accepts a reported model price', async (
 
 test('admin connects a decision model and sees its checkpoints', async ({ page }) => {
   await login(page, 'ui_admin', 'ui-admin-password');
-  await page.locator('#nav button', { hasText: 'Decision model' }).click();
+  await go(page, 'Decision model');
   await expect(page.getByText('No decision is handed to it')).toBeVisible();
   // Without the key the server shows only its status: that is "key needed".
   await page.locator('#dmName').fill('ui_laya_nokey');
@@ -253,7 +273,7 @@ test('admin connects a decision model and sees its checkpoints', async ({ page }
   await expect(card('ui_laya').getByText('key stored')).toBeVisible();
   await expect(page.locator('#view')).not.toContainText('laya-mock-key');
   // It is a decision model, not an API connection or an MCP server.
-  await page.locator('#nav button', { hasText: 'APIs' }).click();
+  await go(page, 'APIs');
   await expect(page.locator('#view')).not.toContainText('ui_laya');
 });
 
@@ -265,7 +285,7 @@ test('admin receives a signed inbound event and starts a task from it', async ({
       body: JSON.stringify({ action: 'agents.create', name: 'ui_inbound_agent', system_prompt: 'Handles alerts.', session_token: sessionStorage.getItem('allgres_session_token') }) });
     const j = await r.json(); if (j.ok === false && !/already|duplicate key/i.test(String(j.error))) throw new Error(j.error);
   });
-  await page.locator('#nav button', { hasText: 'Inbound events' }).click();
+  await go(page, 'Inbound events');
   await page.locator('#inName').fill('ui-alerts');
   await page.locator('#inAgent').selectOption({ label: 'ui_inbound_agent' });
   await page.locator('#inAdd').click();
@@ -282,9 +302,9 @@ test('admin receives a signed inbound event and starts a task from it', async ({
   expect(again.status()).toBe(200);
   expect((await again.json()).duplicate).toBe(true);
   // It waits for a person, and shows on Home.
-  await page.locator('#nav button', { hasText: 'Home' }).click();
+  await go(page, 'Home');
   await expect(page.getByText('1 inbound event')).toBeVisible({ timeout: 20000 });
-  await page.locator('#nav button', { hasText: 'Inbound events' }).click();
+  await go(page, 'Inbound events');
   const row = page.locator('#view tbody tr', { hasText: 'pump-3' });
   await expect(row.getByText('waiting')).toBeVisible();
   await row.getByRole('button', { name: 'Start a task' }).click();
@@ -305,7 +325,7 @@ test('admin makes a room, calls an agent with a role, and a person makes a task 
       llm_config: { provider: 'ui_room_mock', model: 'allgres-mock' }, is_active: true });
     if (a.ok === false && !/already|duplicate key/i.test(String(a.error))) throw new Error(a.error);
   }, baseURL);
-  await page.locator('#nav button', { hasText: 'Rooms' }).click();
+  await go(page, 'Rooms');
   await page.locator('#rmName').fill('ui-audit-room');
   await page.locator('#rmPurpose').fill('plan the audit');
   await page.locator('#rmCreate').click();
@@ -353,7 +373,7 @@ test('assisted room: agents ask each other, the lead proposes, a person confirms
       if (g.ok === false) throw new Error(g.error);
     }
   }, baseURL);
-  await page.locator('#nav button', { hasText: 'Rooms' }).click();
+  await go(page, 'Rooms');
   await page.locator('#rmName').fill('ui-assisted');
   await page.locator('#rmCreate').click();
   await expect(page.getByRole('heading', { name: 'ui-assisted' })).toBeVisible();
@@ -416,7 +436,7 @@ test('auto room: the lead proposes and the room starts the task by itself', asyn
     const g = await call({ action: 'permissions.grant', agent_id: lead, type: 'agent', ref: 'ui_au_impl' });
     if (g.ok === false) throw new Error(g.error);
   }, baseURL);
-  await page.locator('#nav button', { hasText: 'Rooms' }).click();
+  await go(page, 'Rooms');
   await page.locator('#rmName').fill('ui-auto');
   await page.locator('#rmCreate').click();
   await expect(page.getByRole('heading', { name: 'ui-auto' })).toBeVisible();
@@ -474,7 +494,7 @@ test('teams: a second team, a window that waits for a person, and shared notes',
     }
   }, baseURL);
   const team = (name) => page.locator('#view .panel[data-team="' + name + '"]');
-  await page.locator('#nav button', { hasText: 'Teams' }).click();
+  await go(page, 'Teams');
   await expect(team('ui-team-one')).toBeVisible();
   // ui_tm_a sits in team one first, then also in team two.
   await page.evaluate(async () => {
@@ -490,8 +510,8 @@ test('teams: a second team, a window that waits for a person, and shared notes',
       if (r.ok === false) throw new Error(JSON.stringify(r));
     }
   });
-  await page.locator('#nav button', { hasText: 'Home' }).click();
-  await page.locator('#nav button', { hasText: 'Teams' }).click();
+  await go(page, 'Home');
+  await go(page, 'Teams');
   await expect(team('ui-team-one')).toContainText('ui_tm_a');
   // The page can re-render under the click; adding twice is harmless, so retry the pair.
   await expect(async () => {
@@ -553,7 +573,7 @@ test('an agent proposes a function, the person sees the check, approves, and giv
     return true;
   }, baseURL);
   expect(names).toBe(true);
-  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  await go(page, 'Approvals');
   const card = page.locator('#view .listrow', { hasText: 'ui_cr_echo' }).first();
   // The agent proposes when its run reaches the worker; reopen the tab until it shows.
   await expect(async () => {
@@ -590,22 +610,22 @@ test('decision model: watch a point, compare with a person, and meet the gate be
     if (run.ok === false) throw new Error(run.error);
   }, baseURL);
   // Watch the approval point.
-  await page.locator('#nav button', { hasText: 'Decision model' }).click();
+  await go(page, 'Decision model');
   const row = page.locator('#view .listrow[data-point="approval_decision"]');
   await expect(row).toBeVisible();
   await row.locator('.dgModel').selectOption({ label: 'ui-dg-laya' });
   await row.getByRole('button', { name: 'Watch' }).click();
   await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: 'watching' })).toBeVisible();
   // A person approves the agent's question; the model is asked afterwards and compared.
-  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  await go(page, 'Approvals');
   await expect(async () => {
     await page.locator('.apTabBtn', { hasText: 'Approvals' }).click();
     await expect(page.locator('#view .listrow', { hasText: 'OK to go ahead with the delivery?' }).first()).toBeVisible({ timeout: 3000 });
   }).toPass({ timeout: 60000 });
   await page.locator('#view .listrow', { hasText: 'OK to go ahead with the delivery?' }).first().locator('.apAccept').click();
-  await page.locator('#nav button', { hasText: 'Decision model' }).click();
+  await go(page, 'Decision model');
   await expect(async () => {
-    await page.locator('#nav button', { hasText: 'Decision model' }).click();
+    await page.evaluate(() => loadPage());
     await expect(page.locator('#view .listrow[data-point="approval_decision"]')).toContainText('Compared 1 decisions: the model agreed on 1', { timeout: 3000 });
   }).toPass({ timeout: 60000 });
   // Handing over is refused until enough has been watched.
@@ -631,7 +651,7 @@ test('teams are made, renamed and deleted from the dashboard', async ({ page }) 
   test.setTimeout(90000);
   await login(page, 'ui_admin', 'ui-admin-password');
   page.on('dialog', d => d.accept());
-  await page.locator('#nav button', { hasText: 'Teams' }).click();
+  await go(page, 'Teams');
   await page.locator('#tnewName').fill('ui-made-team');
   await page.locator('#tnewGo').click();
   const box = page.locator('#view .panel[data-team="ui-made-team"]');
@@ -663,7 +683,7 @@ test('General chat shows only the answer and can start a new chat', async ({ pag
     const r = await call({ action: 'agents.update', agent_id: g.agent_id, llm_config: { provider: 'ui_chat_mock', model: 'allgres-mock' }, is_active: true });
     if (r.ok === false) throw new Error(JSON.stringify(r));
   }, baseURL);
-  await page.locator('#nav button', { hasText: 'General' }).click();
+  await go(page, 'General');
   await page.locator('#generalChatInput').fill('hello there');
   await page.locator('#generalChatSend').click();
   const reply = page.locator('#generalChatThread', { hasText: 'Allgres mock runtime OK' });
@@ -692,7 +712,7 @@ test('one model is put on chosen agents at once, and can be the default for new 
   const targets = () => page.evaluate(async () => (await (await fetch('/api/v1/rpc', { method: 'POST',
     headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
     body: JSON.stringify({ action: 'models.targets', session_token: sessionStorage.getItem('allgres_session_token') }) })).json()));
-  await page.locator('#nav button', { hasText: 'Models' }).click();
+  await go(page, 'Models & prices');
   await expect(page.locator('#maBody')).toContainText('Pick a model once');
   await page.locator('#maProvider').selectOption('ui_ma_mock');
   await page.locator('#maModel').fill('ma-model-1');
@@ -719,24 +739,51 @@ test('one model is put on chosen agents at once, and can be the default for new 
   await expect(page.locator('#maBody')).toContainText('No default for new agents');
 });
 
+test('an agent is copied with its setup', async ({ page }) => {
+  const src = `ui_copy_src_${Date.now()}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.evaluate(async (name) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const c = await call({ action: 'agents.create', name, system_prompt: 'copy me exactly', is_active: false });
+    if (c.ok === false) throw new Error(c.error);
+    await call({ action: 'permissions.grant', agent_id: c.agent_id, type: 'http_host', ref: 'example.com' });
+  }, src);
+  await go(page, 'Agents');
+  await page.locator('#view tr', { hasText: src }).first().locator('.editAgent').click();
+  await expect(page.locator('#cloneAgent')).toBeVisible();
+  await page.locator('#cloneAgent').click();
+  await expect(page.locator('#view')).toContainText(`${src}_copy`);
+  await page.locator('#view tr', { hasText: `${src}_copy` }).first().locator('.editAgent').click();
+  await expect(page.locator('#aPrompt')).toHaveValue('copy me exactly');
+  await expect(page.locator('#permList')).toContainText('example.com');
+  await page.locator('#closeM').click();
+  // The Agents list is the only place that hides system agents' copy button.
+  await page.locator('#view details summary', { hasText: 'System agents' }).click();
+  await page.locator('#view details tr', { hasText: 'health_monitor' }).first().locator('.editAgent').click();
+  await expect(page.locator('#cloneAgent')).toHaveCount(0);
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
-  await expect(page.locator('#nav button')).toHaveCount(5);
-  for (const label of ['General','Rooms','Projects','Approvals','My agents']) {
-    const button=page.locator('#nav button',{hasText:label});
-    await expect(button).toBeVisible();
-    await button.click();
-    await expect(button).toHaveClass(/active/);
+  await expect(page.locator('#nav button')).toHaveCount(3);
+  await expect(page.locator('#toCanvas')).toBeHidden();
+  for (const label of ['General','Rooms','Projects','Approvals']) {
+    await go(page, label);
+    await expect(page.locator('#nav button.active')).toHaveCount(1);
   }
+  await page.locator('#nav').getByRole('button', { name: 'My agents' }).click();
+  await expect(page.locator('#nav button.active')).toHaveText('My agents');
   // A person who is in no room sees none, and cannot make one.
-  await page.locator('#nav button', { hasText: 'Rooms' }).click();
+  await go(page, 'Rooms');
   await expect(page.getByText('An admin adds you to a room.')).toBeVisible();
   await expect(page.locator('#view')).not.toContainText('ui-audit-room');
   await expect(page.locator('#rmCreate')).toHaveCount(0);
-  await page.locator('#nav button', { hasText: 'General' }).click();
+  await go(page, 'General');
   await expect(page.locator('#generalChatThread')).toBeAttached();
   await expect(page.getByText('not assigned to your account')).toHaveCount(0);
-  for (const forbidden of ['Home','Canvas','SQL','Agents','People','Memories','Audit log'])
+  for (const forbidden of ['Home','Canvas','SQL','Agents','People','Memories','Audit log','Connections'])
     await expect(page.locator('#nav').getByRole('button',{name:forbidden,exact:true})).toHaveCount(0);
   await page.goto(baseURL + '/canvas');
   await expect(page.getByText('Admins only')).toBeVisible();
@@ -746,12 +793,12 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   page.on('dialog', d => d.accept());
   const stamp = Date.now(), role = `UI approver ${stamp}`, unit = `UI unit ${stamp}`;
   await login(page, 'ui_admin', 'ui-admin-password');
-  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  await go(page, 'Approvals');
   // Mine / All toggle on the approvals list, and the admin Decisions tab.
   await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Mine', exact: true }).click();
   await expect(page.getByText('Nothing is waiting on you')).toBeVisible();
-  await page.locator('#nav button', { hasText: 'People' }).click();
+  await go(page, 'People');
   await expect(page.getByRole('heading', { name: 'Rules' })).toBeVisible();
   // A role, a unit, a person who holds the role, and a rule that names it.
   await page.locator('#roName').fill(role);
@@ -785,7 +832,7 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await expect(page.locator('#toast')).toContainText('Escalation needs both a time and a role');
   await expect(rules).toContainText(role);
   // Decision records: the two decision points, empty so far.
-  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  await go(page, 'Approvals');
   await page.getByRole('button', { name: 'Decisions', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'approval_decision' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'proposal_decision' })).toBeVisible();
@@ -793,7 +840,7 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await page.getByRole('button', { name: 'Export training set' }).first().click();
   await expect(page.locator('#toast')).toContainText(/Nothing to export|Exported/);
   // Clean up: deleting the role takes its rule and membership with it.
-  await page.locator('#nav button', { hasText: 'People' }).click();
+  await go(page, 'People');
   await panel('Roles').locator('tr', { hasText: role }).getByRole('button', { name: 'Delete' }).click();
   await expect(panel('Roles').locator('table')).not.toContainText(role);
   await expect(panel('Rules').locator('table')).not.toContainText('kind execution');
@@ -806,7 +853,7 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await page.locator('#liPass').fill('ui-regular-password');
   await page.locator('#liGo').click();
   await expect(page.locator('#whoami')).toContainText('ui_regular');
-  await page.locator('#nav button', { hasText: 'Approvals' }).click();
+  await go(page, 'Approvals');
   await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Decisions', exact: true })).toHaveCount(0);
   await expect(page.locator('#nav').getByRole('button', { name: 'People', exact: true })).toHaveCount(0);
@@ -816,7 +863,7 @@ test('mobile navigation remains keyboard reachable', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await login(page, 'ui_regular', 'ui-regular-password');
   await page.locator('#nav button').first().focus();
-  for (let i=0;i<4;i++) {
+  for (let i=0;i<3;i++) {
     await expect(page.locator('#nav button').nth(i)).toBeVisible();
     await page.locator('#nav button').nth(i).press('Enter');
   }
