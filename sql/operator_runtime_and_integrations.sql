@@ -370,6 +370,12 @@ BEGIN
           allgres_private.encrypt_secret(NULLIF(p_api_key, '')),
           allgres_private.llm_secrets.api_key
         );
+  IF NULLIF(p_api_key, '') IS NOT NULL THEN
+    UPDATE allgres_private.llm_providers
+    SET last_probe_status = NULL, last_probe_at = NULL, last_probe_error = NULL,
+        last_chat_status = NULL, last_chat_at = NULL, last_chat_error = NULL, last_chat_model = NULL
+    WHERE provider_id = p_provider_id;
+  END IF;
   -- Never log p_api_key itself -- only that a secret was (re)written.
   PERFORM allgres_private.audit('provider.set_secret', jsonb_build_object('provider_id', p_provider_id, 'api_key_set', true));
   RETURN jsonb_build_object(
@@ -1687,18 +1693,100 @@ BEGIN
 END;
 $fn$;
 
--- Queues a provider connectivity/model-listing probe (Settings' "Test
--- connection" button) -- GET {base_url}/models, or {base_url}/v1/models for
--- an anthropic-kind provider, same URL shape fn_dispatch_tasks' own
--- anthropic branch uses for /v1/messages. Superseding an unfinished probe
--- for the same provider mirrors fn_oauth_device_start: a second click
--- before the first call lands must not leave two races both writing
--- llm_providers.last_probe_* out of order; the eventual completion of the
--- superseded row is a no-op anyway (fn_complete_provider_probe's own
--- in_flight fence), this just avoids a stale result winning a race it
--- didn't need to run.
-CREATE OR REPLACE FUNCTION allgres_public.fn_provider_probe_start(p_provider_id uuid)
-RETURNS jsonb
+-- Provider tests (Models & prices -> Test connection, before and after saving,
+-- and Test model in General). Two kinds of probe share one queue:
+--   'models'  GET {base}/models        does the server answer with a model list?
+--   'chat'    POST {base}/chat/completions (or /v1/messages for Anthropic)
+--             does it answer a one-line message with a chat reply?
+-- A 2xx alone is not a pass. LM Studio answers an unknown path with HTTP 200
+-- and {"error":"Unexpected endpoint or method"}, so the body must have the
+-- right shape too. A test of an unsaved provider (the form's own values) or by
+-- a person trying their own model is never written onto the provider
+-- (record_result = false); its key, if one was typed, is kept encrypted only
+-- until the call completes.
+
+-- The server's own words for what went wrong, short.
+CREATE OR REPLACE FUNCTION allgres_private.provider_probe_message(p_body text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $fn$
+DECLARE
+  j jsonb;
+  t text;
+BEGIN
+  BEGIN
+    j := p_body::jsonb;
+  EXCEPTION WHEN others THEN
+    RETURN left(btrim(COALESCE(NULLIF(p_body, ''), 'request failed')), 500);
+  END;
+  IF jsonb_typeof(j) = 'object' THEN
+    t := COALESCE(
+      CASE WHEN jsonb_typeof(j->'error') = 'string' THEN j->>'error' END,
+      j #>> '{error,message}',
+      j->>'message');
+    IF NULLIF(t, '') IS NOT NULL THEN
+      RETURN left(t, 500);
+    END IF;
+  END IF;
+  RETURN left(btrim(p_body), 500);
+END;
+$fn$;
+
+-- What to try next, for the failures people actually hit.
+CREATE OR REPLACE FUNCTION allgres_private.provider_probe_hint(p_url text, p_status int, p_body text, p_kind text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $fn$
+BEGIN
+  IF p_status IS NULL OR p_status <= 0 THEN
+    RETURN 'Allgres could not reach the server. If Allgres runs in Docker, localhost and 127.0.0.1 mean the container itself: use host.docker.internal (or the machine''s address) for a server on your computer, and check the port.';
+  END IF;
+  IF p_status IN (401, 403) THEN
+    RETURN 'The server rejected the API key. Check the key, or leave it empty if the server needs none.';
+  END IF;
+  IF p_kind <> 'anthropic' AND p_url !~ '/v1/(models|chat/completions)$'
+     AND (p_status IN (404, 405) OR p_status BETWEEN 200 AND 299 OR p_body ILIKE '%unexpected endpoint%') THEN
+    RETURN 'Many servers (LM Studio, Ollama, OpenAI and others) serve under /v1. Try adding /v1 to the end of the Base URL.';
+  END IF;
+  IF p_status IN (400, 404) AND p_url ~ '/(chat/completions|messages)$' AND p_body ILIKE '%model%' THEN
+    RETURN 'Check the model name: the server may not have it loaded or know it.';
+  END IF;
+  RETURN NULL;
+END;
+$fn$;
+
+-- The one-line message a chat test sends. It asks for JSON so that it also
+-- passes where response_format=json_object is on (OpenAI requires the word).
+CREATE OR REPLACE FUNCTION allgres_private.provider_chat_probe(
+  p_kind text, p_base text, p_model text, p_json_mode boolean,
+  OUT o_url text, OUT o_headers jsonb, OUT o_body jsonb
+) LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE
+  v_msgs jsonb := jsonb_build_array(jsonb_build_object('role', 'user',
+    'content', 'Reply with the JSON object {"ok": true} and nothing else.'));
+BEGIN
+  IF p_kind = 'anthropic' THEN
+    o_url := rtrim(p_base, '/') || '/v1/messages';
+    o_headers := jsonb_build_object('anthropic-version', '2023-06-01', 'content-type', 'application/json');
+    o_body := jsonb_build_object('model', p_model, 'max_tokens', 32, 'messages', v_msgs);
+  ELSE
+    o_url := rtrim(p_base, '/') || '/chat/completions';
+    o_headers := jsonb_build_object('content-type', 'application/json');
+    o_body := jsonb_build_object('model', p_model, 'messages', v_msgs, 'max_tokens', 32, 'temperature', 0);
+    IF COALESCE(p_json_mode, false) THEN
+      o_body := o_body || jsonb_build_object('response_format', jsonb_build_object('type', 'json_object'));
+    END IF;
+  END IF;
+END;
+$fn$;
+
+-- Queues a probe of a saved provider: 'models' (default) or 'chat' with a model.
+CREATE OR REPLACE FUNCTION allgres_public.fn_provider_probe_start(
+  p_provider_id uuid, p_probe text DEFAULT 'models', p_model text DEFAULT NULL,
+  p_created_by uuid DEFAULT NULL, p_record boolean DEFAULT true
+) RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
@@ -1707,45 +1795,154 @@ DECLARE
   v allgres_private.llm_providers%ROWTYPE;
   v_url text;
   v_headers jsonb;
+  v_body jsonb;
+  v_method text := 'GET';
+  v_model text := NULLIF(btrim(COALESCE(p_model, '')), '');
   v_reason text;
   v_call uuid;
 BEGIN
+  IF p_probe NOT IN ('models', 'chat') THEN
+    RAISE EXCEPTION 'unknown test: %', p_probe USING ERRCODE = 'P0001';
+  END IF;
   SELECT * INTO v FROM allgres_private.llm_providers WHERE provider_id = p_provider_id;
   IF v.provider_id IS NULL THEN
     RAISE EXCEPTION 'provider not found' USING ERRCODE = 'P0001';
   END IF;
 
-  v_url := rtrim(v.base_url, '/') || CASE WHEN v.kind = 'anthropic' THEN '/v1/models' ELSE '/models' END;
+  IF p_probe = 'models' THEN
+    v_url := rtrim(v.base_url, '/') || CASE WHEN v.kind = 'anthropic' THEN '/v1/models' ELSE '/models' END;
+    v_headers := CASE WHEN v.kind = 'anthropic' THEN jsonb_build_object('anthropic-version', '2023-06-01') ELSE '{}'::jsonb END;
+  ELSE
+    IF v_model IS NULL THEN
+      v_model := v.available_models->>0;
+    END IF;
+    IF v_model IS NULL THEN
+      RAISE EXCEPTION 'give a model name to test the chat with' USING ERRCODE = 'P0001';
+    END IF;
+    SELECT o_url, o_headers, o_body INTO v_url, v_headers, v_body
+    FROM allgres_private.provider_chat_probe(v.kind, v.base_url, v_model, v.response_format_json_object);
+    v_method := 'POST';
+  END IF;
   v_reason := allgres_private.check_outbound_url(v_url, v.allow_private_network);
   IF v_reason IS NOT NULL THEN
     RAISE EXCEPTION 'provider endpoint rejected: %', v_reason USING ERRCODE = 'P0001';
   END IF;
 
-  v_headers := CASE WHEN v.kind = 'anthropic'
-    THEN jsonb_build_object('anthropic-version', '2023-06-01')
-    ELSE '{}'::jsonb
-  END;
-
+  -- A second click before the first lands supersedes it, so two results do
+  -- not race to write the provider's status out of order.
   UPDATE allgres_private.provider_probes
-  SET status = 'lost', error = 'superseded by a newer probe', updated_at = now()
-  WHERE provider_id = p_provider_id AND status IN ('queued', 'in_flight');
+  SET status = 'lost', error = 'superseded by a newer test', draft_secret = NULL, updated_at = now()
+  WHERE provider_id = p_provider_id AND probe = p_probe AND record_result AND p_record
+    AND status IN ('queued', 'in_flight');
 
-  INSERT INTO allgres_private.provider_probes (provider_id, url, request_headers, allow_private, status)
-  VALUES (p_provider_id, v_url, v_headers, v.allow_private_network, 'queued')
+  INSERT INTO allgres_private.provider_probes
+    (provider_id, url, request_headers, allow_private, status, probe, method, request_body, model, record_result, created_by)
+  VALUES (p_provider_id, v_url, v_headers, v.allow_private_network, 'queued', p_probe, v_method, v_body, v_model, p_record, p_created_by)
   RETURNING call_id INTO v_call;
 
-  PERFORM allgres_private.audit('providers.probe_start', jsonb_build_object('provider_id', p_provider_id, 'call_id', v_call));
-  RETURN jsonb_build_object('ok', true, 'call_id', v_call);
+  PERFORM allgres_private.audit('providers.probe_start', jsonb_build_object('provider_id', p_provider_id, 'call_id', v_call, 'probe', p_probe));
+  RETURN jsonb_build_object('ok', true, 'call_id', v_call, 'probe', p_probe);
 END;
 $fn$;
 
--- Claims queued provider probes for the runtime worker's HTTP pool -- same
--- claim shape as fn_claim_agent_embedding, credential resolved and merged
--- into the response right here (never written back to provider_probes.
--- request_headers), with the header *name* chosen the same way
--- fn_claim_outbound's own auth_kind does (x-api-key for anthropic,
--- authorization otherwise) since provider_probes has no auth_kind column
--- of its own to carry that choice from queue time.
+-- Tests what the Add/Edit form holds, before anything is saved. An edit that
+-- leaves the key blank uses the saved one (p_provider_id).
+CREATE OR REPLACE FUNCTION allgres_public.fn_provider_draft_probe_start(
+  p_kind text, p_base_url text, p_api_key text, p_allow_private boolean,
+  p_probe text DEFAULT 'models', p_model text DEFAULT NULL, p_json_mode boolean DEFAULT true,
+  p_provider_id uuid DEFAULT NULL, p_created_by uuid DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_base text := rtrim(btrim(COALESCE(p_base_url, '')), '/');
+  v_model text := NULLIF(btrim(COALESCE(p_model, '')), '');
+  v_url text;
+  v_headers jsonb;
+  v_body jsonb;
+  v_method text := 'GET';
+  v_reason text;
+  v_call uuid;
+BEGIN
+  IF p_kind NOT IN ('openai_compat', 'anthropic') THEN
+    RAISE EXCEPTION 'save an oauth provider first, then test it' USING ERRCODE = 'P0001';
+  END IF;
+  IF p_probe NOT IN ('models', 'chat') THEN
+    RAISE EXCEPTION 'unknown test: %', p_probe USING ERRCODE = 'P0001';
+  END IF;
+  IF v_base = '' THEN
+    RAISE EXCEPTION 'Base URL is required' USING ERRCODE = 'P0001';
+  END IF;
+  IF (SELECT count(*) FROM allgres_private.provider_probes
+      WHERE NOT record_result AND created_by IS NOT DISTINCT FROM p_created_by
+        AND status IN ('queued', 'in_flight')) >= 4 THEN
+    RAISE EXCEPTION 'too many tests are running; wait a moment' USING ERRCODE = 'P0001';
+  END IF;
+
+  IF p_probe = 'models' THEN
+    v_url := v_base || CASE WHEN p_kind = 'anthropic' THEN '/v1/models' ELSE '/models' END;
+    v_headers := CASE WHEN p_kind = 'anthropic' THEN jsonb_build_object('anthropic-version', '2023-06-01') ELSE '{}'::jsonb END;
+  ELSE
+    IF v_model IS NULL THEN
+      RAISE EXCEPTION 'give a model name to test the chat with' USING ERRCODE = 'P0001';
+    END IF;
+    SELECT o_url, o_headers, o_body INTO v_url, v_headers, v_body
+    FROM allgres_private.provider_chat_probe(p_kind, v_base, v_model, p_json_mode);
+    v_method := 'POST';
+  END IF;
+  v_reason := allgres_private.check_outbound_url(v_url, COALESCE(p_allow_private, false));
+  IF v_reason IS NOT NULL THEN
+    RAISE EXCEPTION 'endpoint rejected: %', v_reason USING ERRCODE = 'P0001';
+  END IF;
+
+  INSERT INTO allgres_private.provider_probes
+    (provider_id, url, request_headers, allow_private, status, probe, method, request_body, model,
+     record_result, created_by, draft_kind, draft_secret)
+  VALUES (p_provider_id, v_url, v_headers, COALESCE(p_allow_private, false), 'queued', p_probe, v_method, v_body, v_model,
+          false, p_created_by, p_kind, allgres_private.encrypt_secret(NULLIF(p_api_key, '')))
+  RETURNING call_id INTO v_call;
+
+  -- Never log the key: only that a test of the form's own values ran.
+  PERFORM allgres_private.audit('providers.draft_probe_start', jsonb_build_object('call_id', v_call, 'probe', p_probe, 'url', v_url));
+  RETURN jsonb_build_object('ok', true, 'call_id', v_call, 'probe', p_probe);
+END;
+$fn$;
+
+-- A person tries the model they chose (General's Test model): a chat test of
+-- an enabled chat provider by name, never recorded on the provider.
+CREATE OR REPLACE FUNCTION allgres_public.fn_provider_test_model(p_token text, p_provider text, p_model text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  u allgres_private.users%ROWTYPE := allgres_private.session_user(p_token);
+  v_id uuid;
+BEGIN
+  IF u.user_id IS NULL AND EXISTS (SELECT 1 FROM allgres_private.users) THEN
+    RAISE EXCEPTION 'not logged in' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT provider_id INTO v_id
+  FROM allgres_private.llm_providers
+  WHERE (name = p_provider OR provider_id::text = p_provider) AND is_enabled AND purpose = 'chat';
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'choose an enabled chat provider first' USING ERRCODE = 'P0001';
+  END IF;
+  IF EXISTS (SELECT 1 FROM allgres_private.provider_probes
+             WHERE created_by = u.user_id AND NOT record_result AND status IN ('queued', 'in_flight')
+               AND created_at > now() - interval '2 minutes') THEN
+    RAISE EXCEPTION 'a test is already running; wait for it' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN allgres_public.fn_provider_probe_start(v_id, 'chat', p_model, u.user_id, false);
+END;
+$fn$;
+
+-- Claims queued probes for the runtime worker. The credential is merged into
+-- the response here and never written back to the row: a saved provider's key
+-- comes from llm_secrets, a typed one from draft_secret.
 CREATE OR REPLACE FUNCTION allgres_public.fn_claim_provider_probe(p_limit int DEFAULT 4)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1758,12 +1955,14 @@ DECLARE
   v_n int := 0;
   v_key text;
   v_auth_kind text;
+  v_headers jsonb;
 BEGIN
   PERFORM set_config('statement_timeout', '2000', true);
   FOR r IN
-    SELECT pp.call_id, pp.provider_id, pp.url, pp.request_headers, pp.allow_private, p.kind
+    SELECT pp.call_id, pp.provider_id, pp.url, pp.request_headers, pp.allow_private, pp.method, pp.request_body,
+           pp.draft_secret, COALESCE(pp.draft_kind, p.kind) AS kind
     FROM allgres_private.provider_probes pp
-    JOIN allgres_private.llm_providers p ON p.provider_id = pp.provider_id
+    LEFT JOIN allgres_private.llm_providers p ON p.provider_id = pp.provider_id
     WHERE pp.status = 'queued'
     ORDER BY pp.created_at
     FOR UPDATE OF pp SKIP LOCKED
@@ -1773,33 +1972,31 @@ BEGIN
     SET status = 'in_flight', updated_at = now()
     WHERE call_id = r.call_id;
 
-    v_key := allgres_private.provider_secret(r.provider_id);
+    v_key := CASE WHEN r.draft_secret IS NOT NULL THEN allgres_private.decrypt_secret(r.draft_secret)
+                  WHEN r.provider_id IS NOT NULL THEN allgres_private.provider_secret(r.provider_id) END;
     v_auth_kind := CASE WHEN r.kind = 'anthropic' THEN 'x-api-key' ELSE 'authorization' END;
-    v_out := v_out || jsonb_build_array(jsonb_build_object(
-      'call_id', r.call_id,
-      'method', 'GET',
-      'url', r.url,
-      'headers', r.request_headers || jsonb_build_object(
+    v_headers := r.request_headers;
+    IF COALESCE(v_key, '') <> '' OR r.draft_secret IS NULL THEN
+      v_headers := v_headers || jsonb_build_object(
         v_auth_kind,
-        CASE WHEN v_auth_kind = 'x-api-key' THEN COALESCE(v_key, '') ELSE 'Bearer ' || COALESCE(v_key, '') END
-      ),
+        CASE WHEN v_auth_kind = 'x-api-key' THEN COALESCE(v_key, '') ELSE 'Bearer ' || COALESCE(v_key, '') END);
+    END IF;
+    v_out := v_out || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+      'call_id', r.call_id,
+      'method', r.method,
+      'url', r.url,
+      'headers', v_headers,
+      'body', r.request_body,
       'allow_private', r.allow_private
-    ));
+    )));
     v_n := v_n + 1;
   END LOOP;
   RETURN jsonb_build_object('count', v_n, 'calls', v_out);
 END;
 $fn$;
 
--- Fenced identically to fn_complete_agent_embedding/fn_complete_oauth: only
--- ever completes from 'in_flight', so a belated response for a call
--- fn_watchdog or a superseding fn_provider_probe_start already reclaimed
--- cannot overwrite a newer probe's result. OpenAI, xAI, and Anthropic's own
--- /v1/models all return the identical {"data":[{"id":...}, ...]} shape, so
--- one parse covers every seeded kind -- a provider whose response doesn't
--- match this shape (a non-conforming openai_compat server) still gets a
--- correct last_probe_status='ok' from the 2xx alone, just with available_
--- models left at whatever it was before (NULL the first time).
+-- Fenced like the other completions: only an in_flight row completes, so a
+-- late answer for a call already reclaimed or superseded changes nothing.
 CREATE OR REPLACE FUNCTION allgres_public.fn_complete_provider_probe(
   p_call_id uuid,
   p_status int,
@@ -1811,10 +2008,12 @@ SET search_path = allgres_private, allgres_public, pg_temp
 AS $fn$
 DECLARE
   c allgres_private.provider_probes%ROWTYPE;
+  v_kind text;
   v_parsed jsonb;
   v_models jsonb;
   v_prices jsonb;
   v_err text;
+  v_reply text;
 BEGIN
   PERFORM set_config('statement_timeout', '2000', true);
 
@@ -1822,34 +2021,67 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'fn_complete_provider_probe: not found' USING ERRCODE = 'P0001';
   END IF;
-
   IF c.status <> 'in_flight' THEN
     RETURN jsonb_build_object('action', 'stale', 'reason', 'call_not_in_flight', 'status', c.status);
   END IF;
 
+  SELECT COALESCE(c.draft_kind, kind) INTO v_kind FROM allgres_private.llm_providers WHERE provider_id = c.provider_id;
+  v_kind := COALESCE(c.draft_kind, v_kind, 'openai_compat');
+  BEGIN
+    v_parsed := p_body::jsonb;
+  EXCEPTION WHEN others THEN
+    v_parsed := NULL;
+  END;
+
   IF p_status IS NULL OR p_status < 200 OR p_status >= 300 THEN
-    v_err := COALESCE(NULLIF(p_body, ''), 'request failed');
-    BEGIN
-      v_parsed := p_body::jsonb;
-      IF jsonb_typeof(v_parsed->'error') = 'string' AND NULLIF(v_parsed->>'error', '') IS NOT NULL THEN
-        v_err := v_parsed->>'error';
-      END IF;
-    EXCEPTION WHEN others THEN
-      NULL;
-    END;
+    v_err := allgres_private.provider_probe_message(p_body);
+  ELSIF c.probe = 'models' THEN
+    IF v_parsed IS NULL OR jsonb_typeof(v_parsed) <> 'object' OR jsonb_typeof(v_parsed->'data') IS DISTINCT FROM 'array' THEN
+      v_err := 'The server answered, but not with a model list: ' || allgres_private.provider_probe_message(p_body);
+    END IF;
+  ELSE
+    IF v_parsed IS NULL OR jsonb_typeof(v_parsed) <> 'object'
+       OR (COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(v_parsed->'choices') = 'array' THEN v_parsed->'choices' END), 0) = 0
+           AND COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(v_parsed->'content') = 'array' THEN v_parsed->'content' END), 0) = 0) THEN
+      v_err := 'The server answered, but not with a chat reply: ' || allgres_private.provider_probe_message(p_body);
+    END IF;
+  END IF;
+
+  IF v_err IS NOT NULL THEN
     UPDATE allgres_private.provider_probes
-    SET status = 'harvested', response_status = p_status,
-        error = left(v_err, 2000), updated_at = now()
+    SET status = 'harvested', response_status = p_status, error = left(v_err, 2000), draft_secret = NULL,
+        hint = allgres_private.provider_probe_hint(c.url, p_status, COALESCE(p_body, ''), v_kind),
+        updated_at = now()
     WHERE call_id = p_call_id;
-    UPDATE allgres_private.llm_providers
-    SET last_probe_status = 'error', last_probe_at = now(),
-        last_probe_error = left(v_err, 500)
-    WHERE provider_id = c.provider_id;
+    IF c.record_result AND c.provider_id IS NOT NULL THEN
+      IF c.probe = 'models' THEN
+        UPDATE allgres_private.llm_providers
+        SET last_probe_status = 'error', last_probe_at = now(), last_probe_error = left(v_err, 500)
+        WHERE provider_id = c.provider_id;
+      ELSE
+        UPDATE allgres_private.llm_providers
+        SET last_chat_status = 'error', last_chat_at = now(), last_chat_error = left(v_err, 500), last_chat_model = c.model
+        WHERE provider_id = c.provider_id;
+      END IF;
+    END IF;
     RETURN jsonb_build_object('action', 'error', 'status', p_status);
   END IF;
 
+  IF c.probe = 'chat' THEN
+    v_reply := left(btrim(allgres_private.llm_text_from_http(p_body)), 300);
+    UPDATE allgres_private.provider_probes
+    SET status = 'harvested', response_status = p_status, reply = v_reply, draft_secret = NULL, updated_at = now()
+    WHERE call_id = p_call_id;
+    IF c.record_result AND c.provider_id IS NOT NULL THEN
+      UPDATE allgres_private.llm_providers
+      SET last_chat_status = 'ok', last_chat_at = now(), last_chat_error = NULL, last_chat_model = c.model
+      WHERE provider_id = c.provider_id;
+    END IF;
+    RETURN jsonb_build_object('action', 'ok', 'provider_id', c.provider_id);
+  END IF;
+
+  -- OpenAI, xAI and Anthropic's own /v1/models all return {"data":[{"id":...}]}.
   BEGIN
-    v_parsed := p_body::jsonb;
     SELECT jsonb_agg(x->>'id' ORDER BY x->>'id')
     INTO v_models
     FROM jsonb_array_elements(COALESCE(v_parsed->'data', '[]'::jsonb)) AS x
@@ -1872,14 +2104,18 @@ BEGIN
   END;
 
   UPDATE allgres_private.provider_probes
-  SET status = 'harvested', response_status = p_status, updated_at = now()
+  SET status = 'harvested', response_status = p_status, draft_secret = NULL,
+      models = CASE WHEN v_models IS NULL THEN NULL ELSE (SELECT jsonb_agg(m) FROM (SELECT m FROM jsonb_array_elements(v_models) m LIMIT 300) t) END,
+      updated_at = now()
   WHERE call_id = p_call_id;
 
-  UPDATE allgres_private.llm_providers
-  SET last_probe_status = 'ok', last_probe_at = now(), last_probe_error = NULL,
-      available_models = COALESCE(v_models, available_models),
-      reported_prices = CASE WHEN v_models IS NULL THEN reported_prices ELSE COALESCE(v_prices, '{}'::jsonb) END
-  WHERE provider_id = c.provider_id;
+  IF c.record_result AND c.provider_id IS NOT NULL THEN
+    UPDATE allgres_private.llm_providers
+    SET last_probe_status = 'ok', last_probe_at = now(), last_probe_error = NULL,
+        available_models = COALESCE(v_models, available_models),
+        reported_prices = CASE WHEN v_models IS NULL THEN reported_prices ELSE COALESCE(v_prices, '{}'::jsonb) END
+    WHERE provider_id = c.provider_id;
+  END IF;
 
   RETURN jsonb_build_object(
     'action', 'ok', 'provider_id', c.provider_id,
@@ -1888,12 +2124,9 @@ BEGIN
 END;
 $fn$;
 
--- Dashboard polling target for a probe fn_provider_probe_start queued --
--- same shape as fn_oauth_device_status: call_id/status report the queue
--- row itself (still 'queued'/'in_flight' means "keep polling"), while
--- last_probe_*/available_models are always the provider's current
--- (possibly older) values so a "checking..." dashboard has something to
--- show even before this particular probe finishes.
+-- What the dashboard polls: the probe row itself ('queued'/'in_flight' means
+-- keep polling) and its result. The last_probe_* and available_models keys
+-- are the saved provider's own current values, kept for the Edit dialog.
 CREATE OR REPLACE FUNCTION allgres_public.fn_provider_probe_status(p_call_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1910,11 +2143,40 @@ BEGIN
   END IF;
   SELECT * INTO p FROM allgres_private.llm_providers WHERE provider_id = c.provider_id;
   RETURN jsonb_build_object(
-    'ok', true, 'call_id', c.call_id, 'status', c.status,
+    'ok', true, 'call_id', c.call_id, 'status', c.status, 'probe', c.probe, 'model', c.model,
+    'passed', c.status = 'harvested' AND c.error IS NULL,
+    'http_status', c.response_status, 'error', c.error, 'hint', c.hint, 'reply', c.reply,
+    'models', c.models, 'model_count', COALESCE(jsonb_array_length(c.models), 0),
     'last_probe_status', p.last_probe_status,
     'last_probe_at', p.last_probe_at,
     'last_probe_error', p.last_probe_error,
-    'available_models', p.available_models
+    'available_models', p.available_models,
+    'last_chat_status', p.last_chat_status,
+    'last_chat_error', p.last_chat_error,
+    'last_chat_model', p.last_chat_model
   );
+END;
+$fn$;
+
+-- The same, for the person who started a test of their own (General): only
+-- their own test, or any test for an admin.
+CREATE OR REPLACE FUNCTION allgres_public.fn_provider_test_status(p_token text, p_call_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  u allgres_private.users%ROWTYPE := allgres_private.session_user(p_token);
+  v_owner uuid;
+BEGIN
+  SELECT created_by INTO v_owner FROM allgres_private.provider_probes WHERE call_id = p_call_id;
+  IF NOT FOUND OR (EXISTS (SELECT 1 FROM allgres_private.users)
+                   AND (u.user_id IS NULL OR (u.role <> 'admin' AND v_owner IS DISTINCT FROM u.user_id))) THEN
+    RAISE EXCEPTION 'test not found' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN allgres_public.fn_provider_probe_status(p_call_id)
+    - 'last_probe_status' - 'last_probe_at' - 'last_probe_error' - 'available_models'
+    - 'last_chat_status' - 'last_chat_error' - 'last_chat_model';
 END;
 $fn$;
