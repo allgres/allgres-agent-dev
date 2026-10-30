@@ -1294,6 +1294,29 @@ BEGIN
         p_request->>'session_token', (p_request->>'agent_id')::uuid
       );
 
+    -- One model for many agents, and a default for new agents (docs/models-apply.md).
+    WHEN 'models.targets' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_models_targets() || jsonb_build_object('ok', true);
+
+    WHEN 'models.apply' THEN
+      RETURN allgres_public.fn_models_apply(
+        p_request->>'session_token', p_request->>'provider', p_request->>'model',
+        COALESCE((p_request->>'all_agents')::boolean, false),
+        CASE WHEN p_request ? 'agent_ids' THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'agent_ids') x) END,
+        CASE WHEN p_request ? 'function_ids' THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'function_ids') x) END,
+        CASE WHEN p_request ? 'procedure_ids' THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'procedure_ids') x) END,
+        COALESCE((p_request->>'set_default')::boolean, false));
+
+    WHEN 'models.clear_overrides' THEN
+      RETURN allgres_public.fn_models_clear_overrides(
+        p_request->>'session_token',
+        CASE WHEN p_request ? 'function_ids' THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'function_ids') x) END,
+        CASE WHEN p_request ? 'procedure_ids' THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'procedure_ids') x) END);
+
+    WHEN 'models.default_clear' THEN
+      RETURN allgres_public.fn_model_default_clear(p_request->>'session_token');
+
     WHEN 'chat.new' THEN
       RETURN allgres_public.fn_chat_new(p_request->>'session_token', (p_request->>'agent_id')::uuid);
 

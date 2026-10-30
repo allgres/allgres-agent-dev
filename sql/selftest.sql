@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5374,6 +5374,7 @@ BEGIN
   v := v || allgres_private.creator_selftest_cases();
   v := v || allgres_private.delegation_selftest_cases();
   v := v || allgres_private.chat_selftest_cases();
+  v := v || allgres_private.models_apply_selftest_cases();
 
   PERFORM allgres_private.selftest_cleanup();
 
@@ -7586,6 +7587,86 @@ BEGIN
           allgres.dashboard_rpc(jsonb_build_object('action', 'chat.history', 'agent_id', a, 'session_token', tk))->'messages') m
         WHERE m->>'content' = 'first question');
   v := v || jsonb_build_array(jsonb_build_object('name', 'new_chat_starts_a_fresh_session_and_keeps_the_old_one', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- One model for many agents, and a default for new agents (sql/models_apply.sql).
+CREATE OR REPLACE FUNCTION allgres_private.models_apply_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_user uuid;
+  ta text := 'selftest-models-admin-token'; tu text := 'selftest-models-user-token';
+  a1 uuid; a2 uuid; a3 uuid; a_sys uuid; v_f uuid; v_err text;
+  v_sys_before jsonb;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_models_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_models_user', 'x', 'user') RETURNING user_id INTO u_user;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (ta, u_admin, now() + interval '1 hour'), (tu, u_user, now() + interval '1 hour');
+  INSERT INTO allgres_private.llm_providers (name, kind, base_url) VALUES ('zz12_prov', 'openai_compat', 'https://example.invalid/v1');
+  a1 := (allgres_public.fn_create_agent('zz12_one', 'x')->>'agent_id')::uuid;
+  a2 := (allgres_public.fn_create_agent('zz12_two', 'x')->>'agent_id')::uuid;
+  SELECT agent_id, llm_config INTO a_sys, v_sys_before FROM allgres_private.policies p JOIN allgres_private.agents a USING (agent_id) WHERE a.is_system LIMIT 1;
+  SELECT function_id INTO v_f FROM allgres_private.functions ORDER BY name LIMIT 1;
+
+  -- Only an administrator, and only a real chat provider with a model.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'zz12_prov', 'model', 'm1', 'agent_ids', jsonb_build_array(a1), 'session_token', tu));
+  ok := r->>'error' IS NOT NULL;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'no_such', 'model', 'm1', 'agent_ids', jsonb_build_array(a1), 'session_token', ta));
+  ok := ok AND r->>'error' LIKE '%enabled chat provider%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'zz12_prov', 'model', ' ', 'agent_ids', jsonb_build_array(a1), 'session_token', ta));
+  ok := ok AND r->>'error' LIKE '%model name%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'applying_a_model_needs_an_admin_a_real_provider_and_a_model', 'ok', ok));
+
+  -- The chosen agents change; the others do not; the old model is in the audit.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'zz12_prov', 'model', 'm1', 'agent_ids', jsonb_build_array(a1), 'session_token', ta));
+  ok := (r->>'ok')::boolean AND (r->>'agents')::int = 1
+    AND (SELECT llm_config->>'model' = 'm1' AND llm_config->>'provider' = 'zz12_prov' FROM allgres_private.policies WHERE agent_id = a1)
+    AND (SELECT COALESCE(llm_config->>'model', '') = '' FROM allgres_private.policies WHERE agent_id = a2)
+    AND EXISTS (SELECT 1 FROM allgres_private.audit_log WHERE action = 'models.apply' AND details->>'model' = 'm1' AND (details->>'agents')::int = 1 AND details ? 'before');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'chosen_agents_get_the_model_and_the_old_one_is_kept_in_the_audit', 'ok', ok));
+
+  -- Every ordinary agent, never a system agent; a policy's other settings stay.
+  UPDATE allgres_private.policies SET max_steps = 7 WHERE agent_id = a2;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'zz12_prov', 'model', 'm2', 'all_agents', true, 'session_token', ta));
+  ok := (r->>'ok')::boolean
+    AND (SELECT llm_config->>'model' = 'm2' AND max_steps = 7 FROM allgres_private.policies WHERE agent_id = a2)
+    AND (SELECT llm_config IS NOT DISTINCT FROM v_sys_before FROM allgres_private.policies WHERE agent_id = a_sys)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.policies p JOIN allgres_private.agents a USING (agent_id)
+                    WHERE NOT a.is_system AND a.name <> 'health_monitor' AND p.llm_config->>'model' IS DISTINCT FROM 'm2');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'all_agents_means_every_ordinary_agent_and_no_system_agent', 'ok', ok));
+
+  -- Functions: their own override, and back to the agent's model.
+  IF v_f IS NOT NULL THEN
+    r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'zz12_prov', 'model', 'm3', 'function_ids', jsonb_build_array(v_f), 'session_token', ta));
+    ok := (r->>'functions')::int = 1 AND (SELECT llm_override->>'model' = 'm3' FROM allgres_private.functions WHERE function_id = v_f);
+    r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.clear_overrides', 'function_ids', jsonb_build_array(v_f), 'session_token', ta));
+    ok := ok AND (r->>'functions')::int = 1 AND (SELECT llm_override IS NULL FROM allgres_private.functions WHERE function_id = v_f);
+    v := v || jsonb_build_array(jsonb_build_object('name', 'a_function_can_take_a_model_override_and_give_it_back', 'ok', ok));
+  END IF;
+
+  -- The default is copied onto a new agent when it is made; existing agents and
+  -- system agents are not changed by it, and clearing it stops the copying.
+  UPDATE allgres_private.policies SET llm_config = '{}'::jsonb WHERE agent_id = a1;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.apply', 'provider', 'zz12_prov', 'model', 'm4', 'agent_ids', '[]'::jsonb, 'set_default', true, 'session_token', ta));
+  a3 := (allgres_public.fn_create_agent('zz12_three', 'x')->>'agent_id')::uuid;
+  ok := (r->>'default_set')::boolean
+    AND (SELECT llm_config->>'model' = 'm4' AND llm_config->>'provider' = 'zz12_prov' FROM allgres_private.policies WHERE agent_id = a3)
+    AND (SELECT COALESCE(llm_config->>'model', '') = '' FROM allgres_private.policies WHERE agent_id = a1)
+    AND (allgres.dashboard_rpc(jsonb_build_object('action', 'models.targets', 'session_token', ta))->'default'->>'model') = 'm4';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'models.default_clear', 'session_token', ta));
+  a3 := (allgres_public.fn_create_agent('zz12_four', 'x')->>'agent_id')::uuid;
+  ok := ok AND (r->>'ok')::boolean
+    AND (SELECT COALESCE(llm_config->>'model', '') = '' FROM allgres_private.policies WHERE agent_id = a3);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'default_model_is_copied_onto_new_agents_only', 'ok', ok));
 
   RETURN v;
 END;

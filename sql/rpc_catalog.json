@@ -541,6 +541,45 @@
     ]
   },
   {
+    "action": "models.targets",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "models.apply",
+    "guards": [],
+    "params": [
+      "agent_ids",
+      "all_agents",
+      "function_ids",
+      "model",
+      "procedure_ids",
+      "provider",
+      "session_token",
+      "set_default"
+    ]
+  },
+  {
+    "action": "models.clear_overrides",
+    "guards": [],
+    "params": [
+      "function_ids",
+      "procedure_ids",
+      "session_token"
+    ]
+  },
+  {
+    "action": "models.default_clear",
+    "guards": [],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
     "action": "chat.new",
     "guards": [],
     "params": [

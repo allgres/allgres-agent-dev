@@ -674,6 +674,51 @@ test('General chat shows only the answer and can start a new chat', async ({ pag
   await expect(page.locator('#generalChatThread')).not.toContainText('hello there');
 });
 
+test('one model is put on chosen agents at once, and can be the default for new agents', async ({ page }) => {
+  test.setTimeout(90000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  page.on('dialog', d => d.accept());
+  await page.evaluate(async (base) => {
+    const call = async body => (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    const p = await call({ action: 'provider.create', name: 'ui_ma_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
+    if (p.ok === false) throw new Error(p.error);
+    for (const name of ['ui_ma_a', 'ui_ma_b', 'ui_ma_c']) {
+      const a = await call({ action: 'agents.create', name, system_prompt: 'x', is_active: false });
+      if (a.ok === false) throw new Error(a.error);
+    }
+  }, baseURL);
+  const targets = () => page.evaluate(async () => (await (await fetch('/api/v1/rpc', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+    body: JSON.stringify({ action: 'models.targets', session_token: sessionStorage.getItem('allgres_session_token') }) })).json()));
+  await page.locator('#nav button', { hasText: 'Models' }).click();
+  await expect(page.locator('#maBody')).toContainText('Pick a model once');
+  await page.locator('#maProvider').selectOption('ui_ma_mock');
+  await page.locator('#maModel').fill('ma-model-1');
+  await page.locator('input[name=maScope][value=pick]').check();
+  for (const n of ['ui_ma_a', 'ui_ma_b']) await page.locator('label', { hasText: n }).locator('input.maAgent').check();
+  await expect(page.locator('#maSummary')).toContainText('Will change 2 agents');
+  await page.locator('#maDefault').check();
+  await page.locator('#maApply').click();
+  await expect(page.locator('#maBody')).toContainText('New agents start with');
+  let t = (await targets());
+  const model = n => t.agents.find(a => a.name === n)?.model || '';
+  expect(model('ui_ma_a')).toBe('ma-model-1');
+  expect(model('ui_ma_b')).toBe('ma-model-1');
+  expect(model('ui_ma_c')).toBe('');
+  // The default reaches an agent made afterwards, not the ones that exist.
+  await page.evaluate(async () => (await fetch('/api/v1/rpc', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+    body: JSON.stringify({ action: 'agents.create', name: 'ui_ma_d', system_prompt: 'x', is_active: false, session_token: sessionStorage.getItem('allgres_session_token') }) })).json());
+  t = await targets();
+  expect(t.agents.find(a => a.name === 'ui_ma_d').model).toBe('ma-model-1');
+  expect(model('ui_ma_c')).toBe('');
+  // Put things back so later tests start clean.
+  await page.getByRole('button', { name: 'Stop doing that' }).click();
+  await expect(page.locator('#maBody')).toContainText('No default for new agents');
+});
+
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(5);
