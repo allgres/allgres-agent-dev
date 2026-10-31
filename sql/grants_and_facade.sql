@@ -900,6 +900,10 @@ BEGIN
         COALESCE((p_request->>'all_agents')::boolean, false),
         NULLIF(p_request->>'min_accuracy', '')::numeric, NULLIF(p_request->>'max_ece', '')::numeric);
 
+    WHEN 'delegation.switch' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_delegation_switch((p_request->>'enabled')::boolean);
+
     WHEN 'delegation.off_all' THEN
       PERFORM allgres_private.require_admin(p_request->>'session_token');
       RETURN allgres_public.fn_decision_delegation_off_all();

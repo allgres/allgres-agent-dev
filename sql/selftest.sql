@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5373,6 +5373,7 @@ BEGIN
   v := v || allgres_private.team_selftest_cases();
   v := v || allgres_private.creator_selftest_cases();
   v := v || allgres_private.delegation_selftest_cases();
+  v := v || allgres_private.decision_switch_selftest_cases();
   v := v || allgres_private.chat_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.model_registry_selftest_cases();
@@ -7782,6 +7783,95 @@ BEGIN
   BEGIN PERFORM allgres_public.fn_ui_prefs_set('nope', '{"lang":"en"}'::jsonb); ok := false; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN PERFORM allgres_public.fn_ui_prefs_get(NULL); ok := false; EXCEPTION WHEN OTHERS THEN NULL; END;
   v := v || jsonb_build_array(jsonb_build_object('name', 'ui_prefs_refuse_bad_values_and_no_login', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- The decision-point list (category, name, description) and the one switch over it.
+CREATE OR REPLACE FUNCTION allgres_private.decision_switch_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_user uuid;
+  tk text := 'selftest-dsw-admin-token'; tu text := 'selftest-dsw-user-token';
+  v_conn uuid; v_err text; v_ask uuid; v_sid uuid; v_tid uuid; v_appr uuid; a_one uuid;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_dsw_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_dsw_user', 'x', 'user') RETURNING user_id INTO u_user;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (tk, u_admin, now() + interval '1 hour'), (tu, u_user, now() + interval '1 hour');
+  a_one := (allgres_public.fn_create_agent('zz14_one', 'x')->>'agent_id')::uuid;
+
+  -- Earlier cases may have left a decision model behind; this one starts with none.
+  UPDATE allgres_private.api_connections SET is_enabled = false WHERE kind = 'decision';
+
+  -- Every point has a category, a name and a description; a point nobody described still gets a place.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.overview', 'session_token', tk));
+  ok := (r->>'ok')::boolean
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r->'points') e WHERE COALESCE(e->>'category', '') = '' OR COALESCE(e->>'title', '') = '')
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'points') e WHERE e->>'point_key' = 'approval_decision' AND e->>'category' = 'Approvals')
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'points') e WHERE e->>'point_key' = 'room_task_confirmation' AND e->>'category' = 'Rooms');
+  INSERT INTO allgres_private.decision_points (point_key, version, instructions, criteria, state_fields)
+    VALUES ('zz14_new_point', 1, 'Decide something new.', '{"yes": "ok", "no": "not ok"}'::jsonb, ARRAY['x']);
+  ok := ok AND (SELECT category = 'Other' AND title = 'zz14_new_point' FROM allgres_private.decision_point_info('zz14_new_point'))
+    AND (SELECT category = 'Teams' FROM allgres_private.decision_point_info('team_assign_abc123'));
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_points_have_a_category_a_name_and_a_description', 'ok', ok));
+
+  -- With no model connected the switch cannot be turned on and nothing is asked.
+  ok := NOT (r->>'has_model')::boolean AND NOT (r->>'active')::boolean;
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_decision_delegation_switch(true); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%connect a decision model first%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_switch_needs_a_connected_model', 'ok', ok, 'detail', v_err));
+
+  -- With a model: the point asks it; switching off keeps the point's setting and asks nobody; on restores it.
+  v_conn := (allgres_public.fn_decision_model_connect('zz14_laya', 'http://127.0.0.1:8088/mock/laya', NULL, true)->>'connection_id')::uuid;
+  PERFORM allgres_public.fn_decision_delegation_set('approval_decision', 'observe', v_conn);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.overview', 'session_token', tk));
+  ok := (r->>'has_model')::boolean AND (r->>'enabled')::boolean AND (r->>'active')::boolean;
+  v_sid := (allgres_public.fn_create_session(a_one, 'zz14 on')->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  UPDATE allgres_private.tasks SET status = 'waiting_human' WHERE task_id = v_tid;
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload) VALUES (v_tid, 'pending', '{"reason": "ok?"}') RETURNING approval_id INTO v_appr;
+  PERFORM allgres_public.fn_decide_approval(v_appr, true);
+  ok := ok AND EXISTS (SELECT 1 FROM allgres_private.decision_asks WHERE source_id = v_appr AND mode = 'observe');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_switch_on_a_watched_point_asks_the_model', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.switch', 'enabled', false, 'session_token', tk));
+  ok := (r->>'ok')::boolean AND NOT (r->>'enabled')::boolean;
+  v_sid := (allgres_public.fn_create_session(a_one, 'zz14 off')->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  UPDATE allgres_private.tasks SET status = 'waiting_human' WHERE task_id = v_tid;
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload) VALUES (v_tid, 'pending', '{"reason": "ok?"}') RETURNING approval_id INTO v_appr;
+  PERFORM allgres_public.fn_decide_approval(v_appr, true);
+  ok := ok AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_asks WHERE source_id = v_appr)
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = v_appr AND decided_by = 'human')
+    AND (SELECT mode = 'observe' FROM allgres_private.decision_delegation WHERE point_key = 'approval_decision');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.overview', 'session_token', tk));
+  ok := ok AND NOT (r->>'enabled')::boolean AND NOT (r->>'active')::boolean AND (r->>'has_model')::boolean
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'points') e WHERE e->>'point_key' = 'approval_decision' AND e->>'mode' = 'observe');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_switch_off_asks_nobody_and_keeps_each_points_setting', 'ok', ok));
+
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.switch', 'enabled', true, 'session_token', tk));
+  ok := (r->>'ok')::boolean AND allgres_private.delegation_enabled();
+  v_sid := (allgres_public.fn_create_session(a_one, 'zz14 on again')->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  UPDATE allgres_private.tasks SET status = 'waiting_human' WHERE task_id = v_tid;
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload) VALUES (v_tid, 'pending', '{"reason": "ok?"}') RETURNING approval_id INTO v_appr;
+  PERFORM allgres_public.fn_decide_approval(v_appr, true);
+  ok := ok AND EXISTS (SELECT 1 FROM allgres_private.decision_asks WHERE source_id = v_appr AND mode = 'observe');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_switch_on_again_restores_the_points', 'ok', ok));
+
+  -- Admin only.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.switch', 'enabled', false, 'session_token', tu));
+  ok := r->>'error' IS NOT NULL AND allgres_private.delegation_enabled();
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_switch_is_for_admins', 'ok', ok));
 
   RETURN v;
 END;

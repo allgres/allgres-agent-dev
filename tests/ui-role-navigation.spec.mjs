@@ -362,6 +362,9 @@ test('admin connects a decision model and sees its checkpoints', async ({ page }
   await login(page, 'ui_admin', 'ui-admin-password');
   await go(page, 'Decision model');
   await expect(page.getByText('No decision is handed to it')).toBeVisible();
+  // With no model there is nothing to switch: everything waits for a person.
+  await expect(page.getByText('No model connected', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Turn the decision model/ })).toHaveCount(0);
   // Without the key the server shows only its status: that is "key needed".
   await page.locator('#dmName').fill('ui_laya_nokey');
   await page.locator('#dmUrl').fill(baseURL + '/mock/laya');
@@ -738,8 +741,17 @@ test('decision model: watch a point, compare with a person, and meet the gate be
   const handOver = page.locator('#view .listrow[data-point="approval_decision"]').getByRole('button', { name: 'Hand over' });
   await expect(handOver).toBeDisabled();
   await expect(page.locator('#view .listrow[data-point="approval_decision"]')).toContainText('Hand over unlocks after at least 10 compared decisions');
-  // The way back.
-  await page.getByRole('button', { name: 'Turn everything off' }).click();
+  // Points are listed by where they come from, with a name and what they decide.
+  await expect(page.locator('#view h4', { hasText: 'Approvals' })).toBeVisible();
+  await expect(page.locator('#view .listrow[data-point="approval_decision"]')).toContainText('An agent asks to run or continue');
+  // One switch over all of them: off leaves every decision with people and keeps each point's setting.
+  await page.getByRole('button', { name: 'Turn the decision model off' }).click();
+  await expect(page.getByText('The decision model is off: nothing below is asked of it')).toBeVisible();
+  await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: 'watching' })).toBeVisible();
+  await page.getByRole('button', { name: 'Turn the decision model on' }).click();
+  await expect(page.getByRole('button', { name: 'Turn the decision model off' })).toBeVisible();
+  // The way back for one point.
+  await page.locator('#view .listrow[data-point="approval_decision"]').getByRole('button', { name: 'Off', exact: true }).click();
   await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: /^off$/ })).toBeVisible();
   // The scripted agent asks again after every answer; leave nothing waiting for later tests.
   await page.evaluate(async () => {
