@@ -5,11 +5,12 @@ const baseURL = process.env.ALLGRES_UI_URL || 'http://127.0.0.1:8088';
 test.describe.configure({ mode: 'serial' });
 
 async function login(page, username, password) {
-  // The last page is remembered per person in the database, so a test starts
-  // from the person's first page rather than wherever an earlier test ended.
+  // Page, language and theme are remembered per person in the database, so a
+  // test starts from the defaults rather than wherever an earlier test (or its
+  // failed first attempt) left them.
   const rpc = async body => (await page.request.post(baseURL + '/api/v1/rpc', { headers: { 'x-allgres-client': 'dashboard' }, data: body })).json();
   const t = await rpc({ action: 'auth.login', username, password });
-  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, 'ui.chat_mode': null } });
+  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, 'ui.chat_mode': null, theme: null, lang: null } });
   await page.goto(baseURL);
   await page.locator('#liUser').fill(username);
   await page.locator('#liPass').fill(password);
