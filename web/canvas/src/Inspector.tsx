@@ -8,6 +8,7 @@ import { abilityGroup, abilityLabel, modelName, statusLabel } from './labels';
 import { KIND_LABEL } from './nodes';
 import { jobOf, withJob } from './prompt';
 import { timeAgo } from './ui';
+import { setPref } from './prefs';
 
 type Tab = 'overview' | 'chat' | 'activity';
 
@@ -552,11 +553,7 @@ function Activity({ board, agent }: { board: Board; agent: Agent }) {
     });
     if (ok) {
       setGoal('');
-      try {
-        localStorage.setItem('allgres_canvas_ran', '1');
-      } catch {
-        /* storage blocked: the getting-started step just stays open */
-      }
+      setPref('canvas.ran', '1');
       if (started) board.openSession(started);
     }
   };

@@ -1,21 +1,16 @@
+import { pref } from './prefs';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 // The Canvas shares the dashboard's translation packs (web/i18n/<code>.json,
 // docs/i18n.md). The English sentence is the key, so a string without an entry
 // still reads correctly, just in English. {name}-style placeholders are filled
 // from the second argument. The language is chosen in the dashboard's Settings
-// and kept in the browser; this module only reads it.
+// and kept in the database per user; this module only reads it.
 export type Lang = string;
 
-const KEY = 'allgres_lang';
-
 function stored(): Lang {
-  try {
-    const v = localStorage.getItem(KEY) || '';
-    return /^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(v) ? v : 'en';
-  } catch {
-    return 'en';
-  }
+  const v = pref('lang') || '';
+  return /^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(v) ? v : 'en';
 }
 
 type Pack = Record<string, string>;

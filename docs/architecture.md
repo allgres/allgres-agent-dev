@@ -88,7 +88,7 @@ Internal page ids are unchanged, so a browser's saved page still opens. The
 pages that used to be one Settings page are the same panels, shown a few at a
 time (`SETTINGS_PAGES` in `web/index.html`).
 
-The Access & appearance page has a dark/light theme switch stored in the browser's
-`localStorage`. The partial English/한국어 switch was removed: the current
-dashboard is English-only rather than presenting a partly translated UI.
+The Access & appearance page has a dark/light theme switch; language is chosen in
+Settings → Language. Both are kept per user in the database (docs/user-prefs.md),
+not in the browser.
 The top navigation button is labeled **Home**.

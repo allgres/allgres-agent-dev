@@ -24,6 +24,7 @@ import { abilityLabel } from './labels';
 import { BoardEvents, nodeTypes } from './nodes';
 import { withJob } from './prompt';
 import { useDialog, useToast } from './ui';
+import { pref, setPref } from './prefs';
 
 type Fix = 'login' | 'token' | null;
 type Gate = { kind: 'loading' } | { kind: 'blocked'; title: string; body: string; fix: Fix } | { kind: 'ready' };
@@ -35,28 +36,16 @@ const EMPTY_STATE: CanvasState = { groups: [], members: [], positions: [], templ
 const NO_OPTIONS: GrantOptions = { views: [], functions: [], procedures: [] };
 
 function theme(): 'dark' | 'light' {
-  try {
-    return localStorage.getItem('allgres_theme') === 'light' ? 'light' : 'dark';
-  } catch {
-    return 'dark';
-  }
+  return pref('theme') === 'light' ? 'light' : 'dark';
 }
 
 function remembered(key: string, fallback: boolean): boolean {
-  try {
-    const v = localStorage.getItem(key);
-    return v === null ? fallback : v === '1';
-  } catch {
-    return fallback;
-  }
+  const v = pref(key);
+  return v === undefined ? fallback : v === '1';
 }
 
 function remember(key: string, v: boolean) {
-  try {
-    localStorage.setItem(key, v ? '1' : '0');
-  } catch {
-    /* storage blocked: the setting lasts until reload */
-  }
+  setPref(key, v ? '1' : '0');
 }
 
 function explain(t: T, e: unknown): { title: string; body: string; fix: Fix } {
@@ -147,6 +136,8 @@ function Canvas() {
       if (typeof e.data.lang === 'string' && /^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(e.data.lang)) setLang(e.data.lang);
     };
     window.addEventListener('message', on);
+    // Ask the shell for the current theme and language: a message sent before this listener existed is lost.
+    window.parent.postMessage({ type: 'allgres-ui-ready' }, window.location.origin);
     return () => window.removeEventListener('message', on);
   }, [setLang]);
   const [gate, setGate] = useState<Gate>({ kind: 'loading' });
@@ -154,7 +145,7 @@ function Canvas() {
   const [state, setState] = useState<CanvasState>(EMPTY_STATE);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [options, setOptions] = useState<GrantOptions>(NO_OPTIONS);
-  const [showSystem, setShowSystemRaw] = useState(() => remembered('allgres_canvas_system', false));
+  const [showSystem, setShowSystemRaw] = useState(() => remembered('canvas.system', false));
   const [showInactive, setShowInactive] = useState(true);
   const [view, setView] = useState<'org' | 'flow'>('org');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -162,7 +153,7 @@ function Canvas() {
   const [selected, setSelected] = useState<string[]>([]);
   const [drop, setDrop] = useState<{ target: string; text: string } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(() => !remembered('allgres_canvas_help_seen', false));
+  const [helpOpen, setHelpOpen] = useState(() => !remembered('canvas.help_seen', false));
   const [chatOpen, setChatOpen] = useState(false);
   // Secondary click: what can be done with this card, box, or spot.
   const [ctx, setCtx] = useState<{ x: number; y: number; kind: 'agent' | 'group' | 'pane'; id?: string; at: XY } | null>(null);
@@ -172,7 +163,7 @@ function Canvas() {
   const { zoom } = useViewport();
   const { ask, confirm, element: dialog } = useDialog();
   const { toast, element: toastEl } = useToast();
-  const setShowSystem = (v: boolean) => (remember('allgres_canvas_system', v), setShowSystemRaw(v));
+  const setShowSystem = (v: boolean) => (remember('canvas.system', v), setShowSystemRaw(v));
 
   // One request: canvas.state carries agents.list's payload as well.
   const reload = useCallback(async () => {
@@ -1032,7 +1023,7 @@ function Canvas() {
   const groupable = selected.filter((id) => !isGroupNode(id) && agents.some((a) => a.agent_id === id && !a.is_system)).length;
   const general = agentByName(agents, 'general');
   const empty = agents.filter((a) => !a.is_system && !SEEDED.has(a.name)).length === 0 && state.groups.length === 0;
-  const closeHelp = () => (remember('allgres_canvas_help_seen', true), setHelpOpen(false));
+  const closeHelp = () => (remember('canvas.help_seen', true), setHelpOpen(false));
   // Opening the panel narrows the board; keep what was just selected in view
   // instead of leaving it behind the panel or off the edge.
   const dragging = useRef(false);
@@ -1083,7 +1074,7 @@ function Canvas() {
       },
     },
     {
-      done: remembered('allgres_canvas_ran', false),
+      done: remembered('canvas.ran', false),
       label: t('Give the top agent a task'),
       go: () => {
         const a = mine.find((x) => x.llm_config?.model && agents.some((b) => delegates(x, b))) || mine.find((x) => x.llm_config?.model);
@@ -1091,7 +1082,7 @@ function Canvas() {
       },
     },
   ];
-  const [guideHidden, setGuideHidden] = useState(() => remembered('allgres_canvas_guide_hidden', false));
+  const [guideHidden, setGuideHidden] = useState(() => remembered('canvas.guide_hidden', false));
   const guideDone = steps.every((s) => s.done);
 
   return (
@@ -1252,7 +1243,7 @@ function Canvas() {
                     <small>
                       {steps.filter((s) => s.done).length}/{steps.length}
                     </small>
-                    <button type="button" className="icon-btn" aria-label={t('Hide')} onClick={() => (remember('allgres_canvas_guide_hidden', true), setGuideHidden(true))}>
+                    <button type="button" className="icon-btn" aria-label={t('Hide')} onClick={() => (remember('canvas.guide_hidden', true), setGuideHidden(true))}>
                       ×
                     </button>
                   </header>

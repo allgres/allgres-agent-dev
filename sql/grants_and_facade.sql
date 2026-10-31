@@ -1316,6 +1316,12 @@ BEGIN
         CASE WHEN p_request ? 'function_ids' THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'function_ids') x) END,
         CASE WHEN p_request ? 'procedure_ids' THEN ARRAY(SELECT x::uuid FROM jsonb_array_elements_text(p_request->'procedure_ids') x) END);
 
+    WHEN 'me.prefs_get' THEN
+      RETURN allgres_public.fn_ui_prefs_get(p_request->>'session_token');
+
+    WHEN 'me.prefs_set' THEN
+      RETURN allgres_public.fn_ui_prefs_set(p_request->>'session_token', p_request->'prefs');
+
     WHEN 'agents.clone' THEN
       RETURN allgres_public.fn_agent_clone(
         p_request->>'session_token', (p_request->>'agent_id')::uuid, p_request->>'name');
