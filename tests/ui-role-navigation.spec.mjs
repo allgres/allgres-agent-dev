@@ -10,7 +10,8 @@ async function login(page, username, password) {
   // failed first attempt) left them.
   const rpc = async body => (await page.request.post(baseURL + '/api/v1/rpc', { headers: { 'x-allgres-client': 'dashboard' }, data: body })).json();
   const t = await rpc({ action: 'auth.login', username, password });
-  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, 'ui.chat_mode': null, theme: null, lang: null } });
+  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, 'ui.chat_mode': null, theme: null, lang: null,
+    'canvas.help_seen': null, 'canvas.ran': null, 'canvas.system': null, 'canvas.guide_hidden': null } });
   await page.goto(baseURL);
   await page.locator('#liUser').fill(username);
   await page.locator('#liPass').fill(password);
@@ -798,7 +799,11 @@ test('teams are made, renamed and deleted from the dashboard', async ({ page }) 
   await login(page, 'ui_admin', 'ui-admin-password');
   page.on('dialog', d => d.accept());
   await go(page, 'Teams');
-  await page.locator('#tnewName').fill('ui-made-team');
+  // The page draws the form, then may draw it again; fill again if that cleared it.
+  await expect(async () => {
+    await page.locator('#tnewName').fill('ui-made-team');
+    await expect(page.locator('#tnewName')).toHaveValue('ui-made-team');
+  }).toPass({ timeout: 15000 });
   await page.locator('#tnewGo').click();
   const box = page.locator('#view .panel[data-team="ui-made-team"]');
   await expect(box).toBeVisible();
