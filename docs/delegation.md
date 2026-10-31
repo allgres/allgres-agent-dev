@@ -2,7 +2,7 @@
 
 Everything in Allgres works with people and rules alone. This page is about the one optional step: letting the official **laya-serve** answer a decision point that people answer today. Connect a server first ([decision-models.md](decision-models.md)); then open **Connections → Decision model → Hand decisions to the model**.
 
-Each decision point has its own switch, and one switch over all of them. Nothing is on by default.
+Each decision point has its own switch, and one switch over all of them. Nothing is on by default. People can also write **rules** that are read before the model ([decision-rules.md](decision-rules.md)).
 
 - **The decision model switch** (top of *Hand decisions to the model*) turns the model on or off for every point at once. Off, nothing is asked of the model and every decision waits for a person in **Approvals**; each point keeps its setting, so turning the switch on again restores them. With no model connected there is nothing to switch and everything is decided by people and rules.
 - **The list of points** is grouped by where each comes from (Approvals, Rooms, Teams, …), each with a name and what it decides. A new kind of decision point appears in the list by itself under its source; `decision_point_meta` gives it a proper name and description.

@@ -153,6 +153,78 @@
     ]
   },
   {
+    "action": "delegation.rules",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "point_key",
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.rule_save",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "answer",
+      "conditions",
+      "confirm_approve",
+      "enabled",
+      "name",
+      "outcome",
+      "point_key",
+      "rule_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.rule_set_enabled",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "confirm_approve",
+      "enabled",
+      "rule_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.rule_delete",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "rule_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.rule_move",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "direction",
+      "rule_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "delegation.rule_backtest",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "answer",
+      "conditions",
+      "point_key",
+      "session_token"
+    ]
+  },
+  {
     "action": "delegation.switch",
     "guards": [
       "require_admin"

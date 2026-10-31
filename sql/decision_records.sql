@@ -297,11 +297,15 @@ BEGIN
         approval_decision_state(NEW.approval_id, (SELECT state_fields FROM decision_points
                                                   WHERE point_key = 'approval_decision' ORDER BY version DESC LIMIT 1)),
         CASE NEW.status WHEN 'approved' THEN 'approve' ELSE 'reject' END,
-        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text THEN 'laya' ELSE 'human' END,
-        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text THEN NULL ELSE NEW.decided_by_user_id END,
-        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text THEN NULL ELSE NEW.decided_via END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text THEN 'laya'
+             WHEN current_setting('allgres.rule_decision', true) = NEW.approval_id::text THEN 'rule' ELSE 'human' END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text
+               OR current_setting('allgres.rule_decision', true) = NEW.approval_id::text THEN NULL ELSE NEW.decided_by_user_id END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text
+               OR current_setting('allgres.rule_decision', true) = NEW.approval_id::text THEN NULL ELSE NEW.decided_via END,
         'approval', NEW.approval_id,
-        jsonb_build_object('task_id', NEW.task_id));
+        jsonb_build_object('task_id', NEW.task_id) || CASE WHEN current_setting('allgres.rule_decision', true) = NEW.approval_id::text
+          THEN jsonb_build_object('rule_id', current_setting('allgres.rule_id', true)) ELSE '{}'::jsonb END);
     EXCEPTION WHEN OTHERS THEN
       -- A decision must never fail because its record could not be kept.
       PERFORM audit('decision_records.failed', jsonb_build_object(
@@ -327,11 +331,15 @@ BEGIN
         proposal_decision_state(NEW.proposal_id, (SELECT state_fields FROM decision_points
                                                   WHERE point_key = 'proposal_decision' ORDER BY version DESC LIMIT 1)),
         CASE NEW.status WHEN 'approved' THEN 'approve' ELSE 'reject' END,
-        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text THEN 'laya' ELSE 'human' END,
-        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text THEN NULL ELSE NEW.decided_by_user_id END,
-        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text THEN NULL ELSE NEW.decided_via END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text THEN 'laya'
+             WHEN current_setting('allgres.rule_decision', true) = NEW.proposal_id::text THEN 'rule' ELSE 'human' END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text
+               OR current_setting('allgres.rule_decision', true) = NEW.proposal_id::text THEN NULL ELSE NEW.decided_by_user_id END,
+        CASE WHEN current_setting('allgres.laya_decision', true) = NEW.proposal_id::text
+               OR current_setting('allgres.rule_decision', true) = NEW.proposal_id::text THEN NULL ELSE NEW.decided_via END,
         'proposal', NEW.proposal_id,
-        jsonb_build_object('kind', NEW.kind));
+        jsonb_build_object('kind', NEW.kind) || CASE WHEN current_setting('allgres.rule_decision', true) = NEW.proposal_id::text
+          THEN jsonb_build_object('rule_id', current_setting('allgres.rule_id', true)) ELSE '{}'::jsonb END);
     EXCEPTION WHEN OTHERS THEN
       PERFORM audit('decision_records.failed', jsonb_build_object(
         'source_kind', 'proposal', 'source_id', NEW.proposal_id, 'error', SQLERRM));

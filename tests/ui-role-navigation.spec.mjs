@@ -10,7 +10,8 @@ async function login(page, username, password) {
   // failed first attempt) left them.
   const rpc = async body => (await page.request.post(baseURL + '/api/v1/rpc', { headers: { 'x-allgres-client': 'dashboard' }, data: body })).json();
   const t = await rpc({ action: 'auth.login', username, password });
-  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, 'ui.chat_mode': null, theme: null, lang: null } });
+  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, 'ui.chat_mode': null, theme: null, lang: null,
+    'canvas.help_seen': null, 'canvas.ran': null, 'canvas.system': null, 'canvas.guide_hidden': null } });
   await page.goto(baseURL);
   await page.locator('#liUser').fill(username);
   await page.locator('#liPass').fill(password);
@@ -750,6 +751,34 @@ test('decision model: watch a point, compare with a person, and meet the gate be
   await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: 'watching' })).toBeVisible();
   await page.getByRole('button', { name: 'Turn the decision model on' }).click();
   await expect(page.getByRole('button', { name: 'Turn the decision model off' })).toBeVisible();
+  // Rules are written as data and read before the model. One that approves says who it is about and asks first.
+  const pointRow = page.locator('#view .listrow[data-point="approval_decision"]');
+  await pointRow.locator('.dgRules summary').click();
+  const form = pointRow.locator('.ruleForm');
+  await form.locator('.rlName').fill('ui rule: this agent waits for a person');
+  await form.locator('.rlOutcome').selectOption('to_human');
+  await form.locator('.rlCond').first().locator('.rlField').selectOption('agent');
+  await form.locator('.rlCond').first().locator('.rlVal').fill('ui_dg_agent');
+  await form.locator('.rlTry').click();
+  await expect(form.locator('.rlOut')).toContainText('this rule would have matched');
+  await form.locator('.rlSave').click();
+  await expect(pointRow.locator('[data-rule]')).toContainText('ui rule: this agent waits for a person');
+  await expect(pointRow.locator('[data-rule]')).toContainText('agent is “ui_dg_agent”: send it to a person');
+  // Approving without saying who it is about is refused, and the screen says why.
+  const form2 = pointRow.locator('.ruleForm');
+  await form2.locator('.rlName').fill('ui broad approve');
+  await form2.locator('.rlOutcome').selectOption('approve');
+  await form2.locator('.rlCond').first().locator('.rlField').selectOption('reason');
+  await form2.locator('.rlCond').first().locator('.rlVal').fill('ok');
+  page.once('dialog', d => d.accept());
+  await form2.locator('.rlSave').click();
+  await expect(form2.locator('.rlOut')).toContainText('who or what it is about');
+  // Turn it off, then delete it, so later tests are decided by people as before.
+  await pointRow.locator('[data-rule] .rlOn').click();
+  await expect(pointRow.locator('[data-rule] .status', { hasText: 'off' })).toBeVisible();
+  page.once('dialog', d => d.accept());
+  await pointRow.locator('[data-rule] .rlDel').click();
+  await expect(pointRow.locator('[data-rule]')).toHaveCount(0);
   // The way back for one point.
   await page.locator('#view .listrow[data-point="approval_decision"]').getByRole('button', { name: 'Off', exact: true }).click();
   await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: /^off$/ })).toBeVisible();
@@ -770,7 +799,11 @@ test('teams are made, renamed and deleted from the dashboard', async ({ page }) 
   await login(page, 'ui_admin', 'ui-admin-password');
   page.on('dialog', d => d.accept());
   await go(page, 'Teams');
-  await page.locator('#tnewName').fill('ui-made-team');
+  // The page draws the form, then may draw it again; fill again if that cleared it.
+  await expect(async () => {
+    await page.locator('#tnewName').fill('ui-made-team');
+    await expect(page.locator('#tnewName')).toHaveValue('ui-made-team');
+  }).toPass({ timeout: 15000 });
   await page.locator('#tnewGo').click();
   const box = page.locator('#view .panel[data-team="ui-made-team"]');
   await expect(box).toBeVisible();
