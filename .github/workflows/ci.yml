@@ -175,8 +175,9 @@ jobs:
         env:
           ALLGRES_BOOTSTRAP_ADMIN_USER: ui_admin
           ALLGRES_BOOTSTRAP_ADMIN_PASSWORD: ui-admin-password
-          # The whole suite runs from one address in well under a minute.
-          ALLGRES_RATE_LIMIT_PER_MINUTE: "600"
+          # The whole suite runs from one address; pages ask for their lists
+          # together now, so it sends its requests in bursts well over 600 a minute.
+          ALLGRES_RATE_LIMIT_PER_MINUTE: "5000"
         run: |
           docker compose up -d --build
           for _ in $(seq 1 90); do curl -sf http://127.0.0.1:8088/ >/dev/null && exit 0; sleep 2; done
