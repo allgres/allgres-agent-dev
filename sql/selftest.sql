@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5374,6 +5374,7 @@ BEGIN
   v := v || allgres_private.creator_selftest_cases();
   v := v || allgres_private.delegation_selftest_cases();
   v := v || allgres_private.decision_switch_selftest_cases();
+  v := v || allgres_private.decision_rules_selftest_cases();
   v := v || allgres_private.chat_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.model_registry_selftest_cases();
@@ -7872,6 +7873,162 @@ BEGIN
   r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.switch', 'enabled', false, 'session_token', tu));
   ok := r->>'error' IS NOT NULL AND allgres_private.delegation_enabled();
   v := v || jsonb_build_array(jsonb_build_object('name', 'decision_switch_is_for_admins', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
+-- Rules for a decision point: evaluated as data, in order, before the model.
+CREATE OR REPLACE FUNCTION allgres_private.selftest_pending_approval(p_agent uuid, p_payload jsonb DEFAULT '{"reason": "ok to continue?"}')
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE v_sid uuid; v_tid uuid; v_id uuid;
+BEGIN
+  v_sid := (allgres_public.fn_create_session(p_agent, 'zz15 ' || gen_random_uuid())->>'session_id')::uuid;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = v_sid LIMIT 1;
+  UPDATE allgres_private.tasks SET status = 'waiting_human' WHERE task_id = v_tid;
+  INSERT INTO allgres_private.human_approvals (task_id, status, payload) VALUES (v_tid, 'pending', p_payload) RETURNING approval_id INTO v_id;
+  RETURN v_id;
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.decision_rules_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_user uuid;
+  tk text := 'selftest-rules-admin-token'; tu text := 'selftest-rules-user-token';
+  a_one uuid; a_two uuid; a_three uuid; v_conn uuid;
+  v_a1 uuid; v_a2 uuid; v_a3 uuid; v_a4 uuid; v_a5 uuid; v_r1 uuid; v_r2 uuid; v_err text; v_st text;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_rules_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_rules_user', 'x', 'user') RETURNING user_id INTO u_user;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (tk, u_admin, now() + interval '1 hour'), (tu, u_user, now() + interval '1 hour');
+  a_one := (allgres_public.fn_create_agent('zz15_one', 'x')->>'agent_id')::uuid;
+  a_two := (allgres_public.fn_create_agent('zz15_two', 'x')->>'agent_id')::uuid;
+  a_three := (allgres_public.fn_create_agent('zz15x_three', 'x')->>'agent_id')::uuid;
+
+  -- The evaluator reads data: operators, all / any, a missing fact.
+  ok := allgres_private.decision_cond_eval('{"all":[{"field":"agent","op":"eq","value":"a"},{"field":"resource","op":"starts_with","value":"https://x/"}]}',
+          '{"agent":"a","resource":"https://x/y"}')
+    AND NOT allgres_private.decision_cond_eval('{"all":[{"field":"agent","op":"eq","value":"a"},{"field":"resource","op":"starts_with","value":"https://x/"}]}',
+          '{"agent":"a","resource":"https://z/y"}')
+    AND allgres_private.decision_cond_eval('{"any":[{"field":"agent","op":"in","value":["b","a"]},{"field":"action","op":"contains","value":"q"}]}', '{"agent":"a"}')
+    AND NOT allgres_private.decision_cond_eval('{"field":"action","op":"eq","value":"q"}', '{"agent":"a"}')
+    AND allgres_private.decision_cond_eval('{"field":"action","op":"ne","value":"q"}', '{"agent":"a"}')
+    AND allgres_private.decision_cond_eval('{}', '{}');
+  v_err := NULL;
+  BEGIN PERFORM allgres_private.decision_cond_check('{"field":"password","op":"eq","value":"x"}', allgres_private.decision_rule_fields('approval_decision')); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%unknown field%';
+  v_err := NULL;
+  BEGIN PERFORM allgres_private.decision_cond_check('{"field":"agent","op":"regex","value":"x"}', allgres_private.decision_rule_fields('approval_decision')); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%op is%';
+  v_err := NULL;
+  BEGIN PERFORM allgres_private.decision_cond_check('{"all":[{"all":[{"all":[{"all":[{"all":[{"field":"agent","op":"eq","value":"x"}]}]}]}]}]}', allgres_private.decision_rule_fields('approval_decision')); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%3 deep%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_conditions_are_data_read_by_one_evaluator', 'ok', ok, 'detail', v_err));
+
+  -- Try a rule on what people decided before: two approved, one rejected.
+  PERFORM allgres_public.fn_decide_approval(allgres_private.selftest_pending_approval(a_one), true);
+  PERFORM allgres_public.fn_decide_approval(allgres_private.selftest_pending_approval(a_one), true);
+  PERFORM allgres_public.fn_decide_approval(allgres_private.selftest_pending_approval(a_one), false);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_backtest', 'point_key', 'approval_decision',
+    'conditions', '{"all":[{"field":"agent","op":"eq","value":"zz15_one"}]}'::jsonb, 'answer', 'approve', 'session_token', tk));
+  ok := (r->>'ok')::boolean AND (r->>'matched')::int = 3 AND (r->>'agreed')::int = 2 AND (r->>'differed')::int = 1
+    AND jsonb_array_length(r->'examples') = 1;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_backtest', 'point_key', 'approval_decision',
+    'conditions', '{"all":[{"field":"agent","op":"eq","value":"nobody"}]}'::jsonb, 'answer', 'approve', 'session_token', tk));
+  ok := ok AND (r->>'matched')::int = 0;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_can_be_tried_on_past_decisions', 'ok', ok));
+
+  -- Saving: admins only; a rule that decides needs a condition; one that approves must narrow and be confirmed.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_save', 'point_key', 'approval_decision', 'name', 'x',
+    'conditions', '{"all":[{"field":"agent","op":"eq","value":"zz15_one"}]}'::jsonb, 'outcome', 'answer', 'answer', 'reject', 'session_token', tu));
+  ok := r->>'error' IS NOT NULL;
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'approval_decision', 'all', '{}'::jsonb, 'answer', 'approve', true, true); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%needs a condition%';
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'approval_decision', 'broad', '{"all":[{"field":"reason","op":"contains","value":"ok"}]}'::jsonb, 'answer', 'approve', true, true); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%who or what it is about%';
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'approval_decision', 'any', '{"any":[{"field":"agent","op":"eq","value":"zz15_one"},{"field":"reason","op":"contains","value":"ok"}]}'::jsonb, 'answer', 'approve', true, true); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%who or what it is about%';
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'approval_decision', 'unconfirmed', '{"all":[{"field":"agent","op":"eq","value":"zz15_one"}]}'::jsonb, 'answer', 'approve', true, false); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%confirm%';
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'room_task_confirmation', 'room', '{}'::jsonb, 'to_human', NULL, true, false); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%approvals and proposals%';
+  ok := ok AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_rules);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_save_holds_an_approving_rule_to_more', 'ok', ok, 'detail', v_err));
+
+  -- In order: the first rule that matches decides what happens. "zz15_two" goes to a person; the rest of "zz15_" is approved.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_save', 'point_key', 'approval_decision', 'name', 'two waits for a person',
+    'conditions', '{"all":[{"field":"agent","op":"eq","value":"zz15_two"}]}'::jsonb, 'outcome', 'to_human', 'session_token', tk));
+  v_r1 := (r->>'rule_id')::uuid;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_save', 'point_key', 'approval_decision', 'name', 'the zz15 agents',
+    'conditions', '{"all":[{"field":"agent","op":"starts_with","value":"zz15_"}]}'::jsonb, 'outcome', 'answer', 'answer', 'approve',
+    'confirm_approve', true, 'session_token', tk));
+  v_r2 := (r->>'rule_id')::uuid;
+  ok := v_r1 IS NOT NULL AND v_r2 IS NOT NULL
+    AND (SELECT position FROM allgres_private.decision_rules WHERE rule_id = v_r1) < (SELECT position FROM allgres_private.decision_rules WHERE rule_id = v_r2);
+  v_conn := (allgres_public.fn_decision_model_connect('zz15_laya', 'http://127.0.0.1:8088/mock/laya', NULL, true)->>'connection_id')::uuid;
+  INSERT INTO allgres_private.decision_delegation (point_key, mode, connection_id, all_agents) VALUES ('approval_decision', 'delegate', v_conn, true)
+    ON CONFLICT (point_key) DO UPDATE SET mode = 'delegate', connection_id = v_conn, all_agents = true;
+  v_a1 := allgres_private.selftest_pending_approval(a_one);
+  v_a2 := allgres_private.selftest_pending_approval(a_two);
+  v_a3 := allgres_private.selftest_pending_approval(a_three);
+  v_a4 := allgres_private.selftest_pending_approval(a_one, '{"ambiguous_outbound_call_id": "00000000-0000-0000-0000-000000000000"}');
+  -- Nothing is asked of the model yet: the rules go first.
+  ok := ok AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_asks WHERE source_id IN (v_a1, v_a2, v_a3, v_a4));
+  PERFORM allgres_private.decision_rules_sweep();
+  SELECT status INTO v_st FROM allgres_private.human_approvals WHERE approval_id = v_a1;
+  ok := ok AND v_st = 'approved'
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = v_a1 AND decided_by = 'rule' AND decider_user_id IS NULL AND context->>'rule_id' = v_r2::text)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_labels l JOIN allgres_private.decision_records dr ON dr.record_id = l.record_id WHERE dr.source_id = v_a1)
+    AND (SELECT result FROM allgres_private.decision_rule_checks WHERE source_id = v_a1) = 'applied';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_approves_in_order_and_is_kept_as_a_rule_decision', 'ok', ok, 'detail', v_st));
+
+  -- A person is sent the item when a rule says so, the model is not asked about it, and an unknown outcome is never approved by a rule.
+  ok := (SELECT status FROM allgres_private.human_approvals WHERE approval_id = v_a2) = 'pending'
+    AND (SELECT result FROM allgres_private.decision_rule_checks WHERE source_id = v_a2) = 'to_human'
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_asks WHERE source_id = v_a2)
+    AND (SELECT status FROM allgres_private.human_approvals WHERE approval_id = v_a4) = 'pending'
+    AND (SELECT result FROM allgres_private.decision_rule_checks WHERE source_id = v_a4) = 'none';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_to_human_and_unknown_outcome_stay_with_a_person', 'ok', ok));
+
+  -- What no rule matches goes to the model, as without rules.
+  ok := (SELECT status FROM allgres_private.human_approvals WHERE approval_id = v_a3) = 'pending'
+    AND (SELECT result FROM allgres_private.decision_rule_checks WHERE source_id = v_a3) = 'none'
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_asks WHERE source_id = v_a3 AND mode = 'delegate');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_leaves_the_rest_to_the_model', 'ok', ok));
+
+  -- Each item is read once; turning a rule off and moving it are admin actions that change the next reading.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_move', 'rule_id', v_r2, 'direction', 'up', 'session_token', tk));
+  ok := (r->>'ok')::boolean
+    AND (SELECT position FROM allgres_private.decision_rules WHERE rule_id = v_r2) < (SELECT position FROM allgres_private.decision_rules WHERE rule_id = v_r1);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_set_enabled', 'rule_id', v_r2, 'enabled', false, 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean;
+  v_a5 := allgres_private.selftest_pending_approval(a_one);
+  PERFORM allgres_private.decision_rules_sweep();
+  ok := ok AND (SELECT status FROM allgres_private.human_approvals WHERE approval_id = v_a5) = 'pending';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_set_enabled', 'rule_id', v_r2, 'enabled', true, 'session_token', tk));
+  ok := ok AND r->>'error' LIKE '%confirm%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_delete', 'rule_id', v_r2, 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean AND (SELECT count(*) FROM allgres_private.decision_rules) = 1
+    AND EXISTS (SELECT 1 FROM allgres_private.audit_log WHERE action = 'decision_rules.delete');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rules', 'point_key', 'approval_decision', 'session_token', tk));
+  ok := ok AND jsonb_array_length(r->'rules') = 1;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_order_enable_delete_and_audit', 'ok', ok));
 
   RETURN v;
 END;

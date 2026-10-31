@@ -217,7 +217,33 @@ BEGIN
 END;
 $fn$;
 
--- A new approval or proposal in a delegated point is put to the model.
+-- One new approval or proposal in a delegated point is put to the model.
+-- (With rules written for the point, the worker's sweep reads the rules first
+-- and calls this for what they leave over: sql/decision_rules.sql.)
+CREATE OR REPLACE FUNCTION allgres_private.decision_delegate_item(p_point text, p_kind text, p_id uuid, p_agent uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  d allgres_private.decision_delegation%ROWTYPE;
+  v_state text; v_fields text[];
+BEGIN
+  IF NOT allgres_private.delegation_enabled() THEN RETURN; END IF;
+  SELECT * INTO d FROM allgres_private.decision_delegation WHERE point_key = p_point AND mode = 'delegate';
+  IF NOT FOUND THEN RETURN; END IF;
+  IF NOT d.all_agents AND NOT (p_agent = ANY (COALESCE(d.scope_agent_ids, ARRAY[]::uuid[]))) THEN RETURN; END IF;
+  SELECT state_fields INTO v_fields FROM allgres_private.decision_points WHERE point_key = p_point ORDER BY version DESC LIMIT 1;
+  IF p_kind = 'approval' THEN
+    v_state := allgres_private.approval_decision_state(p_id, v_fields);
+  ELSE
+    v_state := allgres_private.proposal_decision_state(p_id, v_fields);
+  END IF;
+  PERFORM allgres_private.decision_ask_enqueue(p_point, 'delegate', p_kind, p_id, v_state);
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_private.decision_delegate_new()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -225,8 +251,7 @@ SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
 DECLARE
-  d allgres_private.decision_delegation%ROWTYPE;
-  v_point text; v_kind text; v_id uuid; v_agent uuid; v_state text; v_fields text[];
+  v_point text; v_kind text; v_id uuid; v_agent uuid;
 BEGIN
   IF TG_TABLE_NAME = 'human_approvals' THEN
     v_point := 'approval_decision'; v_kind := 'approval'; v_id := NEW.approval_id;
@@ -235,17 +260,9 @@ BEGIN
     v_point := 'proposal_decision'; v_kind := 'proposal'; v_id := NEW.proposal_id; v_agent := NEW.agent_id;
   END IF;
   IF NEW.status <> 'pending' THEN RETURN NEW; END IF;
-  IF NOT allgres_private.delegation_enabled() THEN RETURN NEW; END IF;
-  SELECT * INTO d FROM allgres_private.decision_delegation WHERE point_key = v_point AND mode = 'delegate';
-  IF NOT FOUND THEN RETURN NEW; END IF;
-  IF NOT d.all_agents AND NOT (v_agent = ANY (COALESCE(d.scope_agent_ids, ARRAY[]::uuid[]))) THEN RETURN NEW; END IF;
-  SELECT state_fields INTO v_fields FROM allgres_private.decision_points WHERE point_key = v_point ORDER BY version DESC LIMIT 1;
-  IF v_kind = 'approval' THEN
-    v_state := allgres_private.approval_decision_state(v_id, v_fields);
-  ELSE
-    v_state := allgres_private.proposal_decision_state(v_id, v_fields);
-  END IF;
-  PERFORM allgres_private.decision_ask_enqueue(v_point, 'delegate', v_kind, v_id, v_state);
+  -- Rules come first: the worker reads them, then asks the model about what they leave.
+  IF allgres_private.decision_rules_exist(v_point) THEN RETURN NEW; END IF;
+  PERFORM allgres_private.decision_delegate_item(v_point, v_kind, v_id, v_agent);
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
   RETURN NEW;
@@ -274,6 +291,12 @@ DECLARE
   v_key text;
 BEGIN
   PERFORM set_config('statement_timeout', '2000', true);
+  -- Rules written for a point are read first (sql/decision_rules.sql).
+  BEGIN
+    PERFORM allgres_private.decision_rules_sweep();
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
   UPDATE allgres_private.decision_asks
   SET status = 'lost', outcome = CASE WHEN mode = 'delegate' THEN 'left_to_person' ELSE 'error' END,
       note = 'no answer from the decision model in time', updated_at = now()
@@ -629,7 +652,9 @@ AS $fn$
     'has_model', EXISTS (SELECT 1 FROM allgres_private.api_connections WHERE kind = 'decision' AND is_enabled),
     'active', allgres_private.delegation_enabled(),
     'points', COALESCE((SELECT jsonb_agg(jsonb_build_object(
-        'point_key', p.point_key, 'category', i.category, 'title', i.title, 'description', i.description, 'instructions', p.instructions, 'delegable', p.point_key IN ('approval_decision', 'proposal_decision'),
+        'point_key', p.point_key, 'rule_fields', to_jsonb(allgres_private.decision_rule_fields(p.point_key)),
+        'rule_count', (SELECT count(*) FROM allgres_private.decision_rules r WHERE r.point_key = p.point_key),
+        'category', i.category, 'title', i.title, 'description', i.description, 'instructions', p.instructions, 'delegable', p.point_key IN ('approval_decision', 'proposal_decision'),
         'mode', COALESCE(d.mode, 'off'), 'connection_id', d.connection_id, 'connection', c.name, 'checkpoint', d.checkpoint,
         'min_confidence', COALESCE(d.min_confidence, 0.80), 'all_agents', COALESCE(d.all_agents, false),
         'scope_agent_ids', COALESCE(to_jsonb(d.scope_agent_ids), '[]'::jsonb),

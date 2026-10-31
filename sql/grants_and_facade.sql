@@ -900,6 +900,34 @@ BEGIN
         COALESCE((p_request->>'all_agents')::boolean, false),
         NULLIF(p_request->>'min_accuracy', '')::numeric, NULLIF(p_request->>'max_ece', '')::numeric);
 
+    WHEN 'delegation.rules' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_rules(NULLIF(p_request->>'point_key', ''));
+
+    WHEN 'delegation.rule_save' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_rule_save(
+        p_request->>'session_token', NULLIF(p_request->>'rule_id', '')::uuid, p_request->>'point_key', p_request->>'name',
+        p_request->'conditions', p_request->>'outcome', NULLIF(p_request->>'answer', ''),
+        COALESCE((p_request->>'enabled')::boolean, true), COALESCE((p_request->>'confirm_approve')::boolean, false));
+
+    WHEN 'delegation.rule_set_enabled' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_rule_set_enabled(
+        (p_request->>'rule_id')::uuid, (p_request->>'enabled')::boolean, COALESCE((p_request->>'confirm_approve')::boolean, false));
+
+    WHEN 'delegation.rule_delete' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_rule_delete((p_request->>'rule_id')::uuid);
+
+    WHEN 'delegation.rule_move' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_rule_move((p_request->>'rule_id')::uuid, p_request->>'direction');
+
+    WHEN 'delegation.rule_backtest' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_decision_rule_backtest(p_request->>'point_key', p_request->'conditions', NULLIF(p_request->>'answer', ''));
+
     WHEN 'delegation.switch' THEN
       PERFORM allgres_private.require_admin(p_request->>'session_token');
       RETURN allgres_public.fn_decision_delegation_switch((p_request->>'enabled')::boolean);

@@ -750,6 +750,34 @@ test('decision model: watch a point, compare with a person, and meet the gate be
   await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: 'watching' })).toBeVisible();
   await page.getByRole('button', { name: 'Turn the decision model on' }).click();
   await expect(page.getByRole('button', { name: 'Turn the decision model off' })).toBeVisible();
+  // Rules are written as data and read before the model. One that approves says who it is about and asks first.
+  const pointRow = page.locator('#view .listrow[data-point="approval_decision"]');
+  await pointRow.locator('.dgRules summary').click();
+  const form = pointRow.locator('.ruleForm');
+  await form.locator('.rlName').fill('ui rule: this agent waits for a person');
+  await form.locator('.rlOutcome').selectOption('to_human');
+  await form.locator('.rlCond').first().locator('.rlField').selectOption('agent');
+  await form.locator('.rlCond').first().locator('.rlVal').fill('ui_dg_agent');
+  await form.locator('.rlTry').click();
+  await expect(form.locator('.rlOut')).toContainText('this rule would have matched');
+  await form.locator('.rlSave').click();
+  await expect(pointRow.locator('[data-rule]')).toContainText('ui rule: this agent waits for a person');
+  await expect(pointRow.locator('[data-rule]')).toContainText('agent is “ui_dg_agent”: send it to a person');
+  // Approving without saying who it is about is refused, and the screen says why.
+  const form2 = pointRow.locator('.ruleForm');
+  await form2.locator('.rlName').fill('ui broad approve');
+  await form2.locator('.rlOutcome').selectOption('approve');
+  await form2.locator('.rlCond').first().locator('.rlField').selectOption('reason');
+  await form2.locator('.rlCond').first().locator('.rlVal').fill('ok');
+  page.once('dialog', d => d.accept());
+  await form2.locator('.rlSave').click();
+  await expect(form2.locator('.rlOut')).toContainText('who or what it is about');
+  // Turn it off, then delete it, so later tests are decided by people as before.
+  await pointRow.locator('[data-rule] .rlOn').click();
+  await expect(pointRow.locator('[data-rule] .status', { hasText: 'off' })).toBeVisible();
+  page.once('dialog', d => d.accept());
+  await pointRow.locator('[data-rule] .rlDel').click();
+  await expect(pointRow.locator('[data-rule]')).toHaveCount(0);
   // The way back for one point.
   await page.locator('#view .listrow[data-point="approval_decision"]').getByRole('button', { name: 'Off', exact: true }).click();
   await expect(page.locator('#view .listrow[data-point="approval_decision"] .status', { hasText: /^off$/ })).toBeVisible();
