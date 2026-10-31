@@ -5,6 +5,11 @@ const baseURL = process.env.ALLGRES_UI_URL || 'http://127.0.0.1:8088';
 test.describe.configure({ mode: 'serial' });
 
 async function login(page, username, password) {
+  // The last page is remembered per person in the database, so a test starts
+  // from the person's first page rather than wherever an earlier test ended.
+  const rpc = async body => (await page.request.post(baseURL + '/api/v1/rpc', { headers: { 'x-allgres-client': 'dashboard' }, data: body })).json();
+  const t = await rpc({ action: 'auth.login', username, password });
+  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, 'ui.chat_mode': null } });
   await page.goto(baseURL);
   await page.locator('#liUser').fill(username);
   await page.locator('#liPass').fill(password);
@@ -56,7 +61,7 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   });
 });
 
-test('the top bar stays put: Canvas is only the body; language is set in Settings and theme follows', async ({ page }) => {
+test('the top bar stays put: Canvas is only the body; language is set in Settings and theme follows', async ({ page, browser }) => {
   await login(page, 'ui_admin', 'ui-admin-password');
   // English is the default, and there is no language button in the bar.
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -95,6 +100,21 @@ test('the top bar stays put: Canvas is only the body; language is set in Setting
   await page.locator('#themeBtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(cv.locator('html')).toHaveAttribute('data-theme', 'light');
+  // The choices are kept for this person in the database, not in the browser:
+  // another browser that signs in as them gets Korean and the light theme, and
+  // this one stores nothing.
+  expect(await page.evaluate(() => localStorage.length)).toBe(0);
+  const other = await browser.newContext();
+  const p2 = await other.newPage();
+  await p2.goto(baseURL);
+  await p2.locator('#liUser').fill('ui_admin');
+  await p2.locator('#liPass').fill('ui-admin-password');
+  await p2.locator('#liGo').click();
+  await expect(p2.locator('html')).toHaveAttribute('lang', 'ko');
+  await expect(p2.locator('#pageTitle')).toHaveText('캔버스');
+  await expect(p2.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(p2.locator('#nav').getByRole('button', { name: '채팅', exact: true })).toBeVisible();
+  await other.close();
   // Back to English.
   await page.evaluate(() => openPage('Settings'));
   await page.locator('#uiLangSel').selectOption('en');
@@ -254,9 +274,13 @@ test('first-run setup keeps unconfigured agents in drafts', async ({ page }) => 
 test('admin connects an MCP server, confirms tool risk, and registers a tool', async ({ page }) => {
   await login(page, 'ui_admin', 'ui-admin-password');
   await go(page, 'MCP servers');
-  await page.locator('#mcName').fill('ui_mock_mcp');
-  await page.locator('#mcUrl').fill(baseURL + '/mock/mcp');
-  await page.locator('#mcPrivate').check();
+  // The page draws the form, then its lists; fill again if the redraw cleared it.
+  await expect(async () => {
+    await page.locator('#mcName').fill('ui_mock_mcp');
+    await page.locator('#mcUrl').fill(baseURL + '/mock/mcp');
+    await page.locator('#mcPrivate').check();
+    await expect(page.locator('#mcName')).toHaveValue('ui_mock_mcp');
+  }).toPass({ timeout: 15000 });
   await page.locator('#mcGo').click();
   const server = page.locator('#view .panel', { hasText: 'ui_mock_mcp' });
   await expect(server.getByText('connected', { exact: true })).toBeVisible({ timeout: 20000 });

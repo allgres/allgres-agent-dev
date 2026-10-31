@@ -165,7 +165,8 @@ extension_sql_file!("../sql/creator.sql", name = "creator", requires = ["teams"]
 extension_sql_file!("../sql/delegation.sql", name = "delegation", requires = ["creator"]);
 extension_sql_file!("../sql/models_apply.sql", name = "models_apply", requires = ["delegation"]);
 extension_sql_file!("../sql/agent_clone.sql", name = "agent_clone", requires = ["models_apply"]);
-extension_sql_file!("../sql/selftest.sql", requires = ["agent_clone"]);
+extension_sql_file!("../sql/user_prefs.sql", name = "user_prefs", requires = ["agent_clone"]);
+extension_sql_file!("../sql/selftest.sql", requires = ["user_prefs"]);
 extension_sql_file!("../sql/grants_and_facade.sql", requires = ["selftest"], finalize);
 
 #[pg_schema]

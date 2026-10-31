@@ -125,8 +125,25 @@ a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}a:
 .verdict-label{font-size:14px;font-weight:600}.txt-accent{color:var(--accent)}.txt-bad{color:var(--bad)}.toast.visible{display:block}.chat-thread{max-height:55vh;overflow:auto;margin-bottom:14px}
 </style>
 <script nonce="__CSP_NONCE__">
-const savedUi=(key,fallback)=>{try{return localStorage.getItem('allgres_ui_'+key)||fallback}catch{return fallback}};
-const saveUi=(key,value)=>{try{localStorage.setItem('allgres_ui_'+key,value)}catch{}};
+// Per-user interface settings (language, theme, last page and tabs) live in the
+// database (me.prefs_get / me.prefs_set, docs/user-prefs.md); the browser keeps
+// none. Changes are saved a moment after they are made.
+let PREFS={},prefsQueue={},prefsTimer=null;
+const savedUi=(key,fallback)=>PREFS['ui.'+key]||fallback;
+function setPref(key,value){
+  if(value==null||value==='')delete PREFS[key];else PREFS[key]=String(value);
+  if(!sessionStorage.getItem('allgres_session_token'))return;
+  prefsQueue[key]=value==null||value===''?null:String(value);
+  clearTimeout(prefsTimer);prefsTimer=setTimeout(flushPrefs,300);
+}
+async function flushPrefs(){
+  clearTimeout(prefsTimer);
+  const q=prefsQueue;prefsQueue={};
+  if(!Object.keys(q).length)return;
+  try{await rpc('me.prefs_set',{prefs:q})}catch(e){toast('Could not save your settings: '+e.message)}
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushPrefs()});
+const saveUi=(key,value)=>setPref('ui.'+key,value);
 const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users:[],chatAgentId:null,chatMode:savedUi('chat_mode','general'),projectView:savedUi('project_view','manage'),chatProjectId:null,projects:[],sessions:[],approvals:[],proposals:[],fixes:[],proposalAgentFilter:null,tasks:[],logs:[],memories:[],auditLog:[],settings:null,overview:null,auditTab:savedUi('audit_tab','Log'),approvalsTab:savedUi('approvals_tab','Approvals'),apMine:savedUi('ap_mine','0')==='1',settingsTab:savedUi('settings_tab','Integrations')};
 // Sessions/Tasks/Logs folded into Audit (as tabs); Users folded into
 // Settings (as a section); Approvals/Proposals/Fixes folded into one
@@ -172,9 +189,8 @@ document.addEventListener('keydown',e=>{
 // bottom after every render instead, same as any chat UI.
 function scrollBottom(id){const el=$(id);if(el)el.scrollTop=el.scrollHeight}
 
-// Theme (item 47) is a plain per-browser preference, kept in
-// localStorage -- nothing server-side to configure, nothing that needs
-// to survive a different browser. I18N below is English-only (item 59
+// Theme (item 47) is a per-user preference kept in the database (see PREFS
+// above). I18N below is English-only (item 59
 // dropped a Korean toggle that only ever translated nav labels and a
 // couple dozen short UI words -- everything else on every page stayed
 // hardcoded English regardless, an inconsistent half-translation worse
@@ -194,9 +210,10 @@ const I18N={
 };
 function t(key){return I18N[key]??key}
 
-function theme(){return localStorage.getItem('allgres_theme')||''}
-function setTheme(v){try{v?localStorage.setItem('allgres_theme',v):localStorage.removeItem('allgres_theme')}catch{};document.documentElement.setAttribute('data-theme',v||'dark')}
-setTheme(theme());
+function theme(){return PREFS.theme||''}
+function applyTheme(){document.documentElement.setAttribute('data-theme',theme()||'dark')}
+function setTheme(v){setPref('theme',v);applyTheme();flushPrefs()}
+applyTheme();
 // --- Language. English is the source text; Korean is a dictionary of exact
 // strings applied to what is on screen (and to what appears later), so a
 // string with no entry simply stays English. Same key as the Canvas. ---
@@ -212,7 +229,7 @@ async function loadPack(code){
     for(const [sec,map] of Object.entries(j.sections||{}))if(sec!=='canvas')Object.assign(PACK,map);
   }catch{}
 }
-function uiLang(){try{const v=localStorage.getItem('allgres_lang');return /^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(v||'')?v:'en'}catch{return 'en'}}
+function uiLang(){const v=PREFS.lang||'';return /^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(v)?v:'en'}
 const TR_ORIG=new WeakMap(),TR_ATTR=['placeholder','title','aria-label'];
 let trBusy=false,trObs=null;
 function trString(raw,ko){const k=raw.trim();if(!k)return raw;const v=ko?PACK[k]:null;return v?raw.replace(k,v):raw}
@@ -250,12 +267,13 @@ function startI18n(){
   });
   trObs.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:TR_ATTR});
 }
-async function setUiLang(l){
-  try{localStorage.setItem('allgres_lang',l)}catch{}
+async function setUiLang(l,save=true){
+  if(save){setPref('lang',l);flushPrefs()}
   document.documentElement.lang=l;
   await loadPack(l);
   startI18n();applyI18n();syncShell();
 }
+window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.data.type==='allgres-ui-ready')syncShell()});
 // The Canvas lives in an iframe under this top bar; it is told the theme and
 // language here instead of having controls of its own.
 function syncShell(){
@@ -2125,8 +2143,6 @@ function renderLogin(err){
       const r=await rpc('auth.login',{username:$('#liUser').value,password:$('#liPass').value});
       setSessTok(r.session_token);
       state.me={user_id:r.user_id,username:r.username,role:r.role};
-      state.page=pagesForRole()[0];
-      saveUi('page',state.page);
       $('#modal').classList.add('hidden');$('#modal').innerHTML='';
       $('.app').classList.remove('hidden');
       await boot(true);
@@ -2137,14 +2153,23 @@ function renderLogin(err){
 }
 $('#logoutBtn').onclick=async()=>{
   try{await rpc('auth.logout')}catch{}
+  await flushPrefs();
   setSessTok('');state.me=null;
   location.reload();
 };
+// This person's saved settings, from the database, applied to the screen.
+async function loadPrefs(){
+  try{PREFS=(await rpc('me.prefs_get')).prefs||{}}catch{PREFS={}}
+  Object.assign(state,{page:savedUi('page',state.page),chatMode:savedUi('chat_mode',state.chatMode),projectView:savedUi('project_view',state.projectView),auditTab:savedUi('audit_tab',state.auditTab),approvalsTab:savedUi('approvals_tab',state.approvalsTab),apMine:savedUi('ap_mine',state.apMine),settingsTab:savedUi('settings_tab',state.settingsTab)});
+  applyTheme();
+  if(uiLang()!==document.documentElement.lang)await setUiLang(uiLang(),false);
+}
 async function boot(skipOauth){
   let me;
   try{ me=await rpc('auth.me') }catch(e){ me={logged_in:false} }
   if(!me.logged_in){ setSessTok(''); state.me=null; renderLogin(); return }
   state.me={user_id:me.user_id,username:me.username,role:me.role};
+  await loadPrefs();
   if(!skipOauth) await oauthCallbackOnLoad();
   if(!pagesForRole().includes(state.page))state.page=pagesForRole()[0];
   saveUi('page',state.page);

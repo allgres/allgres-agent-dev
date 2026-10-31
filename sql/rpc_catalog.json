@@ -573,6 +573,21 @@
     ]
   },
   {
+    "action": "me.prefs_get",
+    "guards": [],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
+    "action": "me.prefs_set",
+    "guards": [],
+    "params": [
+      "prefs",
+      "session_token"
+    ]
+  },
+  {
     "action": "agents.clone",
     "guards": [],
     "params": [
