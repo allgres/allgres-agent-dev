@@ -2,7 +2,10 @@
 
 Everything in Allgres works with people and rules alone. This page is about the one optional step: letting the official **laya-serve** answer a decision point that people answer today. Connect a server first ([decision-models.md](decision-models.md)); then open **Connections → Decision model → Hand decisions to the model**.
 
-Each decision point has its own switch. Nothing is on by default.
+Each decision point has its own switch, and one switch over all of them. Nothing is on by default.
+
+- **The decision model switch** (top of *Hand decisions to the model*) turns the model on or off for every point at once. Off, nothing is asked of the model and every decision waits for a person in **Approvals**; each point keeps its setting, so turning the switch on again restores them. With no model connected there is nothing to switch and everything is decided by people and rules.
+- **The list of points** is grouped by where each comes from (Approvals, Rooms, Teams, …), each with a name and what it decides. A new kind of decision point appears in the list by itself under its source; `decision_point_meta` gives it a proper name and description.
 
 | Mode | What happens |
 |---|---|
@@ -15,7 +18,7 @@ Each decision point has its own switch. Nothing is on by default.
 1. **Watch.** Pick the decision model (and, if you use several, a checkpoint), set how sure the model must be (default 0.80), press *Watch*. The page shows how many decisions were compared and how often the model agreed with the person.
 2. **Check.** Handing over needs at least 10 compared decisions and agreement at or above the point's bar (default 80%). Until then *Hand over* is refused with the numbers.
 3. **Hand over, for some agents.** Choose the agents whose decisions go to the model, or choose *all agents* on purpose. Others stay with people.
-4. **Widen** by adding agents. **Go back** at any time with *Off* for one point, or *Turn everything off* for all; questions still waiting are dropped and the decisions stay with people.
+4. **Widen** by adding agents. **Go back** at any time with *Off* for one point, or *Turn the decision model off* for all (the points keep their settings); questions still waiting are dropped and the decisions stay with people.
 
 Training and evaluation happen outside Allgres, with `laya-train` and `laya-evals` ([decision-records.md](decision-records.md) has the export). To move a point to a new checkpoint, paste the evaluation report (JSON with `accuracy`, and `ece` if it has one) under *Checkpoints and evaluation reports*, then press *Use this checkpoint*. That is refused unless the report meets the point's bar (accuracy at least the bar, calibration error at most the limit).
 

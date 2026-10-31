@@ -153,6 +153,16 @@
     ]
   },
   {
+    "action": "delegation.switch",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "enabled",
+      "session_token"
+    ]
+  },
+  {
     "action": "delegation.off_all",
     "guards": [
       "require_admin"

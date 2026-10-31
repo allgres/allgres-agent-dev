@@ -29,6 +29,57 @@ CREATE TABLE IF NOT EXISTS allgres_private.decision_delegation (
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
+-- One switch over every point. Off: no point asks the model (what each point
+-- was set to is kept, and everything waits for a person). The switch only
+-- matters once a decision model is connected; with none, nothing is asked
+-- whatever the switch says.
+CREATE TABLE IF NOT EXISTS allgres_private.decision_delegation_switch (
+  only_row   boolean PRIMARY KEY DEFAULT true CHECK (only_row),
+  enabled    boolean NOT NULL DEFAULT true,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION allgres_private.delegation_enabled()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT COALESCE((SELECT enabled FROM allgres_private.decision_delegation_switch), true)
+     AND EXISTS (SELECT 1 FROM allgres_private.api_connections WHERE kind = 'decision' AND is_enabled)
+$fn$;
+
+-- How a decision point is shown: where it comes from, its name and what it
+-- decides. Whoever adds a point (approvals, rooms, teams, later functions)
+-- may add a row; a point without one is shown under its source by a rule
+-- below, so a new point never lacks a place in the list.
+CREATE TABLE IF NOT EXISTS allgres_private.decision_point_meta (
+  point_key   text PRIMARY KEY CHECK (point_key ~ '^[a-z][a-z0-9_]{0,62}$'),
+  category    text NOT NULL CHECK (btrim(category) <> ''),
+  title       text NOT NULL CHECK (btrim(title) <> ''),
+  description text NOT NULL DEFAULT ''
+);
+INSERT INTO allgres_private.decision_point_meta (point_key, category, title, description) VALUES
+  ('approval_decision', 'Approvals', 'An agent asks to run or continue', 'A person is asked to approve or reject a request from an agent: a tool run, a limit raised, a step that needs a decision.'),
+  ('proposal_decision', 'Approvals', 'An agent proposes a change', 'A person is asked to approve or reject a change an agent proposed: a new function, a setting, a document.'),
+  ('room_task_confirmation', 'Rooms', 'A room task is confirmed', 'The lead of a room proposes a task; a person confirms it before it starts.')
+ON CONFLICT (point_key) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION allgres_private.decision_point_info(p_point_key text)
+RETURNS TABLE (category text, title text, description text)
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT m.category, m.title, m.description FROM allgres_private.decision_point_meta m WHERE m.point_key = p_point_key
+  UNION ALL
+  SELECT 'Teams', 'Work handed to a team', 'Who in the team takes work that someone else handed over, or that nobody does.'
+   WHERE p_point_key LIKE 'team_assign_%' AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_point_meta WHERE point_key = p_point_key)
+  UNION ALL
+  SELECT 'Other', p_point_key, ''
+   WHERE p_point_key NOT LIKE 'team_assign_%' AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_point_meta WHERE point_key = p_point_key)
+$fn$;
+
 CREATE TABLE IF NOT EXISTS allgres_private.decision_asks (
   ask_id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   point_key         text NOT NULL,
@@ -124,6 +175,7 @@ DECLARE
   v_req jsonb;
   v_id uuid;
 BEGIN
+  IF NOT allgres_private.delegation_enabled() THEN RETURN NULL; END IF;
   SELECT * INTO d FROM allgres_private.decision_delegation WHERE point_key = p_point_key;
   IF NOT FOUND OR d.mode <> p_mode OR d.connection_id IS NULL THEN RETURN NULL; END IF;
   SELECT * INTO c FROM allgres_private.api_connections WHERE connection_id = d.connection_id AND kind = 'decision' AND is_enabled;
@@ -183,6 +235,7 @@ BEGIN
     v_point := 'proposal_decision'; v_kind := 'proposal'; v_id := NEW.proposal_id; v_agent := NEW.agent_id;
   END IF;
   IF NEW.status <> 'pending' THEN RETURN NEW; END IF;
+  IF NOT allgres_private.delegation_enabled() THEN RETURN NEW; END IF;
   SELECT * INTO d FROM allgres_private.decision_delegation WHERE point_key = v_point AND mode = 'delegate';
   IF NOT FOUND THEN RETURN NEW; END IF;
   IF NOT d.all_agents AND NOT (v_agent = ANY (COALESCE(d.scope_agent_ids, ARRAY[]::uuid[]))) THEN RETURN NEW; END IF;
@@ -475,6 +528,32 @@ BEGIN
 END;
 $fn$;
 
+-- The one switch. Turning it off drops what has not been sent; every point
+-- keeps its setting, so turning it on again restores them.
+CREATE OR REPLACE FUNCTION allgres_public.fn_decision_delegation_switch(p_enabled boolean)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+BEGIN
+  IF p_enabled IS NULL THEN
+    RAISE EXCEPTION 'enabled must be true or false' USING ERRCODE = 'P0001';
+  END IF;
+  IF p_enabled AND NOT EXISTS (SELECT 1 FROM allgres_private.api_connections WHERE kind = 'decision' AND is_enabled) THEN
+    RAISE EXCEPTION 'connect a decision model first' USING ERRCODE = 'P0001';
+  END IF;
+  INSERT INTO allgres_private.decision_delegation_switch (only_row, enabled) VALUES (true, p_enabled)
+  ON CONFLICT (only_row) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now();
+  IF NOT p_enabled THEN
+    UPDATE allgres_private.decision_asks SET status = 'lost', outcome = 'left_to_person', note = 'the decision model was switched off', updated_at = now()
+    WHERE status IN ('queued', 'in_flight');
+  END IF;
+  PERFORM allgres_private.audit('decision_delegation.switch', jsonb_build_object('enabled', p_enabled));
+  RETURN jsonb_build_object('ok', true, 'enabled', p_enabled);
+END;
+$fn$;
+
 -- Takes the numbers out of a laya-evals JSON report and keeps the whole thing.
 CREATE OR REPLACE FUNCTION allgres_public.fn_decision_eval_record(p_token text, p_point_key text, p_checkpoint text, p_report jsonb)
 RETURNS jsonb
@@ -546,8 +625,11 @@ SECURITY DEFINER
 SET search_path = allgres_private, pg_temp
 AS $fn$
   SELECT jsonb_build_object(
+    'enabled', COALESCE((SELECT enabled FROM allgres_private.decision_delegation_switch), true),
+    'has_model', EXISTS (SELECT 1 FROM allgres_private.api_connections WHERE kind = 'decision' AND is_enabled),
+    'active', allgres_private.delegation_enabled(),
     'points', COALESCE((SELECT jsonb_agg(jsonb_build_object(
-        'point_key', p.point_key, 'instructions', p.instructions, 'delegable', p.point_key IN ('approval_decision', 'proposal_decision'),
+        'point_key', p.point_key, 'category', i.category, 'title', i.title, 'description', i.description, 'instructions', p.instructions, 'delegable', p.point_key IN ('approval_decision', 'proposal_decision'),
         'mode', COALESCE(d.mode, 'off'), 'connection_id', d.connection_id, 'connection', c.name, 'checkpoint', d.checkpoint,
         'min_confidence', COALESCE(d.min_confidence, 0.80), 'all_agents', COALESCE(d.all_agents, false),
         'scope_agent_ids', COALESCE(to_jsonb(d.scope_agent_ids), '[]'::jsonb),
@@ -556,10 +638,11 @@ AS $fn$
         'reports', COALESCE((SELECT jsonb_agg(jsonb_build_object('report_id', r.report_id, 'checkpoint', r.checkpoint,
             'accuracy', r.accuracy, 'ece', r.ece, 'n', r.n, 'created_at', r.created_at) ORDER BY r.created_at DESC)
           FROM allgres_private.decision_eval_reports r WHERE r.point_key = p.point_key), '[]'::jsonb)
-      ) ORDER BY p.point_key)
+      ) ORDER BY i.category, i.title, p.point_key)
       FROM allgres_private.decision_points p
       LEFT JOIN allgres_private.decision_delegation d ON d.point_key = p.point_key
       LEFT JOIN allgres_private.api_connections c ON c.connection_id = d.connection_id
+      CROSS JOIN LATERAL allgres_private.decision_point_info(p.point_key) i
       WHERE p.version = (SELECT max(version) FROM allgres_private.decision_points WHERE point_key = p.point_key)
         AND p.point_key NOT LIKE 'team_assign_%'), '[]'::jsonb),
     'recent', COALESCE((SELECT jsonb_agg(x ORDER BY x->>'created_at' DESC) FROM (
