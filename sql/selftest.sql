@@ -5375,6 +5375,7 @@ BEGIN
   v := v || allgres_private.delegation_selftest_cases();
   v := v || allgres_private.decision_switch_selftest_cases();
   v := v || allgres_private.decision_rules_selftest_cases();
+  v := v || allgres_private.picker_selftest_cases();
   v := v || allgres_private.chat_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.model_registry_selftest_cases();
@@ -8030,6 +8031,41 @@ BEGIN
   ok := ok AND jsonb_array_length(r->'rules') = 1;
   v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_order_enable_delete_and_audit', 'ok', ok));
 
+  RETURN v;
+END;
+$fn$;
+
+-- The model pickers offer only what an agent may use and what is switched on.
+CREATE OR REPLACE FUNCTION allgres_private.picker_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; tk text := 'selftest-picker-admin-token';
+  a_one uuid; v_pid uuid;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_picker_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (tk, u_admin, now() + interval '1 hour');
+  a_one := (allgres_public.fn_create_agent('zz16_one', 'x')->>'agent_id')::uuid;
+  INSERT INTO allgres_private.llm_providers (name, kind, base_url, purpose, is_enabled, available_models)
+    VALUES ('zz16prov', 'openai_compat', 'http://127.0.0.1:1/v1', 'chat', true, '["m-on","m-off","m-other"]'::jsonb) RETURNING provider_id INTO v_pid;
+  INSERT INTO allgres_private.llm_models (provider_id, model, is_enabled) VALUES (v_pid, 'm-on', true), (v_pid, 'm-off', false), (v_pid, 'm-other', true);
+  -- A model switched off is not offered.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.available', 'session_token', tk));
+  ok := (SELECT e->'available_models' FROM jsonb_array_elements(r->'providers') e WHERE e->>'name' = 'zz16prov') = '["m-on","m-other"]'::jsonb;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'picker_does_not_offer_a_model_that_is_switched_off', 'ok', ok));
+  -- An agent held to some models says which, so the picker can offer only those.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'agents.mine', 'session_token', tk));
+  ok := (SELECT e->'allowed_models' FROM jsonb_array_elements(r->'agents') e WHERE e->>'name' = 'zz16_one') = '[]'::jsonb;
+  INSERT INTO allgres_private.agent_models (agent_id, provider_id, model) VALUES (a_one, v_pid, 'm-on');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'agents.mine', 'session_token', tk));
+  ok := ok AND (SELECT e->'allowed_models' FROM jsonb_array_elements(r->'agents') e WHERE e->>'name' = 'zz16_one')
+      = '[{"provider":"zz16prov","model":"m-on"}]'::jsonb;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'agents_mine_tells_the_models_an_agent_may_use', 'ok', ok));
   RETURN v;
 END;
 $fn$;

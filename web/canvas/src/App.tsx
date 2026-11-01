@@ -336,6 +336,27 @@ function Canvas() {
     [flow],
   );
 
+  // Opened from the dashboard with an agent in mind (#agent=<id>, or a message
+  // when the Canvas is already open): select it and bring it into view.
+  const wantedAgent = useRef<string | null>(new URLSearchParams(window.location.hash.slice(1)).get('agent'));
+  useEffect(() => {
+    const id = wantedAgent.current;
+    if (!id || gate.kind !== 'ready' || !agents.some((a) => a.agent_id === id)) return;
+    wantedAgent.current = null;
+    const timer = window.setTimeout(() => select(id), 150);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gate.kind, agents]);
+  useEffect(() => {
+    if (!embedded) return;
+    const on = (e: MessageEvent) => {
+      if (e.origin === window.location.origin && e.data?.type === 'allgres-select' && typeof e.data.agent_id === 'string') select(e.data.agent_id);
+    };
+    window.addEventListener('message', on);
+    return () => window.removeEventListener('message', on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select]);
+
   const openSession = useCallback((id: string) => {
     setView('flow');
     setSessionId(id);
