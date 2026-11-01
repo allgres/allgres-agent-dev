@@ -53,6 +53,16 @@ export function AgentInspector({ board, agent, onClose }: { board: Board; agent:
             <em>{t(agent.is_active ? 'On' : 'Off')}</em>
           </button>
         )}
+        {window.self !== window.top && (
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => window.parent.postMessage({ type: 'allgres-open', page: 'Agents', agent_id: agent.agent_id }, window.location.origin)}
+            title={t('Edit this agent in the dashboard')}
+          >
+            {t('Open in Dashboard')}
+          </button>
+        )}
         <button type="button" className="icon-btn" onClick={onClose} aria-label={t('Close details')}>
           ×
         </button>

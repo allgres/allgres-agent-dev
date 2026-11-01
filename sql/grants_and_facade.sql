@@ -1297,7 +1297,11 @@ BEGIN
           'provider', COALESCE(up.llm_config->>'provider',p.llm_config->>'provider'),
           'model', COALESCE(up.llm_config->>'model',p.llm_config->>'model'),
           'default_provider', p.llm_config->>'provider', 'default_model', p.llm_config->>'model',
-          'is_overridden', up.user_id IS NOT NULL
+          'is_overridden', up.user_id IS NOT NULL,
+          'allowed_models', COALESCE((SELECT jsonb_agg(jsonb_build_object('provider', pr.name, 'model', am.model) ORDER BY pr.name, am.model)
+                                      FROM allgres_private.agent_models am
+                                      JOIN allgres_private.llm_providers pr ON pr.provider_id = am.provider_id
+                                      WHERE am.agent_id = a.agent_id), '[]'::jsonb)
         ) ORDER BY a.name)
         FROM allgres_private.agents a
         JOIN allgres_private.policies p USING (agent_id)
@@ -1756,7 +1760,12 @@ BEGIN
       END IF;
       RETURN jsonb_build_object('ok', true, 'providers', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
-          'name', p.name, 'kind', p.kind, 'available_models', p.available_models
+          'name', p.name, 'kind', p.kind,
+          -- A model switched off in Models & prices is not offered.
+          'available_models', CASE WHEN jsonb_typeof(p.available_models) = 'array' THEN COALESCE((
+              SELECT jsonb_agg(t.m ORDER BY t.ord) FROM jsonb_array_elements_text(p.available_models) WITH ORDINALITY AS t(m, ord)
+              WHERE NOT EXISTS (SELECT 1 FROM allgres_private.llm_models lm WHERE lm.provider_id = p.provider_id AND lm.model = t.m AND NOT lm.is_enabled)
+            ), '[]'::jsonb) ELSE p.available_models END
         ) ORDER BY p.name)
         FROM allgres_private.llm_providers p
         WHERE p.is_enabled AND p.purpose = 'chat' AND p.name NOT LIKE 'selftest%'

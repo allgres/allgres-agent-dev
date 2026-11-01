@@ -1010,6 +1010,28 @@ test('reasoning and sampling are set on an agent and as a model default, and a C
   expect(JSON.stringify(reg)).toContain('"top_p":0.9');
 });
 
+test('an agent is opened between the dashboard and the Canvas in either direction', async ({ page }) => {
+  test.setTimeout(90000);
+  const name = `ui_link_agent_${Date.now()}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.evaluate(async (name) => {
+    const r = await (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ action: 'agents.create', name, system_prompt: 'x', is_active: false, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    if (r.ok === false) throw new Error(r.error);
+  }, name);
+  await go(page, 'Agents');
+  const row = page.locator('#view tr', { hasText: name }).first();
+  await row.locator('.agentOnCanvas').click();
+  // The Canvas opens with that agent selected.
+  const cv = page.frameLocator('#canvasFrame');
+  await expect(cv.locator(`aside.inspector[aria-label="${name}"]`)).toBeVisible({ timeout: 20000 });
+  // And its details lead back to the dashboard's edit form for it.
+  await cv.getByRole('button', { name: 'Open in Dashboard' }).click();
+  await expect(page.locator('#pageTitle')).toHaveText('Agents');
+  await expect(page.locator('#aName')).toHaveValue(name);
+});
+
 test('an agent is copied with its setup', async ({ page }) => {
   const src = `ui_copy_src_${Date.now()}`;
   await login(page, 'ui_admin', 'ui-admin-password');

@@ -157,7 +157,7 @@ const userPages=['Chat','Rooms','Projects','Approvals','My Agents'];
 function pagesForRole(){return state.me?.role==='admin'?adminPages:userPages}
 const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let toastTimer=null;
-function toast(s){const el=$('#toast');el.textContent=s;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),3200)}
+function toast(s){const el=$('#toast');el.textContent=(uiLang()!=='en'&&PACK[s])||s;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),3200)}
 let modalReturnFocus=null;
 function enhanceAccessibility(root=document){
   root.querySelectorAll('.field>label').forEach((label,i)=>{const control=label.parentElement.querySelector('input,select,textarea');if(control&&!control.id)control.id='field-'+Date.now()+'-'+i;if(control&&!label.htmlFor)label.htmlFor=control.id});
@@ -275,7 +275,16 @@ async function setUiLang(l,save=true){
   await loadPack(l);
   startI18n();applyI18n();syncShell();
 }
-window.addEventListener('message',e=>{if(e.origin===location.origin&&e.data&&e.data.type==='allgres-ui-ready')syncShell()});
+// The Canvas asks for the theme and language when it starts, and can ask to show one
+// of its agents here (its "Open in Dashboard" button).
+window.addEventListener('message',async e=>{
+  if(e.origin!==location.origin||!e.data)return;
+  if(e.data.type==='allgres-ui-ready')syncShell();
+  else if(e.data.type==='allgres-open'&&e.data.page==='Agents'&&typeof e.data.agent_id==='string'){
+    state.page='Agents';saveUi('page','Agents');nav();await loadPage();
+    const a=(state.agents||[]).find(x=>x.agent_id===e.data.agent_id);if(a)agentModal(a);
+  }
+});
 // The Canvas lives in an iframe under this top bar; it is told the theme and
 // language here instead of having controls of its own.
 function syncShell(){
@@ -524,8 +533,17 @@ function chatText(l){
 // Serialize navigation renders: a slower Settings request must not repaint
 // the screen after the operator has already moved to General.
 let pageLoadQueue=Promise.resolve();
-function loadPage(){pageLoadQueue=pageLoadQueue.catch(()=>{}).then(renderPage);return pageLoadQueue}
-function canvasBody(){$('#view').innerHTML='<iframe id="canvasFrame" title="Canvas" src="/canvas"></iframe>';$('#canvasFrame').onload=syncShell}
+// One redraw waiting is enough: it draws whatever is current when it starts, so a
+// second request that arrives before it starts would only draw the same page again
+// (and wipe a form someone has begun to fill).
+let pageLoadWaiting=false;
+function loadPage(){
+  if(pageLoadWaiting)return pageLoadQueue;
+  pageLoadWaiting=true;
+  pageLoadQueue=pageLoadQueue.catch(()=>{}).then(()=>{pageLoadWaiting=false;return renderPage()});
+  return pageLoadQueue;
+}
+function canvasBody(){const id=state.canvasAgent;state.canvasAgent=null;$('#view').innerHTML=`<iframe id="canvasFrame" title="Canvas" src="/canvas${id?'#agent='+encodeURIComponent(id):''}"></iframe>`;$('#canvasFrame').onload=syncShell}
 async function renderPage(){
   // Chat/Messenger poll for an async reply on a setInterval; leaving the
   // page must stop it, or it keeps firing against DOM elements (#chatThread/
@@ -633,7 +651,7 @@ function taskRows(a,compact=false){if(!a.length)return '<div class="muted">No ta
 // its place in the root+five hierarchy and its autonomy dial right in the
 // list, not just buried in the edit modal.
 function isFoldedAgent(a){return a.is_system||a.name==='health_monitor'}
-async function agents(){const d=await api('/api/v1/agents');state.agents=d.agents||[];$('#view').innerHTML=`<div class="row u-margin-bottom-22px"><button class="btn primary" id="newAgent">New agent</button><span class="spacer"></span><span class="muted">${state.agents.filter(a=>!isFoldedAgent(a)).length} agents</span></div><div class="panel"><table class="table"><thead><tr><th>Name</th><th>Model</th><th>Provider</th><th>Status</th><th>Permissions</th><th>System</th><th></th></tr></thead><tbody>${state.agents.filter(a=>!isFoldedAgent(a)).map(a=>`<tr><td><b>${esc(a.name)}</b>${a.parent_name?`<div class="muted u-font-size-11px">child of ${esc(a.parent_name)}</div>`:''}<div class="mono muted">${esc(a.agent_id).slice(0,12)}…</div></td><td>${esc(a.llm_config?.model||'—')}${a.is_active&&a.model_issue?`<div class="agentModelIssue" title="${esc(a.model_issue)}">${status('error')} <span class="muted u-font-size-12px">${esc(a.model_issue)}</span></div>`:''}</td><td>${esc(a.llm_config?.provider||'—')}</td><td>${a.is_active?status('running'):status('disabled')}</td><td>${(a.permissions||[]).length}</td><td>${a.is_system?`<span class="status s-waiting_human">${esc(a.autonomy_level)}</span>`:'—'}</td><td><button class="btn editAgent" data-id="${esc(a.agent_id)}">${esc(t('edit'))}</button></td></tr>`).join('')}</tbody></table></div><details class="panel"><summary>System agents (${state.agents.filter(isFoldedAgent).length})</summary><p class="muted">Internal agents and the seeded health_monitor example. Configure a model before running them.</p><table class="table"><thead><tr><th>Name</th><th>Model</th><th>Status</th><th>Autonomy</th><th></th></tr></thead><tbody>${state.agents.filter(isFoldedAgent).map(a=>`<tr><td>${esc(a.name)}</td><td>${esc(a.llm_config?.model||'Not configured')}</td><td>${a.is_active?status('running'):status('disabled')}</td><td>${esc(a.autonomy_level||'—')}</td><td><button class="btn editAgent" data-id="${esc(a.agent_id)}">${esc(t('edit'))}</button></td></tr>`).join('')}</tbody></table></details>`;$('#newAgent').onclick=()=>agentModal();document.querySelectorAll('.editAgent').forEach(b=>b.onclick=()=>agentModal(state.agents.find(a=>a.agent_id===b.dataset.id)))}
+async function agents(){const d=await api('/api/v1/agents');state.agents=d.agents||[];$('#view').innerHTML=`<div class="row u-margin-bottom-22px"><button class="btn primary" id="newAgent">New agent</button><span class="spacer"></span><span class="muted">${state.agents.filter(a=>!isFoldedAgent(a)).length} agents</span></div><div class="panel"><table class="table"><thead><tr><th>Name</th><th>Model</th><th>Provider</th><th>Status</th><th>Permissions</th><th>System</th><th></th></tr></thead><tbody>${state.agents.filter(a=>!isFoldedAgent(a)).map(a=>`<tr><td><b>${esc(a.name)}</b>${a.parent_name?`<div class="muted u-font-size-11px">child of ${esc(a.parent_name)}</div>`:''}<div class="mono muted">${esc(a.agent_id).slice(0,12)}…</div></td><td>${esc(a.llm_config?.model||'—')}${a.is_active&&a.model_issue?`<div class="agentModelIssue" title="${esc(a.model_issue)}">${status('error')} <span class="muted u-font-size-12px">${esc(a.model_issue)}</span></div>`:''}</td><td>${esc(a.llm_config?.provider||'—')}</td><td>${a.is_active?status('running'):status('disabled')}</td><td>${(a.permissions||[]).length}</td><td>${a.is_system?`<span class="status s-waiting_human">${esc(a.autonomy_level)}</span>`:'—'}</td><td><button class="btn editAgent" data-id="${esc(a.agent_id)}">${esc(t('edit'))}</button> <button class="btn small agentOnCanvas" data-id="${esc(a.agent_id)}" title="Show this agent on the Canvas">Canvas</button></td></tr>`).join('')}</tbody></table></div><details class="panel"><summary>System agents (${state.agents.filter(isFoldedAgent).length})</summary><p class="muted">Internal agents and the seeded health_monitor example. Configure a model before running them.</p><table class="table"><thead><tr><th>Name</th><th>Model</th><th>Status</th><th>Autonomy</th><th></th></tr></thead><tbody>${state.agents.filter(isFoldedAgent).map(a=>`<tr><td>${esc(a.name)}</td><td>${esc(a.llm_config?.model||'Not configured')}</td><td>${a.is_active?status('running'):status('disabled')}</td><td>${esc(a.autonomy_level||'—')}</td><td><button class="btn editAgent" data-id="${esc(a.agent_id)}">${esc(t('edit'))}</button></td></tr>`).join('')}</tbody></table></details>`;$('#newAgent').onclick=()=>agentModal();document.querySelectorAll('.editAgent').forEach(b=>b.onclick=()=>agentModal(state.agents.find(a=>a.agent_id===b.dataset.id)));document.querySelectorAll('.agentOnCanvas').forEach(b=>b.onclick=()=>{state.canvasAgent=b.dataset.id;openPage('Canvas')})}
 // agent_config (item 49-52): a generic jsonb bag on the agent row for
 // whatever per-agent-kind behavior needs to be admin-tunable without a
 // schema migration per parameter. Known keys get a named, labeled field
@@ -1977,12 +1995,20 @@ function assignmentsModal(userId){
 // inline where the conversation actually happens instead of a separate
 // page -- messenger mode has no single agent to point this at (a mention
 // can route to any of several), so it stays out of that mode.
+// An agent that is held to some models offers only those, whatever the provider lists.
+function narrowProviders(agent,providerOpts){
+  const al=(agent&&agent.allowed_models)||[];
+  if(!al.length)return providerOpts;
+  return providerOpts.filter(p=>al.some(x=>x.provider===p.name)).map(p=>({...p,available_models:al.filter(x=>x.provider===p.name).map(x=>x.model)}));
+}
 function chatModelPicker(agent,providerOpts){
   if(!agent)return '';
-  return `<div class="row wrap u-margin-bottom-22px-gap-8px-align-items-flex-end"><div class="field u-margin-0-min-width-180px"><label>My provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field u-margin-0-min-width-180px"><label>My model</label><input class="input" id="cmModel" value="${esc(agent.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5" list="cmModelOptions">${modelDatalist('cmModelOptions',providerOpts.find(p=>p.name===agent.provider)?.available_models||[])}</div><button class="btn small" id="cmSave">Save for me</button><button class="btn small" id="cmTest" title="Send one short message to this provider and model and show what comes back. Nothing is saved.">Test model</button>${agent.is_overridden?'<button class="btn small" id="cmReset">Use Agent default</button>':''}<div class="muted u-font-size-11px">Agent default: ${esc(agent.default_provider||'—')} / ${esc(agent.default_model||'—')}</div><div id="cmTestOut" class="muted u-font-size-12px u-width-100"></div></div>`;
+  providerOpts=narrowProviders(agent,providerOpts);
+  return `<div class="row wrap u-margin-bottom-22px-gap-8px-align-items-flex-end"><div class="field u-margin-0-min-width-180px"><label>My provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field u-margin-0-min-width-180px"><label>My model</label><input class="input" id="cmModel" value="${esc(agent.model||'')}" placeholder="e.g. gpt-4o, claude-sonnet-5" list="cmModelOptions">${modelDatalist('cmModelOptions',providerOpts.find(p=>p.name===agent.provider)?.available_models||[])}</div><button class="btn small" id="cmSave">Save for me</button><button class="btn small" id="cmTest" title="Send one short message to this provider and model and show what comes back. Nothing is saved.">Test model</button>${agent.is_overridden?'<button class="btn small" id="cmReset">Use Agent default</button>':''}${(agent.allowed_models||[]).length?`<div class="muted u-font-size-11px"><span>This agent may use only:</span> ${esc(agent.allowed_models.map(x=>x.provider+' / '+x.model).join(', '))}</div>`:''}<div class="muted u-font-size-11px">Agent default: ${esc(agent.default_provider||'—')} / ${esc(agent.default_model||'—')}</div><div id="cmTestOut" class="muted u-font-size-12px u-width-100"></div></div>`;
 }
 function wireChatModelPicker(agent,providerOpts,onSaved){
   if(!agent||!$('#cmProvider'))return;
+  providerOpts=narrowProviders(agent,providerOpts);
   $('#cmProvider').onchange=()=>{
     const p=providerOpts.find(x=>x.name===$('#cmProvider').value);
     $('#cmModelOptions').innerHTML=(p?.available_models||[]).map(m=>`<option value="${esc(m)}">`).join('')
