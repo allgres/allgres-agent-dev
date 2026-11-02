@@ -453,7 +453,13 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
     let mut next_pump = Instant::now();
     let mut idle_delay = PUMP_IDLE_MIN;
 
-    while BackgroundWorker::wait_latch(Some(Duration::from_millis(100))) {
+    // How often the worker looks up from waiting to accept a dashboard request. A request
+    // waits at most this long, so it is short; the work that touches the database every
+    // round (cancel checks) has its own, slower, schedule below.
+    const RPC_TICK: Duration = Duration::from_millis(20);
+    const CANCEL_CHECK: Duration = Duration::from_millis(100);
+    let mut next_cancel_check = Instant::now();
+    while BackgroundWorker::wait_latch(Some(RPC_TICK)) {
         // 1. Dashboard RPC first: it must never queue behind network I/O.
         loop {
             match rpc.accept() {
@@ -490,9 +496,12 @@ pub extern "C-unwind" fn allgres_runtime_main(_arg: pg_sys::Datum) {
         }
 
         // 2b. Real-time cancel: notice any in-flight outbound call an
-        // operator just cancelled, every tick (not gated by next_pump's
+        // operator just cancelled, every 100 ms (not gated by next_pump's
         // slower idle backoff below) so "stop" stays fast.
-        propagate_outbound_cancellations();
+        if Instant::now() >= next_cancel_check {
+            propagate_outbound_cancellations();
+            next_cancel_check = Instant::now() + CANCEL_CHECK;
+        }
 
         // 3. Pump, on its own schedule and only with spare HTTP capacity.
         if Instant::now() < next_pump {
