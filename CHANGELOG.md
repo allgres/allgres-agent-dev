@@ -4,6 +4,8 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- Decision points of functions and procedures (docs/decision-rules.md). A function or procedure can declare that a person is asked before it runs, as a point of its own: named, listed under Functions or Procedures, always asking, with its own rules; its approvals and decision records belong to that point. New table `declared_decision_points`; actions `abilities.declare_point`, `abilities.undeclare_point`, `abilities.declared_points`.
+- Rules for room tasks: a rule may decline a task or leave it to a person, never confirm one. (Team handoffs still take none.)
 - General chat model picker offers only what the agent may use: an agent held to some models (Agents → Edit → Models this agent may use) lists just those, with a note saying so, and a model switched off in Models & prices is no longer suggested to anyone. `agents.mine` carries each agent's `allowed_models`.
 - Canvas and dashboard open each other. **Canvas** on an agent's row in Agents opens the Canvas with that agent selected; **Open in Dashboard** in the Canvas's agent details opens that agent's edit form.
 - A page asked to redraw while a redraw is already waiting no longer draws twice, which could wipe a form someone had begun to fill.

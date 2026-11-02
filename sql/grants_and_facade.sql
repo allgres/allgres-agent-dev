@@ -900,6 +900,19 @@ BEGIN
         COALESCE((p_request->>'all_agents')::boolean, false),
         NULLIF(p_request->>'min_accuracy', '')::numeric, NULLIF(p_request->>'max_ece', '')::numeric);
 
+    WHEN 'abilities.declare_point' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_declare_decision_point(p_request->>'session_token', p_request->>'kind',
+        (p_request->>'ref_id')::uuid, p_request->>'title', COALESCE(p_request->>'description', ''));
+
+    WHEN 'abilities.undeclare_point' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_undeclare_decision_point((p_request->>'ref_id')::uuid);
+
+    WHEN 'abilities.declared_points' THEN
+      PERFORM allgres_private.require_admin(p_request->>'session_token');
+      RETURN allgres_public.fn_declared_decision_points();
+
     WHEN 'delegation.rules' THEN
       PERFORM allgres_private.require_admin(p_request->>'session_token');
       RETURN allgres_public.fn_decision_rules(NULLIF(p_request->>'point_key', ''));

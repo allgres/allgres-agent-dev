@@ -153,6 +153,38 @@
     ]
   },
   {
+    "action": "abilities.declare_point",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "description",
+      "kind",
+      "ref_id",
+      "session_token",
+      "title"
+    ]
+  },
+  {
+    "action": "abilities.undeclare_point",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "ref_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "abilities.declared_points",
+    "guards": [
+      "require_admin"
+    ],
+    "params": [
+      "session_token"
+    ]
+  },
+  {
     "action": "delegation.rules",
     "guards": [
       "require_admin"

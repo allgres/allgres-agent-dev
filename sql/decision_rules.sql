@@ -42,15 +42,60 @@ CREATE TABLE IF NOT EXISTS allgres_private.decision_rule_checks (
   PRIMARY KEY (source_kind, source_id)
 );
 
+-- A function or procedure may declare a decision point of its own: a person is
+-- asked before it runs, and that question is a named point in the list with its
+-- own rules, instead of the general "an agent asks to run" point.
+CREATE TABLE IF NOT EXISTS allgres_private.declared_decision_points (
+  point_key  text PRIMARY KEY CHECK (point_key ~ '^[a-z][a-z0-9_]{0,62}$'),
+  kind       text NOT NULL CHECK (kind IN ('function', 'procedure')),
+  ref_id     uuid NOT NULL UNIQUE,
+  created_by uuid REFERENCES allgres_private.users(user_id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Which point an approval belongs to: the one its function or procedure
+-- declared (stamped on the request when it was made), else the general one.
+CREATE OR REPLACE FUNCTION allgres_private.decision_point_of_payload(p_payload jsonb)
+RETURNS text
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT COALESCE((SELECT d.point_key FROM allgres_private.declared_decision_points d
+                   WHERE d.point_key = p_payload->>'decision_point'), 'approval_decision')
+$fn$;
+
+-- Points whose items are approvals of an agent's request (the general one and every declared one).
+CREATE OR REPLACE FUNCTION allgres_private.decision_point_is_approval(p_point_key text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT p_point_key = 'approval_decision' OR EXISTS (SELECT 1 FROM allgres_private.declared_decision_points WHERE point_key = p_point_key)
+$fn$;
+
+-- Points that rules can be written for.
+CREATE OR REPLACE FUNCTION allgres_private.decision_rule_point_ok(p_point_key text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT p_point_key IN ('proposal_decision', 'room_task_confirmation') OR allgres_private.decision_point_is_approval(p_point_key)
+$fn$;
+
 -- What a condition may look at, per point. Never a secret or a body.
 CREATE OR REPLACE FUNCTION allgres_private.decision_rule_fields(p_point_key text)
 RETURNS text[]
 LANGUAGE sql
-IMMUTABLE
+STABLE
+SET search_path = allgres_private, pg_temp
 AS $fn$
-  SELECT CASE p_point_key
-    WHEN 'approval_decision' THEN ARRAY['agent', 'approval_type', 'action', 'resource', 'reason', 'goal']
-    WHEN 'proposal_decision' THEN ARRAY['agent', 'proposal_kind', 'target_agent', 'reason']
+  SELECT CASE
+    WHEN allgres_private.decision_point_is_approval(p_point_key) THEN ARRAY['agent', 'approval_type', 'action', 'resource', 'reason', 'goal']
+    WHEN p_point_key = 'proposal_decision' THEN ARRAY['agent', 'proposal_kind', 'target_agent', 'reason']
+    WHEN p_point_key = 'room_task_confirmation' THEN ARRAY['room', 'proposed_by', 'assignee', 'role', 'goal']
     ELSE ARRAY[]::text[] END
 $fn$;
 
@@ -58,11 +103,12 @@ $fn$;
 CREATE OR REPLACE FUNCTION allgres_private.decision_rule_narrowing_fields(p_point_key text)
 RETURNS text[]
 LANGUAGE sql
-IMMUTABLE
+STABLE
+SET search_path = allgres_private, pg_temp
 AS $fn$
-  SELECT CASE p_point_key
-    WHEN 'approval_decision' THEN ARRAY['agent', 'action', 'resource']
-    WHEN 'proposal_decision' THEN ARRAY['agent', 'proposal_kind']
+  SELECT CASE
+    WHEN allgres_private.decision_point_is_approval(p_point_key) THEN ARRAY['agent', 'action', 'resource']
+    WHEN p_point_key = 'proposal_decision' THEN ARRAY['agent', 'proposal_kind']
     ELSE ARRAY[]::text[] END
 $fn$;
 
@@ -77,8 +123,10 @@ DECLARE
   h allgres_private.human_approvals%ROWTYPE;
   cp allgres_private.change_proposals%ROWTYPE;
   v_agent text; v_goal text; v_target text;
+  rp allgres_private.room_proposals%ROWTYPE;
+  v_room text; v_by text; v_assignee text; v_role text;
 BEGIN
-  IF p_point_key = 'approval_decision' AND p_kind = 'approval' THEN
+  IF p_kind = 'approval' AND allgres_private.decision_point_is_approval(p_point_key) THEN
     SELECT * INTO h FROM allgres_private.human_approvals WHERE approval_id = p_id;
     IF NOT FOUND THEN RETURN NULL; END IF;
     SELECT a.name, s.goal INTO v_agent, v_goal
@@ -96,6 +144,16 @@ BEGIN
                        THEN left(regexp_replace(h.payload->>'resource', '[?#].*$', ''), 200) END,
       'reason', CASE WHEN jsonb_typeof(h.payload->'reason') = 'string' THEN left(h.payload->>'reason', 600) END,
       'goal', left(v_goal, 600)));
+  ELSIF p_point_key = 'room_task_confirmation' AND p_kind = 'room_proposal' THEN
+    SELECT * INTO rp FROM allgres_private.room_proposals WHERE proposal_id = p_id;
+    IF NOT FOUND THEN RETURN NULL; END IF;
+    SELECT name INTO v_room FROM allgres_private.rooms WHERE room_id = rp.room_id;
+    SELECT name INTO v_by FROM allgres_private.agents WHERE agent_id = rp.proposed_by_agent;
+    SELECT name INTO v_assignee FROM allgres_private.agents WHERE agent_id = rp.assignee_agent_id;
+    SELECT ro.name INTO v_role FROM allgres_private.room_members m JOIN allgres_private.room_roles ro USING (role_id)
+    WHERE m.room_id = rp.room_id AND m.agent_id = rp.assignee_agent_id;
+    RETURN jsonb_strip_nulls(jsonb_build_object('room', v_room, 'proposed_by', v_by, 'assignee', v_assignee, 'role', v_role,
+      'goal', left(rp.goal, 600)));
   ELSIF p_point_key = 'proposal_decision' AND p_kind = 'proposal' THEN
     SELECT * INTO cp FROM allgres_private.change_proposals WHERE proposal_id = p_id;
     IF NOT FOUND THEN RETURN NULL; END IF;
@@ -224,7 +282,9 @@ RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
 AS $fn$
-  SELECT NOT (p_point_key = 'approval_decision' AND p_answer = 'approve' AND p_facts->>'approval_type' = 'outbound_unknown')
+  SELECT NOT (p_point_key <> 'proposal_decision' AND p_point_key <> 'room_task_confirmation'
+              AND p_answer = 'approve' AND p_facts->>'approval_type' = 'outbound_unknown')
+     AND NOT (p_point_key = 'room_task_confirmation' AND p_answer = 'confirm')
 $fn$;
 
 -- One new item against the rules. Returns what happened: applied, to_human,
@@ -253,6 +313,8 @@ BEGIN
           PERFORM set_config('allgres.rule_id', r.rule_id::text, true);
           IF p_kind = 'approval' THEN
             PERFORM allgres_public.fn_decide_approval(p_id, r.answer = 'approve', 'Decided by the rule "' || r.name || '".');
+          ELSIF p_kind = 'room_proposal' THEN
+            PERFORM allgres_private.room_proposal_decline_by_rule(p_id, r.rule_id, r.name);
           ELSE
             PERFORM allgres_public.fn_decide_proposal(p_id, r.answer = 'approve', 'Decided by the rule "' || r.name || '".');
           END IF;
@@ -289,10 +351,10 @@ DECLARE
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM allgres_private.decision_rules WHERE is_enabled) THEN RETURN 0; END IF;
   FOR r IN
-    SELECT 'approval_decision' AS point, 'approval' AS kind, h.approval_id AS id
+    SELECT allgres_private.decision_point_of_payload(h.payload) AS point, 'approval' AS kind, h.approval_id AS id
     FROM allgres_private.human_approvals h
     WHERE h.status = 'pending' AND h.created_at > now() - interval '7 days'
-      AND allgres_private.decision_rules_exist('approval_decision')
+      AND allgres_private.decision_rules_exist(allgres_private.decision_point_of_payload(h.payload))
       AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_rule_checks c WHERE c.source_kind = 'approval' AND c.source_id = h.approval_id)
     UNION ALL
     SELECT 'proposal_decision', 'proposal', p.proposal_id
@@ -300,12 +362,18 @@ BEGIN
     WHERE p.status = 'pending' AND p.created_at > now() - interval '7 days'
       AND allgres_private.decision_rules_exist('proposal_decision')
       AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_rule_checks c WHERE c.source_kind = 'proposal' AND c.source_id = p.proposal_id)
+    UNION ALL
+    SELECT 'room_task_confirmation', 'room_proposal', rp.proposal_id
+    FROM allgres_private.room_proposals rp
+    WHERE rp.status = 'pending' AND rp.created_at > now() - interval '7 days'
+      AND allgres_private.decision_rules_exist('room_task_confirmation')
+      AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_rule_checks c WHERE c.source_kind = 'room_proposal' AND c.source_id = rp.proposal_id)
     LIMIT 20
   LOOP
     v_n := v_n + 1;
     BEGIN
       v_res := allgres_private.decision_rules_apply_one(r.point, r.kind, r.id);
-      IF v_res IN ('none', 'ask_model', 'error') THEN
+      IF v_res IN ('none', 'ask_model', 'error') AND r.kind IN ('approval', 'proposal') THEN
         IF r.kind = 'approval' THEN
           SELECT t.agent_id INTO v_agent FROM allgres_private.human_approvals h JOIN allgres_private.tasks t ON t.task_id = h.task_id WHERE h.approval_id = r.id;
         ELSE
@@ -355,8 +423,8 @@ DECLARE
   v_id uuid := p_rule_id;
   v_enabled boolean := COALESCE(p_enabled, true);
 BEGIN
-  IF p_point_key NOT IN ('approval_decision', 'proposal_decision') THEN
-    RAISE EXCEPTION 'rules can answer approvals and proposals for now' USING ERRCODE = 'P0001';
+  IF NOT allgres_private.decision_rule_point_ok(p_point_key) THEN
+    RAISE EXCEPTION 'rules can be written for approvals, proposals, room tasks and the points of functions and procedures' USING ERRCODE = 'P0001';
   END IF;
   IF p_outcome NOT IN ('answer', 'ask_model', 'to_human') THEN
     RAISE EXCEPTION 'the outcome is answer, ask_model or to_human' USING ERRCODE = 'P0001';
@@ -373,6 +441,9 @@ BEGIN
     END IF;
     IF p_conditions = '{}'::jsonb THEN
       RAISE EXCEPTION 'a rule that decides needs a condition; without one it would decide everything' USING ERRCODE = 'P0001';
+    END IF;
+    IF p_point_key = 'room_task_confirmation' AND p_answer = 'confirm' THEN
+      RAISE EXCEPTION 'a rule cannot confirm a room task: a person confirms it. A rule can decline it or send it to a person' USING ERRCODE = 'P0001';
     END IF;
     IF p_answer = 'approve' THEN
       IF NOT allgres_private.decision_cond_narrows(p_conditions, p_point_key) THEN
@@ -487,8 +558,8 @@ DECLARE
   v_checked int := 0; v_matched int := 0; v_agreed int := 0;
   v_diff jsonb := '[]'::jsonb;
 BEGIN
-  IF p_point_key NOT IN ('approval_decision', 'proposal_decision') THEN
-    RAISE EXCEPTION 'rules can answer approvals and proposals for now' USING ERRCODE = 'P0001';
+  IF NOT allgres_private.decision_rule_point_ok(p_point_key) THEN
+    RAISE EXCEPTION 'there are no rules for this point' USING ERRCODE = 'P0001';
   END IF;
   PERFORM allgres_private.decision_cond_check(COALESCE(p_conditions, '{}'::jsonb), allgres_private.decision_rule_fields(p_point_key));
   FOR r IN
@@ -512,4 +583,144 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'checked', v_checked, 'matched', v_matched, 'agreed', v_agreed,
     'differed', v_matched - v_agreed, 'examples', v_diff);
 END;
+$fn$;
+
+-- ---- Rules for room tasks -------------------------------------------------
+
+-- A rule can only decline a room task or leave it to a person; a person
+-- confirms (a task starts an agent). Same effects as a person declining:
+-- the room is told, the proposal is closed, a decision record is kept.
+CREATE OR REPLACE FUNCTION allgres_private.room_proposal_decline_by_rule(p_proposal_id uuid, p_rule_id uuid, p_rule_name text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  pr allgres_private.room_proposals%ROWTYPE;
+  r allgres_private.rooms%ROWTYPE;
+  v_assignee text; v_by text; v_role text; v_state text;
+BEGIN
+  SELECT * INTO pr FROM allgres_private.room_proposals WHERE proposal_id = p_proposal_id FOR UPDATE;
+  IF NOT FOUND OR pr.status <> 'pending' THEN
+    RAISE EXCEPTION 'this proposal has already been decided' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT * INTO r FROM allgres_private.rooms WHERE room_id = pr.room_id;
+  IF r.status <> 'open' THEN
+    RAISE EXCEPTION 'this room is closed' USING ERRCODE = 'P0001';
+  END IF;
+  SELECT name INTO v_assignee FROM allgres_private.agents WHERE agent_id = pr.assignee_agent_id;
+  SELECT name INTO v_by FROM allgres_private.agents WHERE agent_id = pr.proposed_by_agent;
+  SELECT ro.name INTO v_role FROM allgres_private.room_members m JOIN allgres_private.room_roles ro USING (role_id)
+  WHERE m.room_id = pr.room_id AND m.agent_id = pr.assignee_agent_id;
+  INSERT INTO allgres_private.room_messages (room_id, kind, content)
+  VALUES (pr.room_id, 'notice', 'Declined by the rule "' || p_rule_name || '": the task for ' || v_assignee || ': ' || left(pr.goal, 300));
+  UPDATE allgres_private.room_proposals SET status = 'declined', decided_at = now() WHERE proposal_id = p_proposal_id;
+  v_state := 'Room: ' || r.name || E'\nPurpose: ' || r.purpose
+    || E'\nProposed by: ' || COALESCE(v_by, 'the lead')
+    || E'\nAssignee: ' || v_assignee || COALESCE(' (' || v_role || ')', '')
+    || E'\nGoal: ' || left(pr.goal, 1000)
+    || E'\nDiscussion: ' || (SELECT count(*) FROM allgres_private.room_messages WHERE room_id = pr.room_id AND kind = 'say')
+    || ' messages from ' || (SELECT count(DISTINCT COALESCE(author_user_id::text, author_agent_id::text)) FROM allgres_private.room_messages
+                              WHERE room_id = pr.room_id AND kind = 'say') || ' participants';
+  BEGIN
+    PERFORM allgres_private.record_decision('room_task_confirmation', v_state, 'decline', 'rule', NULL, NULL, 'room_proposal', p_proposal_id,
+      jsonb_build_object('rule_id', p_rule_id));
+  EXCEPTION WHEN others THEN
+    PERFORM allgres_private.audit('decision_records.failed', jsonb_build_object(
+      'source_kind', 'room_proposal', 'source_id', p_proposal_id, 'error', left(SQLERRM, 300)));
+  END;
+  PERFORM allgres_private.audit('rooms.proposal_decide', jsonb_build_object(
+    'proposal_id', p_proposal_id, 'room_id', pr.room_id, 'accepted', false, 'rule_id', p_rule_id));
+END;
+$fn$;
+
+-- ---- Decision points of functions and procedures -------------------------
+
+-- Declares that a person is asked before this function (or procedure) runs, as
+-- a decision point of its own: named, listed under Functions or Procedures,
+-- with its own rules. The answers are approve and reject, as for any approval.
+CREATE OR REPLACE FUNCTION allgres_public.fn_declare_decision_point(
+  p_token text, p_kind text, p_ref_id uuid, p_title text, p_description text DEFAULT ''
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  u allgres_private.users%ROWTYPE := allgres_private.session_user(p_token);
+  v_name text; v_key text; v_base allgres_private.decision_points%ROWTYPE;
+BEGIN
+  IF p_kind = 'function' THEN
+    SELECT name INTO v_name FROM allgres_private.functions WHERE function_id = p_ref_id;
+  ELSIF p_kind = 'procedure' THEN
+    SELECT name INTO v_name FROM allgres_private.procedures WHERE procedure_id = p_ref_id;
+  ELSE
+    RAISE EXCEPTION 'kind is function or procedure' USING ERRCODE = 'P0001';
+  END IF;
+  IF v_name IS NULL THEN RAISE EXCEPTION '% not found', p_kind USING ERRCODE = 'P0001'; END IF;
+  IF p_title IS NULL OR btrim(p_title) = '' OR length(p_title) > 100 THEN
+    RAISE EXCEPTION 'give the decision point a name of up to 100 characters' USING ERRCODE = 'P0001';
+  END IF;
+  IF length(COALESCE(p_description, '')) > 400 THEN
+    RAISE EXCEPTION 'the description is at most 400 characters' USING ERRCODE = 'P0001';
+  END IF;
+  IF EXISTS (SELECT 1 FROM allgres_private.declared_decision_points WHERE ref_id = p_ref_id) THEN
+    -- Declaring again renames it.
+    SELECT point_key INTO v_key FROM allgres_private.declared_decision_points WHERE ref_id = p_ref_id;
+    UPDATE allgres_private.decision_point_meta SET title = btrim(p_title), description = COALESCE(p_description, '') WHERE point_key = v_key;
+    RETURN jsonb_build_object('ok', true, 'point_key', v_key, 'renamed', true);
+  END IF;
+  v_key := CASE p_kind WHEN 'function' THEN 'fn_' ELSE 'proc_' END || substr(replace(p_ref_id::text, '-', ''), 1, 16);
+  SELECT * INTO v_base FROM allgres_private.decision_points WHERE point_key = 'approval_decision' ORDER BY version DESC LIMIT 1;
+  INSERT INTO allgres_private.decision_points (point_key, version, instructions, criteria, state_fields, risk_level)
+  VALUES (v_key, 1, 'Decide whether this agent may run the ' || p_kind || ' ' || v_name || ' now.',
+    jsonb_build_object(
+      'approve', 'The run is clear, within what the agent should be doing, and safe as described.',
+      'reject',  'The run is unclear, outside what the agent should be doing, or unsafe as described.'),
+    v_base.state_fields, 'medium')
+  ON CONFLICT (point_key, version) DO NOTHING;
+  INSERT INTO allgres_private.decision_point_meta (point_key, category, title, description)
+  VALUES (v_key, CASE p_kind WHEN 'function' THEN 'Functions' ELSE 'Procedures' END, btrim(p_title), COALESCE(p_description, ''))
+  ON CONFLICT (point_key) DO UPDATE SET title = EXCLUDED.title, description = EXCLUDED.description;
+  INSERT INTO allgres_private.declared_decision_points (point_key, kind, ref_id, created_by) VALUES (v_key, p_kind, p_ref_id, u.user_id);
+  PERFORM allgres_private.audit('decision_points.declare', jsonb_build_object(
+    'point_key', v_key, 'kind', p_kind, 'ref_id', p_ref_id, 'name', v_name, 'by', u.username));
+  RETURN jsonb_build_object('ok', true, 'point_key', v_key);
+END;
+$fn$;
+
+-- Takes the declaration away. Its rules go with it (they would never be read);
+-- what was decided stays in the decision records.
+CREATE OR REPLACE FUNCTION allgres_public.fn_undeclare_decision_point(p_ref_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE v_key text;
+BEGIN
+  DELETE FROM allgres_private.declared_decision_points WHERE ref_id = p_ref_id RETURNING point_key INTO v_key;
+  IF v_key IS NULL THEN RAISE EXCEPTION 'this has no decision point of its own' USING ERRCODE = 'P0001'; END IF;
+  DELETE FROM allgres_private.decision_rules WHERE point_key = v_key;
+  DELETE FROM allgres_private.decision_delegation WHERE point_key = v_key;
+  DELETE FROM allgres_private.decision_point_meta WHERE point_key = v_key;
+  PERFORM allgres_private.audit('decision_points.undeclare', jsonb_build_object('point_key', v_key, 'ref_id', p_ref_id));
+  RETURN jsonb_build_object('ok', true);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_public.fn_declared_decision_points()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+  SELECT jsonb_build_object('ok', true, 'points', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+    'point_key', d.point_key, 'kind', d.kind, 'ref_id', d.ref_id,
+    'name', CASE d.kind WHEN 'function' THEN (SELECT name FROM allgres_private.functions WHERE function_id = d.ref_id)
+                        ELSE (SELECT name FROM allgres_private.procedures WHERE procedure_id = d.ref_id) END,
+    'title', m.title, 'description', m.description) ORDER BY m.title)
+    FROM allgres_private.declared_decision_points d JOIN allgres_private.decision_point_meta m USING (point_key)), '[]'::jsonb))
 $fn$;

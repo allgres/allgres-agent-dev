@@ -254,7 +254,7 @@ DECLARE
   v_point text; v_kind text; v_id uuid; v_agent uuid;
 BEGIN
   IF TG_TABLE_NAME = 'human_approvals' THEN
-    v_point := 'approval_decision'; v_kind := 'approval'; v_id := NEW.approval_id;
+    v_point := allgres_private.decision_point_of_payload(NEW.payload); v_kind := 'approval'; v_id := NEW.approval_id;
     SELECT agent_id INTO v_agent FROM allgres_private.tasks WHERE task_id = NEW.task_id;
   ELSE
     v_point := 'proposal_decision'; v_kind := 'proposal'; v_id := NEW.proposal_id; v_agent := NEW.agent_id;
@@ -669,7 +669,9 @@ AS $fn$
       LEFT JOIN allgres_private.api_connections c ON c.connection_id = d.connection_id
       CROSS JOIN LATERAL allgres_private.decision_point_info(p.point_key) i
       WHERE p.version = (SELECT max(version) FROM allgres_private.decision_points WHERE point_key = p.point_key)
-        AND p.point_key NOT LIKE 'team_assign_%'), '[]'::jsonb),
+        AND p.point_key NOT LIKE 'team_assign_%'
+        -- A point a function or procedure declared is listed only while it is declared.
+        AND (p.point_key !~ '^(fn|proc)_' OR EXISTS (SELECT 1 FROM allgres_private.declared_decision_points dd WHERE dd.point_key = p.point_key))), '[]'::jsonb),
     'recent', COALESCE((SELECT jsonb_agg(x ORDER BY x->>'created_at' DESC) FROM (
         SELECT jsonb_build_object('point_key', a.point_key, 'mode', a.mode, 'status', a.status, 'outcome', a.outcome,
           'answer', a.answer, 'human_answer', a.human_answer, 'confidence', a.answer_confidence, 'note', a.note,

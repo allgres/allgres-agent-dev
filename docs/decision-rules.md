@@ -2,7 +2,10 @@
 
 A rule is a condition and an outcome, kept as data. For a new approval or proposal the order is **rules → the decision model → a person** ([delegation.md](delegation.md)). Rules work with or without a decision model.
 
-Open **Connections → Decision model → Hand decisions to the model**, pick a point, and open **Rules**. For now the points that take rules are *An agent asks to run or continue* (approvals) and *An agent proposes a change* (proposals).
+Open **Connections → Decision model → Hand decisions to the model**, pick a point, and open **Rules**. The points that take rules are *An agent asks to run or continue* (approvals), *An agent proposes a change* (proposals), *A room task is confirmed* and the points that functions and procedures declare (below). Team handoffs take none yet.
+
+- **Room tasks.** A rule may *decline* a task or *send it to a person*; it can never confirm one, because confirming starts an agent. A declined task is closed, the room is told which rule declined it, and the decision is kept as a rule's. Only tasks that wait for a person are read: a room set to start tasks by itself starts them before any rule could look.
+- **Functions and procedures.** Under *Decision points of functions and procedures* you can declare that a person is asked before one function or procedure runs. It becomes a point of its own, listed under Functions or Procedures with the name and description you give, and a run of it always asks a person, whatever the agent's execution rules say. Its facts and rules are those of approvals (agent, action, resource, …); the model can be watched on it but never hands over (a tool run is only ever approved by a person). Removing the declaration removes its rules and keeps what was decided.
 
 ## What a rule says
 

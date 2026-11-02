@@ -5306,7 +5306,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'abilities.declare_point', 'abilities.undeclare_point', 'abilities.declared_points', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5337,7 +5337,7 @@ BEGIN
     'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
-    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
+    'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'abilities.declare_point', 'abilities.undeclare_point', 'abilities.declared_points', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
     'procedures.create', 'procedures.update', 'procedures.rollback', 'functions.list', 'functions.rollback', 'capabilities.list', 'capabilities.reindex', 'capabilities.evaluate', 'capabilities.transition', 'capabilities.rollback',
     'functions.create', 'functions.update', 'functions.bind', 'schedules.list', 'schedules.create',
     'schedules.update', 'schedules.delete', 'schedules.run_now', 'providers.oauth_start', 'providers.oauth_device_start',
@@ -5376,6 +5376,7 @@ BEGIN
   v := v || allgres_private.decision_switch_selftest_cases();
   v := v || allgres_private.decision_rules_selftest_cases();
   v := v || allgres_private.picker_selftest_cases();
+  v := v || allgres_private.decision_extend_selftest_cases();
   v := v || allgres_private.chat_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.model_registry_selftest_cases();
@@ -6100,7 +6101,7 @@ BEGIN
   -- The execution gate: a read tool runs under the agent's own rules, a
   -- physical one waits for a person whatever those rules say.
   DECLARE
-    a uuid; t uuid; c1 uuid; c2 uuid; v_ok1 boolean; v_ok2 boolean;
+    a uuid; t uuid; c1 uuid; c2 uuid; v_ok1 boolean; v_ok2 boolean; t3 uuid; c3 uuid; v_ok3 boolean; v_pid uuid; v_pt text;
   BEGIN
     PERFORM allgres_public.fn_mcp_discover_start(v_conn);
     PERFORM allgres_public.fn_claim_mcp_probe(4);
@@ -6132,6 +6133,23 @@ BEGIN
     v := v || jsonb_build_array(jsonb_build_object('name', 'mcp_physical_tool_waits_for_a_person', 'ok', ok,
       'detail', jsonb_build_object('read', v_ok1, 'physical', v_ok2,
         'task', (SELECT jsonb_build_object('status', status, 'error', error) FROM allgres_private.tasks WHERE task_id = t))));
+
+    -- A procedure that declared a decision point of its own always asks a person first, and the
+    -- approval belongs to that point.
+    v_pid := (SELECT registered_procedure_id FROM allgres_private.mcp_tools WHERE connection_id = v_conn AND tool_name = 'get_status');
+    v_pt := allgres_public.fn_declare_decision_point(NULL, 'procedure', v_pid, 'Read the status', 'Reading the status may leak it.')->>'point_key';
+    t3 := (allgres_public.fn_create_session(a, 'selftest mcp declared')->>'task_id')::uuid;
+    UPDATE allgres_private.tasks SET status = 'running' WHERE task_id = t3;
+    INSERT INTO allgres_private.outbound_calls
+      (task_id, kind, function, url, method, status, connection_id, procedure_function_id, procedure_id)
+    VALUES (t3, 'mcp', 'mcp_call', 'http://127.0.0.1:9/mcp', 'POST', 'queued', v_conn, v_fn, v_pid)
+    RETURNING call_id INTO c3;
+    v_ok3 := allgres_private.guard_queued_call('outbound_calls', c3);
+    ok := v_pt LIKE 'proc_%' AND NOT v_ok3
+      AND EXISTS (SELECT 1 FROM allgres_private.human_approvals WHERE task_id = t3 AND status = 'pending' AND payload->>'decision_point' = v_pt)
+      AND v_ok1;
+    v := v || jsonb_build_array(jsonb_build_object('name', 'declared_decision_point_always_asks_and_owns_the_approval', 'ok', ok,
+      'detail', jsonb_build_object('point', v_pt, 'ok3', v_ok3)));
   END;
 
   RETURN v;
@@ -7967,8 +7985,8 @@ BEGIN
   BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'approval_decision', 'unconfirmed', '{"all":[{"field":"agent","op":"eq","value":"zz15_one"}]}'::jsonb, 'answer', 'approve', true, false); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
   ok := ok AND v_err LIKE '%confirm%';
   v_err := NULL;
-  BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'room_task_confirmation', 'room', '{}'::jsonb, 'to_human', NULL, true, false); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
-  ok := ok AND v_err LIKE '%approvals and proposals%';
+  BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'team_assign_abc', 'team', '{}'::jsonb, 'to_human', NULL, true, false); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%rules can be written for%';
   ok := ok AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_rules);
   v := v || jsonb_build_array(jsonb_build_object('name', 'decision_rule_save_holds_an_approving_rule_to_more', 'ok', ok, 'detail', v_err));
 
@@ -8066,6 +8084,100 @@ BEGIN
   ok := ok AND (SELECT e->'allowed_models' FROM jsonb_array_elements(r->'agents') e WHERE e->>'name' = 'zz16_one')
       = '[{"provider":"zz16prov","model":"m-on"}]'::jsonb;
   v := v || jsonb_build_array(jsonb_build_object('name', 'agents_mine_tells_the_models_an_agent_may_use', 'ok', ok));
+  RETURN v;
+END;
+$fn$;
+
+-- Decision points of functions and procedures, and rules for room tasks.
+CREATE OR REPLACE FUNCTION allgres_private.decision_extend_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u_admin uuid; u_user uuid;
+  tk text := 'selftest-ext-admin-token'; tu text := 'selftest-ext-user-token';
+  a_one uuid; v_fid uuid; v_pt text; v_a uuid; v_rule uuid; v_room uuid; v_prop uuid; v_prop2 uuid; v_err text;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_ext_admin', 'x', 'admin') RETURNING user_id INTO u_admin;
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_ext_user', 'x', 'user') RETURNING user_id INTO u_user;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at)
+    VALUES (tk, u_admin, now() + interval '1 hour'), (tu, u_user, now() + interval '1 hour');
+  a_one := (allgres_public.fn_create_agent('zz17_one', 'x')->>'agent_id')::uuid;
+  PERFORM allgres_public.fn_create_function('zz17_fn', 'a function', 'http_get', jsonb_build_object('url', 'https://example.com/zz17'));
+  SELECT function_id INTO v_fid FROM allgres_private.functions WHERE name = 'zz17_fn';
+
+  -- Declaring: admin only, named, listed under Functions with rule fields; declaring again renames.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'abilities.declare_point', 'kind', 'function', 'ref_id', v_fid,
+    'title', 'zz17 may run', 'description', 'Ask before zz17 runs.', 'session_token', tu));
+  ok := r->>'error' IS NOT NULL;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'abilities.declare_point', 'kind', 'function', 'ref_id', v_fid,
+    'title', 'zz17 may run', 'description', 'Ask before zz17 runs.', 'session_token', tk));
+  v_pt := r->>'point_key';
+  ok := ok AND (r->>'ok')::boolean AND v_pt LIKE 'fn\_%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.overview', 'session_token', tk));
+  ok := ok AND EXISTS (SELECT 1 FROM jsonb_array_elements(r->'points') e
+      WHERE e->>'point_key' = v_pt AND e->>'category' = 'Functions' AND e->>'title' = 'zz17 may run' AND e->'rule_fields' @> '["resource"]'::jsonb);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'abilities.declare_point', 'kind', 'function', 'ref_id', v_fid, 'title', 'zz17 renamed', 'session_token', tk));
+  ok := ok AND (r->>'renamed')::boolean AND (SELECT title FROM allgres_private.decision_point_meta WHERE point_key = v_pt) = 'zz17 renamed';
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_declare_decision_point(tk, 'thing', v_fid, 'x'); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := ok AND v_err LIKE '%function or procedure%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_function_declares_a_decision_point_of_its_own', 'ok', ok));
+
+  -- An approval stamped with the point is kept under it, and a rule written for it decides it.
+  INSERT INTO allgres_private.decision_rules (point_key, name, conditions, outcome, answer)
+    VALUES (v_pt, 'zz17 rule', '{"all":[{"field":"agent","op":"eq","value":"zz17_one"}]}'::jsonb, 'answer', 'reject') RETURNING rule_id INTO v_rule;
+  v_a := allgres_private.selftest_pending_approval(a_one, jsonb_build_object('reason', 'Execution requires approval', 'queue', 'outbound_calls',
+    'call_id', gen_random_uuid(), 'action', 'call_function', 'resource', 'zz17_fn', 'decision_point', v_pt));
+  PERFORM allgres_private.decision_rules_sweep();
+  ok := (SELECT status FROM allgres_private.human_approvals WHERE approval_id = v_a) = 'rejected'
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = v_a AND point_key = v_pt AND decided_by = 'rule')
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = v_a AND point_key = 'approval_decision');
+  -- A person's decision on another one is kept under the point too.
+  v_a := allgres_private.selftest_pending_approval(a_one, jsonb_build_object('reason', 'x', 'queue', 'outbound_calls', 'call_id', gen_random_uuid(),
+    'action', 'call_function', 'resource', 'zz17_fn', 'decision_point', v_pt));
+  DELETE FROM allgres_private.decision_rules WHERE rule_id = v_rule;
+  PERFORM allgres_public.fn_decide_approval(v_a, true);
+  ok := ok AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = v_a AND point_key = v_pt AND decided_by = 'human');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'declared_point_owns_its_approvals_rules_and_records', 'ok', ok));
+
+  -- Taking the declaration away takes its rules with it and keeps what was decided.
+  INSERT INTO allgres_private.decision_rules (point_key, name, conditions, outcome) VALUES (v_pt, 'gone with it', '{}'::jsonb, 'to_human');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'abilities.undeclare_point', 'ref_id', v_fid, 'session_token', tk));
+  ok := (r->>'ok')::boolean AND NOT EXISTS (SELECT 1 FROM allgres_private.decision_rules WHERE point_key = v_pt)
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.declared_decision_points WHERE ref_id = v_fid)
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE point_key = v_pt);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'abilities.declared_points', 'session_token', tk));
+  ok := ok AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(r->'points') e WHERE e->>'point_key' = v_pt);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'undeclaring_a_decision_point_keeps_its_records', 'ok', ok));
+
+  -- Room tasks: a rule may decline one or leave it to a person; it can never confirm one.
+  v_room := (allgres_public.fn_room_create(tk, 'zz17_room', 'ship it', 20, 5)->>'room_id')::uuid;
+  INSERT INTO allgres_private.room_proposals (room_id, assignee_agent_id, goal) VALUES (v_room, a_one, 'zz17 do the thing') RETURNING proposal_id INTO v_prop;
+  INSERT INTO allgres_private.room_proposals (room_id, assignee_agent_id, goal) VALUES (v_room, a_one, 'zz17 keep for a person') RETURNING proposal_id INTO v_prop2;
+  v_err := NULL;
+  BEGIN PERFORM allgres_public.fn_decision_rule_save(tk, NULL, 'room_task_confirmation', 'confirms', '{"all":[{"field":"assignee","op":"eq","value":"zz17_one"}]}'::jsonb, 'answer', 'confirm', true, true); EXCEPTION WHEN others THEN v_err := SQLERRM; END;
+  ok := v_err LIKE '%a person confirms it%';
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_save', 'point_key', 'room_task_confirmation', 'name', 'keep this one',
+    'conditions', '{"all":[{"field":"goal","op":"contains","value":"keep for a person"}]}'::jsonb, 'outcome', 'to_human', 'session_token', tk));
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'delegation.rule_save', 'point_key', 'room_task_confirmation', 'name', 'decline the rest',
+    'conditions', '{"all":[{"field":"assignee","op":"eq","value":"zz17_one"}]}'::jsonb, 'outcome', 'answer', 'answer', 'decline', 'session_token', tk));
+  ok := ok AND (r->>'ok')::boolean;
+  PERFORM allgres_private.decision_rules_sweep();
+  ok := ok AND (SELECT status FROM allgres_private.room_proposals WHERE proposal_id = v_prop) = 'declined'
+    AND (SELECT status FROM allgres_private.room_proposals WHERE proposal_id = v_prop2) = 'pending'
+    AND EXISTS (SELECT 1 FROM allgres_private.decision_records WHERE source_id = v_prop AND point_key = 'room_task_confirmation' AND decided_by = 'rule' AND answer = 'decline')
+    AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = v_room AND kind = 'notice' AND content LIKE 'Declined by the rule "decline the rest"%')
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.tasks WHERE task_id IN (SELECT task_id FROM allgres_private.room_proposals WHERE room_id = v_room AND task_id IS NOT NULL));
+  v := v || jsonb_build_array(jsonb_build_object('name', 'room_task_rule_can_decline_or_leave_to_a_person_but_never_confirm', 'ok', ok, 'detail', jsonb_build_object('err', v_err,
+    's1', (SELECT status FROM allgres_private.room_proposals WHERE proposal_id = v_prop), 's2', (SELECT status FROM allgres_private.room_proposals WHERE proposal_id = v_prop2),
+    'rec', (SELECT count(*) FROM allgres_private.decision_records WHERE source_id = v_prop), 'checks', (SELECT jsonb_agg(result) FROM allgres_private.decision_rule_checks WHERE source_kind = 'room_proposal'),
+    'rules', (SELECT count(*) FROM allgres_private.decision_rules WHERE point_key = 'room_task_confirmation'))));
+
   RETURN v;
 END;
 $fn$;
