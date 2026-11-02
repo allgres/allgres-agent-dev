@@ -287,15 +287,17 @@ RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = allgres_private, pg_temp
 AS $fn$
+DECLARE
+  v_point text := allgres_private.decision_point_of_payload(NEW.payload);
 BEGIN
   IF OLD.status = 'pending' AND NEW.status IN ('approved', 'rejected')
      AND current_setting('allgres.human_decision', true) = 'approval' THEN
     PERFORM set_config('allgres.human_decision', '', true);
     BEGIN
       PERFORM record_decision(
-        'approval_decision',
+        v_point,
         approval_decision_state(NEW.approval_id, (SELECT state_fields FROM decision_points
-                                                  WHERE point_key = 'approval_decision' ORDER BY version DESC LIMIT 1)),
+                                                  WHERE point_key = v_point ORDER BY version DESC LIMIT 1)),
         CASE NEW.status WHEN 'approved' THEN 'approve' ELSE 'reject' END,
         CASE WHEN current_setting('allgres.laya_decision', true) = NEW.approval_id::text THEN 'laya'
              WHEN current_setting('allgres.rule_decision', true) = NEW.approval_id::text THEN 'rule' ELSE 'human' END,

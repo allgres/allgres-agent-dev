@@ -1032,6 +1032,36 @@ test('an agent is opened between the dashboard and the Canvas in either directio
   await expect(page.locator('#aName')).toHaveValue(name);
 });
 
+test('a function declares a decision point of its own, which is listed with its own rules', async ({ page }) => {
+  test.setTimeout(90000);
+  const fn = `ui_decl_fn_${Date.now()}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await page.evaluate(async (fn) => {
+    const r = await (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ action: 'functions.create', name: fn, description: 'ui fixture', handler: 'http_get',
+        args_template: { url: 'https://example.com/ui' }, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    if (r.ok === false) throw new Error(r.error);
+  }, fn);
+  await go(page, 'Decision model');
+  await expect(page.locator('#dpTarget')).toBeVisible();
+  await page.locator('#dpTarget').selectOption({ label: `function · ${fn}` });
+  await page.locator('#dpTitle').fill('ui may run it');
+  await page.locator('#dpDesc').fill('A person decides before the fixture runs.');
+  await page.locator('#dpAdd').click();
+  // It is listed with the others, under Functions, with its own rules.
+  const row = page.locator('#view .listrow', { hasText: 'ui may run it' }).first();
+  await expect(page.locator('#view h4', { hasText: 'Functions' })).toBeVisible();
+  const point = page.locator('#view .listrow[data-point^="fn_"]', { hasText: 'ui may run it' });
+  await expect(point).toContainText('A person decides before the fixture runs.');
+  await point.locator('.dgRules summary').click();
+  await expect(point.locator('.rlField option', { hasText: 'resource' }).first()).toBeAttached();
+  // Taking it away removes it from the list.
+  page.once('dialog', d => d.accept());
+  await page.locator('[data-declared] .dpRemove').click();
+  await expect(page.locator('#view .listrow[data-point^="fn_"]')).toHaveCount(0);
+});
+
 test('an agent is copied with its setup', async ({ page }) => {
   const src = `ui_copy_src_${Date.now()}`;
   await login(page, 'ui_admin', 'ui-admin-password');

@@ -664,7 +664,19 @@
    "reason": "reason",
    "task goal": "task goal",
    "proposal kind": "proposal kind",
-   "target agent": "target agent"
+   "target agent": "target agent",
+   "Decision points of functions and procedures": "Decision points of functions and procedures",
+   "Declare that a person is asked before a function or procedure runs, as a decision point of its own: it gets a name here, is listed under Functions or Procedures above, and can have rules. It then always asks, whatever the agent's execution rules say.": "Declare that a person is asked before a function or procedure runs, as a decision point of its own: it gets a name here, is listed under Functions or Procedures above, and can have rules. It then always asks, whatever the agent's execution rules say.",
+   "Choose a function or procedure…": "Choose a function or procedure…",
+   "Name of the decision point": "Name of the decision point",
+   "What the person decides (optional)": "What the person decides (optional)",
+   "Declare": "Declare",
+   "then decline it": "then decline it",
+   "Choose one and give the decision point a name": "Choose one and give the decision point a name",
+   "Declared": "Declared",
+   "proposed by": "proposed by",
+   "assignee": "assignee",
+   "role": "role"
   },
   "Inbound": {
    "Add a source": "Add a source",

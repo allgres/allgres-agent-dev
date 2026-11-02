@@ -665,7 +665,19 @@
    "reason": "사유",
    "task goal": "작업 목표",
    "proposal kind": "제안 종류",
-   "target agent": "대상 에이전트"
+   "target agent": "대상 에이전트",
+   "Decision points of functions and procedures": "함수와 프로시저의 결정 지점",
+   "Declare that a person is asked before a function or procedure runs, as a decision point of its own: it gets a name here, is listed under Functions or Procedures above, and can have rules. It then always asks, whatever the agent's execution rules say.": "함수나 프로시저를 실행하기 전에 사람에게 묻는다고 선언하면 자기만의 결정 지점이 됩니다. 여기서 이름이 붙고, 위의 함수 또는 프로시저 항목에 나타나며, 규칙을 둘 수 있습니다. 에이전트의 실행 규칙과 상관없이 항상 묻습니다.",
+   "Choose a function or procedure…": "함수나 프로시저를 고르세요…",
+   "Name of the decision point": "결정 지점의 이름",
+   "What the person decides (optional)": "사람이 무엇을 결정하는지 (선택)",
+   "Declare": "선언",
+   "then decline it": "그러면 거절(보류)",
+   "Choose one and give the decision point a name": "하나를 고르고 결정 지점의 이름을 입력하세요",
+   "Declared": "선언했습니다",
+   "proposed by": "제안자",
+   "assignee": "담당자",
+   "role": "역할"
   },
   "Inbound": {
    "Add a source": "소스 추가",

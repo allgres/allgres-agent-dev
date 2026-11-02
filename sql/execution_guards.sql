@@ -196,6 +196,7 @@ DECLARE
   v_rules jsonb;
   v_snapshot jsonb;
   v_requires boolean;
+  v_point text;
   v_approval allgres_private.human_approvals%ROWTYPE;
   v_local_scope jsonb;
   v_local_rules jsonb;
@@ -284,6 +285,11 @@ BEGIN
   -- A tool registered from an MCP server as write or physical needs a person
   -- every time, whatever this agent's own rules say.
   IF COALESCE(f.requires_approval, false) THEN v_requires := true; END IF;
+  -- A function or procedure that declared a decision point of its own always asks a person first.
+  SELECT d.point_key INTO v_point FROM allgres_private.declared_decision_points d
+  WHERE (d.kind = 'function' AND d.ref_id = f.function_id) OR (d.kind = 'procedure' AND d.ref_id = pr.procedure_id)
+  ORDER BY (d.kind = 'function') DESC LIMIT 1;
+  IF v_point IS NOT NULL THEN v_requires := true; END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_rules) r WHERE r->>'decision' = 'deny') THEN
     v_reason := 'execution_denied';
   END IF;
@@ -322,7 +328,8 @@ BEGIN
     INSERT INTO allgres_private.human_approvals(task_id, status, payload, expires_at)
     VALUES (t.task_id, 'pending', jsonb_build_object(
       'reason', 'Execution requires approval', 'queue', p_queue, 'call_id', p_call_id,
-      'action', v_action, 'resource', v_resource, 'snapshot', v_snapshot),
+      'action', v_action, 'resource', v_resource, 'snapshot', v_snapshot)
+        || CASE WHEN v_point IS NOT NULL THEN jsonb_build_object('decision_point', v_point) ELSE '{}'::jsonb END,
       clock_timestamp() + interval '24 hours');
     UPDATE allgres_private.tasks SET status = 'waiting_human', updated_at = now() WHERE task_id = t.task_id;
     RETURN false;
