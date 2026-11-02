@@ -1121,7 +1121,9 @@ pub extern "C-unwind" fn allgres_web_main(_arg: pg_sys::Datum) {
 
     let cfg = Arc::new(cfg);
 
-    while BackgroundWorker::wait_latch(Some(Duration::from_millis(50))) {
+    // A new connection waits at most this long to be accepted. The loop does nothing else
+    // (no database work), so a short wait costs only an idle wake-up.
+    while BackgroundWorker::wait_latch(Some(Duration::from_millis(10))) {
         loop {
             match listener.accept() {
                 Ok((s, _)) => {

@@ -491,7 +491,8 @@ test('assisted room: agents ask each other, the lead proposes, a person confirms
     await page.locator('#rmAgent').selectOption({ label: name });
     await page.locator('#rmRole').selectOption({ label: role });
     await page.locator('#rmAddAgent').click();
-    await expect(page.locator('#view .row', { hasText: name }).first()).toBeVisible();
+    // The member's own row (the add form also names every agent, in its list).
+    await expect(page.locator('#view .row', { hasText: name }).getByRole('button', { name: 'Make lead' })).toBeVisible();
   }
   await page.locator('#view .row', { hasText: 'ui_as_lead' }).getByRole('button', { name: 'Make lead' }).click();
   // Once the lead is set its row no longer offers "Make lead".
@@ -554,7 +555,8 @@ test('auto room: the lead proposes and the room starts the task by itself', asyn
     await page.locator('#rmAgent').selectOption({ label: name });
     await page.locator('#rmRole').selectOption({ label: role });
     await page.locator('#rmAddAgent').click();
-    await expect(page.locator('#view .row', { hasText: name }).first()).toBeVisible();
+    // The member's own row (the add form also names every agent, in its list).
+    await expect(page.locator('#view .row', { hasText: name }).getByRole('button', { name: 'Make lead' })).toBeVisible();
   }
   // Auto is refused until the room has a lead.
   await page.locator('#rmMode').selectOption('auto');
