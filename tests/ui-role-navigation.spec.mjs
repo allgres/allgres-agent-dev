@@ -61,6 +61,9 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   await expect(page.locator('#toCanvas')).toBeVisible();
   await go(page, 'Chat');
   await expect(page.locator('#convList')).toBeAttached();
+  // An item in the list is drawn under the page's style policy (no inline styles).
+  await page.locator('#convNew').click();
+  await expect(page.locator('#convList .convItem').first()).toBeVisible();
   await expect(page.locator('#msgInput')).toHaveCount(0);
   await go(page, 'Access & appearance');
   await expect(page.locator('#bulkApply')).toHaveCount(0);
@@ -1127,6 +1130,8 @@ test('a provider is tested before it is saved, and a 200 with an error body is n
   // A person tries the model they chose in a chat without sending anything.
   await go(page, 'Chat');
   await page.locator('#convNew').click();
+  // The new chat has drawn (and taken the cursor) before its Model fold is opened.
+  await expect(page.locator('#convInput')).toBeFocused();
   await page.locator('#convPane summary', { hasText: 'Model' }).click();
   await page.locator('#cmProvider').selectOption({ label: `${name} (openai_compat)` });
   await page.locator('#cmModel').fill('allgres-mock');
