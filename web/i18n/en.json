@@ -990,6 +990,25 @@
    "Web": "Web",
    "Data": "Data",
    "Routines": "Routines"
+  },
+  "conversations": {
+   "More…": "More…",
+   "Nothing yet. Start a new chat.": "Nothing yet. Start a new chat.",
+   "working": "working",
+   "New conversation": "New conversation",
+   "Chat with one agent": "Chat with one agent",
+   "Chat inside a project": "Chat inside a project",
+   "Room with several agents and people": "Room with several agents and people",
+   "Room name": "Room name",
+   "Pick a conversation on the left, or start a new chat.": "Pick a conversation on the left, or start a new chat.",
+   "Archive": "Archive",
+   "Take it out of the list. It stays under Activity.": "Take it out of the list. It stays under Activity.",
+   "Name this conversation": "Name this conversation",
+   "Take this conversation out of the list? It stays under Activity.": "Take this conversation out of the list? It stays under Activity.",
+   "Archived": "Archived",
+   "Talk with an agent, work inside a project, or share a room with people and several agents. All of it is one list.": "Talk with an agent, work inside a project, or share a room with people and several agents. All of it is one list.",
+   "Manage projects: which agent they use and the instructions they add.": "Manage projects: which agent they use and the instructions they add.",
+   "No agent assigned to you": "No agent assigned to you"
   }
  }
 }

@@ -23,26 +23,35 @@ async function login(page, username, password) {
 // Menu entries are hubs (Chat, Activity, Abilities, Connections, Settings);
 // the pages inside one are tabs. go() walks it the way a person does.
 const HUB = {
-  General: ['Chat', 'General'], Rooms: ['Chat', 'Rooms'], Projects: ['Chat', 'Projects'], 'Team messages': ['Chat', 'Team messages'],
+  Chat: ['Chat', 'Chat'], Projects: ['Chat', 'Projects'],
   Activity: ['Activity', 'Activity'], Schedules: ['Activity', 'Schedules'],
   'Functions & procedures': ['Abilities', 'Functions & procedures'], Memories: ['Abilities', 'Memories'],
   'Models & prices': ['Connections', 'Models & prices'], APIs: ['Connections', 'APIs'], 'MCP servers': ['Connections', 'MCP servers'],
   'Decision model': ['Connections', 'Decision model'], 'Inbound events': ['Connections', 'Inbound events'],
   'Access & appearance': ['Settings', 'Access & appearance'], 'Audit log': ['Settings', 'Audit log'], SQL: ['Settings', 'SQL console'],
 };
+// Rooms live in the Chat list now: More... > Room.
+async function newRoom(page, name, purpose = '') {
+  await go(page, 'Chat');
+  await page.locator('#convOther').click();
+  await page.locator('#ncKind').selectOption('room');
+  await page.locator('#ncRoomName').fill(name);
+  if (purpose) await page.locator('#ncRoomPurpose').fill(purpose);
+  await page.locator('#ncGo').click();
+}
 async function go(page, label) {
   const [nav, tab] = HUB[label] || [label];
   await page.locator('#nav').getByRole('button', { name: nav, exact: true }).click();
   // The hub opens on its first tab; clicking the tab that is already open does nothing.
   const t = page.locator('#pageTabs').getByRole('tab', { name: tab, exact: true });
-  if (tab && (await t.getAttribute('aria-selected')) !== 'true') await t.click();
+  if (tab && (await page.locator('#pageTabs').getByRole('tab').count()) > 0 && (await t.getAttribute('aria-selected')) !== 'true') await t.click();
 }
 
 test('admin reaches every primary surface directly', async ({ page }) => {
   const cspErrors=[];
   page.on('console',message=>{if(message.type()==='error'&&/inline style|style-src/i.test(message.text()))cspErrors.push(message.text())});
   await login(page, 'ui_admin', 'ui-admin-password');
-  const labels = ['Home','Agents','Users','General','Rooms','Projects','Team messages','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Teams','Access & appearance','Audit log'];
+  const labels = ['Home','Agents','Users','Chat','Projects','Approvals','Activity','Schedules','Functions & procedures','Memories','SQL','Models & prices','APIs','MCP servers','Decision model','Inbound events','Teams','Access & appearance','Audit log'];
   for (const label of labels) {
     await go(page, label);
     await expect(page.locator('#nav button.active')).toHaveCount(1);
@@ -50,8 +59,11 @@ test('admin reaches every primary surface directly', async ({ page }) => {
   }
   await expect(page.locator('#nav').getByRole('button', { name: 'Canvas' })).toHaveCount(0);
   await expect(page.locator('#toCanvas')).toBeVisible();
-  await go(page, 'General');
-  await expect(page.locator('#generalChatThread')).toBeAttached();
+  await go(page, 'Chat');
+  await expect(page.locator('#convList')).toBeAttached();
+  // An item in the list is drawn under the page's style policy (no inline styles).
+  await page.locator('#convNew').click();
+  await expect(page.locator('#convList .convItem').first()).toBeVisible();
   await expect(page.locator('#msgInput')).toHaveCount(0);
   await go(page, 'Access & appearance');
   await expect(page.locator('#bulkApply')).toHaveCount(0);
@@ -435,10 +447,7 @@ test('admin makes a room, calls an agent with a role, and a person makes a task 
       llm_config: { provider: 'ui_room_mock', model: 'allgres-mock' }, is_active: true });
     if (a.ok === false && !/already|duplicate key/i.test(String(a.error))) throw new Error(a.error);
   }, baseURL);
-  await go(page, 'Rooms');
-  await page.locator('#rmName').fill('ui-audit-room');
-  await page.locator('#rmPurpose').fill('plan the audit');
-  await page.locator('#rmCreate').click();
+  await newRoom(page, 'ui-audit-room', 'plan the audit');
   await expect(page.getByRole('heading', { name: 'ui-audit-room' })).toBeVisible();
   await page.locator('#rmAgent').selectOption({ label: 'ui_room_agent' });
   await page.locator('#rmRole').selectOption({ label: 'reviewer' });
@@ -483,9 +492,7 @@ test('assisted room: agents ask each other, the lead proposes, a person confirms
       if (g.ok === false) throw new Error(g.error);
     }
   }, baseURL);
-  await go(page, 'Rooms');
-  await page.locator('#rmName').fill('ui-assisted');
-  await page.locator('#rmCreate').click();
+  await newRoom(page, 'ui-assisted');
   await expect(page.getByRole('heading', { name: 'ui-assisted' })).toBeVisible();
   for (const [name, role] of [['ui_as_lead', 'lead'], ['ui_as_rev', 'reviewer'], ['ui_as_impl', 'implementer']]) {
     await page.locator('#rmAgent').selectOption({ label: name });
@@ -547,9 +554,7 @@ test('auto room: the lead proposes and the room starts the task by itself', asyn
     const g = await call({ action: 'permissions.grant', agent_id: lead, type: 'agent', ref: 'ui_au_impl' });
     if (g.ok === false) throw new Error(g.error);
   }, baseURL);
-  await go(page, 'Rooms');
-  await page.locator('#rmName').fill('ui-auto');
-  await page.locator('#rmCreate').click();
+  await newRoom(page, 'ui-auto');
   await expect(page.getByRole('heading', { name: 'ui-auto' })).toBeVisible();
   for (const [name, role] of [['ui_au_lead', 'lead'], ['ui_au_impl', 'implementer']]) {
     await page.locator('#rmAgent').selectOption({ label: name });
@@ -836,15 +841,24 @@ test('General chat shows only the answer and can start a new chat', async ({ pag
     const r = await call({ action: 'agents.update', agent_id: g.agent_id, llm_config: { provider: 'ui_chat_mock', model: 'allgres-mock' }, is_active: true });
     if (r.ok === false) throw new Error(JSON.stringify(r));
   }, baseURL);
-  await go(page, 'General');
-  await page.locator('#generalChatInput').fill('hello there');
-  await page.locator('#generalChatSend').click();
-  const reply = page.locator('#generalChatThread', { hasText: 'Allgres mock runtime OK' });
+  await go(page, 'Chat');
+  await page.locator('#convNew').click();
+  await page.locator('#convInput').fill('hello there');
+  await page.locator('#convSend').click();
+  const reply = page.locator('#convThread', { hasText: 'Allgres mock runtime OK' });
   await expect(reply).toBeVisible({ timeout: 60000 });
-  await expect(page.locator('#generalChatThread')).not.toContainText('"action"');
-  await page.locator('#generalChatNew').click();
-  await expect(page.locator('#generalChatThread')).toContainText('Say hello to General.');
-  await expect(page.locator('#generalChatThread')).not.toContainText('hello there');
+  await expect(page.locator('#convThread')).not.toContainText('"action"');
+  // The first message names the conversation in the list.
+  await expect(page.locator('#convList .convItem', { hasText: 'hello there' })).toHaveCount(1);
+  // A new chat is a different conversation; the first one is still in the list.
+  await page.locator('#convNew').click();
+  await expect(page.locator('#convThread')).toContainText('Say hello to general.');
+  await expect(page.locator('#convThread')).not.toContainText('hello there');
+  await page.locator('#convList .convItem', { hasText: 'hello there' }).click();
+  await expect(page.locator('#convThread')).toContainText('Allgres mock runtime OK');
+  // Archive takes it out of the list.
+  await page.locator('#convArchive').click();
+  await expect(page.locator('#convList .convItem', { hasText: 'hello there' })).toHaveCount(0);
 });
 
 test('one model is put on chosen agents at once, and can be the default for new agents', async ({ page }) => {
@@ -1113,33 +1127,38 @@ test('a provider is tested before it is saved, and a 200 with an error body is n
   await expect(page.locator('#npProbeOut')).toContainText('lists');
   await page.locator('#saveNewP').click();
   await expect(page.locator('#view')).toContainText(name);
-  // A person tries the model they chose in General without sending a chat.
-  await go(page, 'General');
+  // A person tries the model they chose in a chat without sending anything.
+  await go(page, 'Chat');
+  await page.locator('#convNew').click();
+  // The new chat has drawn (and taken the cursor) before its Model fold is opened.
+  await expect(page.locator('#convInput')).toBeFocused();
+  await page.locator('#convPane summary', { hasText: 'Model' }).click();
   await page.locator('#cmProvider').selectOption({ label: `${name} (openai_compat)` });
   await page.locator('#cmModel').fill('allgres-mock');
   await page.locator('#cmTest').click();
   await expect(page.locator('#cmTestOut')).toContainText('The model answered', { timeout: 30000 });
   await page.locator('#cmModel').fill('allgres-mock');
-  await expect(page.locator('#generalChatThread')).not.toContainText('Unexpected endpoint');
+  await expect(page.locator('#convThread')).not.toContainText('Unexpected endpoint');
 });
 
 test('regular user sees only scoped chat and personal settings', async ({ page }) => {
   await login(page, 'ui_regular', 'ui-regular-password');
   await expect(page.locator('#nav button')).toHaveCount(3);
   await expect(page.locator('#toCanvas')).toBeHidden();
-  for (const label of ['General','Rooms','Projects','Approvals']) {
+  for (const label of ['Chat','Approvals']) {
     await go(page, label);
     await expect(page.locator('#nav button.active')).toHaveCount(1);
   }
   await page.locator('#nav').getByRole('button', { name: 'My agents' }).click();
   await expect(page.locator('#nav button.active')).toHaveText('My agents');
   // A person who is in no room sees none, and cannot make one.
-  await go(page, 'Rooms');
-  await expect(page.getByText('An admin adds you to a room.')).toBeVisible();
+  await go(page, 'Chat');
   await expect(page.locator('#view')).not.toContainText('ui-audit-room');
-  await expect(page.locator('#rmCreate')).toHaveCount(0);
-  await go(page, 'General');
-  await expect(page.locator('#generalChatThread')).toBeAttached();
+  await page.locator('#convOther').click();
+  await expect(page.locator('#ncKind option[value="room"]')).toHaveCount(0);
+  await page.locator('#closeM').click();
+  await page.locator('#convNew').click();
+  await expect(page.locator('#convThread')).toBeAttached();
   await expect(page.getByText('not assigned to your account')).toHaveCount(0);
   for (const forbidden of ['Home','Canvas','SQL','Agents','Users','Memories','Audit log','Connections'])
     await expect(page.locator('#nav').getByRole('button',{name:forbidden,exact:true})).toHaveCount(0);

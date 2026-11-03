@@ -1512,6 +1512,29 @@ CREATE TABLE IF NOT EXISTS allgres_private.user_project_chat_sessions (
   PRIMARY KEY (user_id, project_id)
 );
 
+-- One list of conversations for the whole dashboard. A direct chat and a
+-- project chat each point at a continuing session (created on the first
+-- message); a person may keep any number of them, newest first. A room is
+-- not a row here: rooms keep their own tables and are listed beside these
+-- (conv.list), under their room_id.
+CREATE TABLE IF NOT EXISTS allgres_private.conversations (
+  conversation_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    uuid NOT NULL REFERENCES allgres_private.users(user_id) ON DELETE CASCADE,
+  kind       text NOT NULL CHECK (kind IN ('direct', 'project')),
+  agent_id   uuid NOT NULL REFERENCES allgres_private.agents(agent_id) ON DELETE CASCADE,
+  project_id uuid REFERENCES allgres_private.projects(project_id) ON DELETE CASCADE,
+  session_id uuid REFERENCES allgres_private.sessions(session_id),
+  title      text NOT NULL DEFAULT '' CHECK (length(title) <= 120),
+  archived   boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK ((kind = 'project') = (project_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS conversations_session_idx
+  ON allgres_private.conversations (user_id, session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS conversations_user_idx
+  ON allgres_private.conversations (user_id, updated_at DESC) WHERE NOT archived;
+
 -- The Slack-style messenger channel: every plain post, and every message
 -- that addressed an agent with "@agent_name". mentioned_agent_id/session_id
 -- are set only for the latter; messenger.list joins session_id back to

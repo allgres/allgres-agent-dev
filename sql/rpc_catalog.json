@@ -774,6 +774,57 @@
     ]
   },
   {
+    "action": "conv.list",
+    "guards": [],
+    "params": [
+      "limit",
+      "session_token"
+    ]
+  },
+  {
+    "action": "conv.new",
+    "guards": [],
+    "params": [
+      "agent_id",
+      "project_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "conv.send",
+    "guards": [],
+    "params": [
+      "conversation_id",
+      "message",
+      "session_token"
+    ]
+  },
+  {
+    "action": "conv.history",
+    "guards": [],
+    "params": [
+      "conversation_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "conv.rename",
+    "guards": [],
+    "params": [
+      "conversation_id",
+      "session_token",
+      "title"
+    ]
+  },
+  {
+    "action": "conv.archive",
+    "guards": [],
+    "params": [
+      "conversation_id",
+      "session_token"
+    ]
+  },
+  {
     "action": "messenger.post",
     "guards": [],
     "params": [

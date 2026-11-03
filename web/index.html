@@ -109,6 +109,7 @@ body{font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFon
 .select{-webkit-appearance:none;-moz-appearance:none;appearance:none;height:36px;padding:9px 28px 9px 10px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%238b949e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
 .btn:focus-visible,.input:focus-visible,.textarea:focus-visible,.select:focus-visible,.nav button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .chatPanel{max-width:760px;margin:0 auto;width:100%}
+.convItem{display:block;width:100%;text-align:left;margin:3px 0}
 #chatThread,#projectChatThread,#msgFeed{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 #chatThread::-webkit-scrollbar,#projectChatThread::-webkit-scrollbar,#msgFeed::-webkit-scrollbar{width:10px}
 #chatThread::-webkit-scrollbar-track,#projectChatThread::-webkit-scrollbar-track,#msgFeed::-webkit-scrollbar-track{background:transparent}
@@ -146,14 +147,14 @@ async function flushPrefs(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushPrefs()});
 const saveUi=(key,value)=>setPref('ui.'+key,value);
-const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users:[],chatAgentId:null,chatMode:savedUi('chat_mode','general'),projectView:savedUi('project_view','manage'),chatProjectId:null,projects:[],sessions:[],approvals:[],proposals:[],fixes:[],proposalAgentFilter:null,tasks:[],logs:[],memories:[],auditLog:[],settings:null,overview:null,auditTab:savedUi('audit_tab','Log'),approvalsTab:savedUi('approvals_tab','Approvals'),apMine:savedUi('ap_mine','0')==='1',settingsTab:savedUi('settings_tab','Integrations')};
+const state={page:savedUi('page','Overview'),me:null,agents:[],myAgents:[],users:[],chatAgentId:null,convId:savedUi('conv_id','')||null,projectView:savedUi('project_view','manage'),chatProjectId:null,projects:[],sessions:[],approvals:[],proposals:[],fixes:[],proposalAgentFilter:null,tasks:[],logs:[],memories:[],auditLog:[],settings:null,overview:null,auditTab:savedUi('audit_tab','Log'),approvalsTab:savedUi('approvals_tab','Approvals'),apMine:savedUi('ap_mine','0')==='1',settingsTab:savedUi('settings_tab','Integrations')};
 // Sessions/Tasks/Logs folded into Audit (as tabs); Users folded into
 // Settings (as a section); Approvals/Proposals/Fixes folded into one
 // Approvals page (as tabs, open to regular users too -- item 41); Chat/
 // Messenger/Project folded into one Chat page (as a mode switch -- item
 // 43). Nav is simpler because of it, not because anything was removed.
-const adminPages=['Overview','Canvas','AbilityNew','Agents','People','Chat','Rooms','Teams','Projects','Approvals','Activity','Schedules','Abilities','Memories','SQL','Models','APIs','MCP','Decision','Inbound','Settings','Audit'];
-const userPages=['Chat','Rooms','Projects','Approvals','My Agents'];
+const adminPages=['Overview','Canvas','AbilityNew','Agents','People','Chat','Teams','Projects','Approvals','Activity','Schedules','Abilities','Memories','SQL','Models','APIs','MCP','Decision','Inbound','Settings','Audit'];
+const userPages=['Chat','Approvals','My Agents'];
 function pagesForRole(){return state.me?.role==='admin'?adminPages:userPages}
 const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let toastTimer=null;
@@ -341,23 +342,21 @@ async function api(path,opt={}){
 // or dashboard rebuild to become reachable -- only this file changes.
 const rpc=(action,body={})=>api('/api/v1/rpc',{method:'POST',body:JSON.stringify({action,operator_name:opName(),session_token:sessTok(),...body})});
 
-function openPage(page){if(!pagesForRole().includes(page))page=pagesForRole()[0];state.page=page;saveUi('page',page);nav();loadPage()}
+function openPage(page){if(page==='Rooms')page='Chat';if(!pagesForRole().includes(page))page=pagesForRole()[0];state.page=page;saveUi('page',page);nav();loadPage()}
 // Sidebar entries are hubs. A hub is one place with a tab strip; every tab is
 // still an ordinary page id, so saved pages and openPage('Rooms') keep working.
 const HUBS={
-  Chat:{label:'Chat',tabs:[
-    {label:'General',page:'Chat',mode:'general',hint:'Ask one assistant anything. A private conversation that continues where you left it.'},
-    {label:'Rooms',page:'Rooms',hint:'People and several agents talk in one room. Choose how much the agents may do on their own.'},
-    {label:'Projects',page:'Projects',hint:'Work inside one project: manage its agents and talk with that project.'},
-    {label:'Team messages',page:'Chat',mode:'messenger',hint:'Write @agent-name to call one or several agents. Each message goes to whoever you mention.'}]},
+  Chat:{label:'Chat',also:['Rooms'],tabs:[
+    {label:'Chat',page:'Chat',hint:'Talk with an agent, work inside a project, or share a room with people and several agents. All of it is one list.'},
+    {label:'Projects',page:'Projects',hint:'Manage projects: which agent they use and the instructions they add.'}]},
   Activity:{label:'Activity',tabs:[{label:'Activity',page:'Activity',hint:'What agents did and are doing now.'},{label:'Schedules',page:'Schedules',hint:'Work that starts by itself at set times.'}]},
   Abilities:{label:'Abilities',also:['AbilityNew'],tabs:[{label:'Functions & procedures',page:'Abilities',hint:'What agents are able to do.'},{label:'Memories',page:'Memories',hint:'What agents remember.'}]},
   Connections:{label:'Connections',tabs:[{label:'Models & prices',page:'Models'},{label:'APIs',page:'APIs'},{label:'MCP servers',page:'MCP'},{label:'Decision model',page:'Decision'},{label:'Inbound events',page:'Inbound'}]},
   Settings:{label:'Settings',tabs:[{label:'Access & appearance',page:'Settings'},{label:'Audit log',page:'Audit'},{label:'SQL console',page:'SQL',hint:'Advanced: run SQL directly.'}]}
 };
 function hubOf(page){return Object.keys(HUBS).find(k=>HUBS[k].tabs.some(x=>x.page===page)||(HUBS[k].also||[]).includes(page))||null}
-function tabActive(x){return x.page===state.page&&(!x.mode||x.mode===state.chatMode)}
-function openTab(x){if(tabActive(x))return;if(x.mode){state.chatMode=x.mode;saveUi('chat_mode',x.mode)}else if(x.page==='Chat'){state.chatMode='general';saveUi('chat_mode','general')}openPage(x.page)}
+function tabActive(x){return x.page===state.page}
+function openTab(x){if(tabActive(x))return;openPage(x.page)}
 function renderTabs(){
   const el=$('#pageTabs'),h=hubOf(state.page);
   if(!el)return;
@@ -548,9 +547,7 @@ async function renderPage(){
   // Chat/Messenger poll for an async reply on a setInterval; leaving the
   // page must stop it, or it keeps firing against DOM elements (#chatThread/
   // #msgFeed) that no longer exist once another page has rendered.
-  if(msgPollTimer){clearInterval(msgPollTimer);msgPollTimer=null}
-  if(generalChatPollTimer){clearInterval(generalChatPollTimer);generalChatPollTimer=null}
-  if(projectChatPollTimer){clearInterval(projectChatPollTimer);projectChatPollTimer=null}
+  convStop();
   $('#pageTitle').textContent=state.page==='AbilityNew'?'Create':hubOf(state.page)?HUBS[hubOf(state.page)].label:t(state.page); try{
   if(state.page==='Canvas')canvasBody();
   if(state.page==='AbilityNew')await abilityNewPage();
@@ -565,7 +562,6 @@ async function renderPage(){
   if(state.page==='MCP')await mcpPage();
   if(state.page==='Decision')await decisionModelPage();
   if(state.page==='Inbound')await inboundPage();
-  if(state.page==='Rooms')await roomsPage();
   if(state.page==='Teams')await teamsPage();
   if(state.page==='SQL')await sqlConsolePage();
   if(state.page in SETTINGS_PAGES)await settings(SETTINGS_PAGES[state.page]);
@@ -636,7 +632,7 @@ async function overview(){
   $('#hmInbound')&&($('#hmInbound').onclick=()=>openPage('Inbound'));
   $('#hmConnect')&&($('#hmConnect').onclick=()=>providerReady?(general?agentModal(general):openPage('Agents')):openPage('Models'));
   $('#hmTeam')&&($('#hmTeam').onclick=()=>openPage('Canvas'));
-  $('#hmJob')&&($('#hmJob').onclick=()=>{state.chatMode='general';saveUi('chat_mode','general');openPage('Chat')});
+  $('#hmJob')&&($('#hmJob').onclick=()=>openPage('Chat'));
   $('#hmAllApprovals').onclick=()=>openPage('Approvals');
   $('#hmActivity').onclick=()=>openPage('Activity');
   document.querySelectorAll('.hmFixModels').forEach(b=>b.onclick=()=>openPage('Models'));
@@ -801,22 +797,16 @@ function closeModal(){$('#modal').classList.add('hidden');$('#modal').innerHTML=
 
 // --- Projects ---
 async function projectsPage(){
-  if(state.me?.role!=='admin'){
-    $('#view').innerHTML='<div id="projectViewBody"></div>';
-    await projectChatMode($('#projectViewBody'));
-    return;
-  }
-  $('#view').innerHTML=`<div class="row u-margin-bottom-22px"><button class="btn small projectViewBtn${state.projectView==='manage'?' primary':''}" data-view="manage">Manage</button><button class="btn small projectViewBtn${state.projectView==='chat'?' primary':''}" data-view="chat">Conversation</button></div><div id="projectViewBody"></div>`;
-  document.querySelectorAll('.projectViewBtn').forEach(b=>b.onclick=()=>{state.projectView=b.dataset.view;saveUi('project_view',state.projectView);projectsPage()});
-  if(state.projectView==='chat'){await projectChatMode($('#projectViewBody'));return}
+  $('#view').innerHTML='<div id="projectViewBody"></div>';
   await projectsManagementPage($('#projectViewBody'));
 }
 async function projectsManagementPage(target){
   const [d,da]=await Promise.all([rpc('projects.list'),state.agents.length?null:api('/api/v1/agents')]);
   state.projects=d.projects||[];
   if(da)state.agents=da.agents||[];
-  target.innerHTML=`<div class="row u-margin-bottom-22px"><button class="btn primary" id="newProject">New project</button><span class="spacer"></span><span class="muted">${state.projects.length} projects</span></div><div class="panel"><table class="table"><thead><tr><th>Name</th><th>Description</th><th>Chat agent</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${state.projects.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.description||'—')}</td><td>${p.agent?esc(p.agent):'<span class="muted">not a chat target</span>'}</td><td>${p.is_active?status('open'):status('disabled')}</td><td class="mono muted">${esc(p.created_at)}</td><td><div class="row"><button class="btn small editProject" data-id="${esc(p.project_id)}">${esc(t('edit'))}</button><button class="btn small toggleProject" data-id="${esc(p.project_id)}" data-active="${p.is_active}">${p.is_active?'Disable':'Enable'}</button></div></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No projects yet. A project is a shared place to work with one agent; create one above.</td></tr>'}</tbody></table></div>`;
+  target.innerHTML=`<div class="row u-margin-bottom-22px"><button class="btn primary" id="newProject">New project</button><span class="spacer"></span><span class="muted">${state.projects.length} projects</span></div><div class="panel"><table class="table"><thead><tr><th>Name</th><th>Description</th><th>Chat agent</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${state.projects.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.description||'—')}</td><td>${p.agent?esc(p.agent):'<span class="muted">not a chat target</span>'}</td><td>${p.is_active?status('open'):status('disabled')}</td><td class="mono muted">${esc(p.created_at)}</td><td><div class="row">${p.agent&&p.is_active?`<button class="btn small chatProject" data-id="${esc(p.project_id)}">Chat</button>`:''}<button class="btn small editProject" data-id="${esc(p.project_id)}">${esc(t('edit'))}</button><button class="btn small toggleProject" data-id="${esc(p.project_id)}" data-active="${p.is_active}">${p.is_active?'Disable':'Enable'}</button></div></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No projects yet. A project is a shared place to work with one agent; create one above.</td></tr>'}</tbody></table></div>`;
   $('#newProject').onclick=()=>projectModal();
+  document.querySelectorAll('.chatProject').forEach(b=>b.onclick=()=>startProjectChat(b.dataset.id));
   document.querySelectorAll('.editProject').forEach(b=>b.onclick=()=>projectModal(state.projects.find(p=>p.project_id===b.dataset.id)));
   target.querySelectorAll('.toggleProject').forEach(b=>b.onclick=async()=>{try{await rpc('projects.update',{project_id:b.dataset.id,is_active:b.dataset.active!=='true'});toast('Saved');projectsPage()}catch(e){toast(e.message)}});
 }
@@ -951,13 +941,16 @@ async function peoplePage(){
 // role placed in its goal as data; the answer comes back here. Roles tell an
 // agent what it is asked to do and grant nothing. See docs/rooms.md. ---
 let roomPollTimer=null;
-async function roomsPage(){
+async function roomsPage(embedTarget){
+  // With embedTarget the room is drawn inside the Chat page: no room list of
+  // its own (the Chat list has the rooms), only the thread and its panels.
+  const embedded=Boolean(embedTarget);
   if(roomPollTimer){clearTimeout(roomPollTimer);roomPollTimer=null}
   const draft=$('#rmText')?.value||'';
   const admin=state.me?.role==='admin';
-  const [lr,rr]=await Promise.all([rpc('rooms.list'),rpc('rooms.roles')]);
+  const [lr,rr]=await Promise.all([embedded?Promise.resolve({rooms:[]}):rpc('rooms.list'),rpc('rooms.roles')]);
   const rooms=lr.rooms||[],roles=rr.roles||[];
-  if(!rooms.some(x=>x.room_id===state.roomId))state.roomId=rooms[0]?.room_id||null;
+  if(!embedded&&!rooms.some(x=>x.room_id===state.roomId))state.roomId=rooms[0]?.room_id||null;
   let cur=null;
   if(state.roomId)cur=await rpc('rooms.get',{room_id:state.roomId});
   let agents=[],users=[];
@@ -981,12 +974,13 @@ ${admin?`<div class="panel"><h3>Limits and state</h3><div class="row wrap u-gap-
   const thread=room?`${proposalPanel}<div class="panel"><div class="row wrap"><h3 class="u-margin-bottom-0">${esc(room.name)}</h3>${room.mode==='assisted'?'<span class="status s-checking">assisted</span>':''}${room.mode==='auto'?'<span class="status s-ok">auto</span>':''}${room.status==='closed'?'<span class="status s-stale">closed</span>':''}${room.busy?'<span class="status s-checking">an agent is working…</span>':''}<span class="spacer"></span><span class="muted">${esc(room.turns)} of ${esc(room.max_turns)} agent turns · $${esc(Number(room.cost_usd).toFixed(4))} of $${esc(room.max_cost_usd)}</span></div>${room.purpose?`<div class="muted">${esc(room.purpose)}</div>`:''}
 <div id="rmThread" class="u-margin-top-12px">${messages.map(msgRow).join('')||'<div class="muted">Nothing said yet. Call a member agent with @name.</div>'}</div>
 ${room.status==='open'?`<div class="row u-margin-top-12px-gap-8px"><textarea class="textarea" id="rmText" placeholder="Say something. @${esc(memberAgents[0]?.name||'agent-name')} calls an agent."></textarea><button class="btn primary" id="rmSend">Send</button></div>`:''}</div>${memberPanel}`:`<div class="panel muted">Pick or create a room.</div>`;
-  $('#view').innerHTML=`<div class="muted u-margin-bottom-10px">A room is where people and agents work on something together. Call an agent with @name; its answer comes back here. Nothing runs unless a person calls it.</div><div class="rooms-grid">${side}<div>${thread}</div></div>`;
+  if(embedded)embedTarget.innerHTML=`${thread}`;
+  else $('#view').innerHTML=`<div class="muted u-margin-bottom-10px">A room is where people and agents work on something together. Call an agent with @name; its answer comes back here. Nothing runs unless a person calls it.</div><div class="rooms-grid">${side}<div>${thread}</div></div>`;
   if(draft&&$('#rmText'))$('#rmText').value=draft;
-  const go=async(action,body,msg)=>{try{await rpc(action,body);if(msg)toast(msg);roomsPage()}catch(e){toast(e.message)}};
-  document.querySelectorAll('.rmPick').forEach(b=>b.onclick=()=>{state.roomId=b.dataset.id;roomsPage()});
-  $('#rmCreate')&&($('#rmCreate').onclick=async()=>{try{const r=await rpc('rooms.create',{name:$('#rmName').value,purpose:$('#rmPurpose').value});state.roomId=r.room_id;roomsPage()}catch(e){toast(e.message)}});
-  $('#rmSend')&&($('#rmSend').onclick=async()=>{const text=$('#rmText').value.trim();if(!text)return;$('#rmSend').disabled=true;try{await rpc('rooms.post',{room_id:state.roomId,text});$('#rmText').value='';roomsPage()}catch(e){toast(e.message);$('#rmSend').disabled=false}});
+  const go=async(action,body,msg)=>{try{await rpc(action,body);if(msg)toast(msg);roomsPage(embedTarget)}catch(e){toast(e.message)}};
+  document.querySelectorAll('.rmPick').forEach(b=>b.onclick=()=>{state.roomId=b.dataset.id;roomsPage(embedTarget)});
+  $('#rmCreate')&&($('#rmCreate').onclick=async()=>{try{const r=await rpc('rooms.create',{name:$('#rmName').value,purpose:$('#rmPurpose').value});state.roomId=r.room_id;roomsPage(embedTarget)}catch(e){toast(e.message)}});
+  $('#rmSend')&&($('#rmSend').onclick=async()=>{const text=$('#rmText').value.trim();if(!text)return;$('#rmSend').disabled=true;try{await rpc('rooms.post',{room_id:state.roomId,text});$('#rmText').value='';roomsPage(embedTarget)}catch(e){toast(e.message);$('#rmSend').disabled=false}});
   $('#rmText')&&($('#rmText').onkeydown=e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))$('#rmSend').click()});
   $('#rmAddAgent')&&($('#rmAddAgent').onclick=()=>{if(!$('#rmAgent').value)return toast('No agent left to add');go('rooms.member_add',{room_id:state.roomId,agent_id:$('#rmAgent').value,role_id:$('#rmRole').value})});
   $('#rmAddUser')&&($('#rmAddUser').onclick=()=>{if(!$('#rmUser').value)return toast('No person left to add');go('rooms.member_add',{room_id:state.roomId,user_id:$('#rmUser').value})});
@@ -1001,10 +995,12 @@ ${room.status==='open'?`<div class="row u-margin-top-12px-gap-8px"><textarea cla
     $('#modal').classList.remove('hidden');
     $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>Make a task</h3><span class="spacer"></span><button class="btn" id="closeM">Close</button></div><div class="field"><label>Who does it</label><select class="select" id="rtAgent">${memberAgents.map(m=>opt(m.agent_id,m.name+(m.role?' ('+m.role+')':''))).join('')}</select></div><div class="field"><label>What to do</label><textarea class="textarea" id="rtGoal">${esc(b.dataset.text)}</textarea></div><button class="btn primary" id="rtGo">Start the task</button></div>`;
     $('#closeM').onclick=closeModal;
-    $('#rtGo').onclick=async()=>{try{await rpc('rooms.make_task',{room_id:state.roomId,agent_id:$('#rtAgent').value,goal:$('#rtGoal').value});closeModal();toast('Task started');roomsPage()}catch(e){toast(e.message)}};
+    $('#rtGo').onclick=async()=>{try{await rpc('rooms.make_task',{room_id:state.roomId,agent_id:$('#rtAgent').value,goal:$('#rtGoal').value});closeModal();toast('Task started');roomsPage(embedTarget)}catch(e){toast(e.message)}};
   });
   const th=$('#rmThread');if(th)th.scrollTop=th.scrollHeight;
-  if(room?.busy&&state.page==='Rooms')roomPollTimer=setTimeout(()=>{if(state.page==='Rooms')roomsPage()},2000);
+  const here=()=>embedded?(state.page==='Chat'&&state.convId===room?.room_id):state.page==='Rooms';
+  if(embedded&&typeof loadConvList==='function')loadConvList().catch(()=>{});
+  if(room?.busy&&here())roomPollTimer=setTimeout(()=>{if(here())roomsPage(embedTarget)},2000);
 }
 // --- One model for many agents, and a default for new agents. The model is
 // written into each chosen agent's own settings (never a hidden fallback), what
@@ -2038,139 +2034,137 @@ function wireChatModelPicker(agent,providerOpts,onSaved){
   };
   if($('#cmReset'))$('#cmReset').onclick=async()=>{try{await rpc('agents.set_my_model',{agent_id:agent.agent_id,provider:'',model:''});toast('Using Agent default');if(onSaved)onSaved()}catch(e){toast(e.message)}};
 }
+// --- One list of conversations (docs/conversations.md). General chat,
+// project chat and rooms are all in the list on the left; the thread of the
+// chosen one is on the right. A chat is one person and one agent (with a
+// project's prompt when it belongs to a project); a room is several people
+// and agents sharing one thread, so its panels (members, limits, proposals)
+// open beside the thread only there. ---
+let convPollTimer=null;
+const convState={list:[]};
+function convStop(){
+  if(convPollTimer){clearTimeout(convPollTimer);convPollTimer=null}
+  if(roomPollTimer){clearTimeout(roomPollTimer);roomPollTimer=null}
+}
 async function chatPage(){
-  if(!['general','messenger'].includes(state.chatMode))state.chatMode='general';
-  $('#view').innerHTML=`<div class="chatPanel"><div id="chatModeBody"></div></div>`;
-  const body=$('#chatModeBody');
-  if(state.chatMode==='messenger')await messengerPage(body);
-  else await generalChatMode(body);
+  convStop();
+  $('#view').innerHTML=`<div class="rooms-grid"><div class="panel convSide"><div class="row wrap u-gap-8px"><button class="btn primary small" id="convNew">New chat</button><button class="btn small" id="convOther">More…</button></div><div id="convList" class="u-margin-top-12px"></div></div><div id="convPane"></div></div>`;
+  $('#convNew').onclick=()=>newConv({});
+  $('#convOther').onclick=newConvModal;
+  await loadConvList();
+  if(!convState.list.some(c=>c.conversation_id===state.convId))state.convId=convState.list[0]?.conversation_id||null;
+  await showConv();
 }
-// General is a direct, continuing conversation with the seeded 'general'
-// agent. Team messages are a separate, mention-routed surface.
-let generalChatPollTimer=null;
-let generalChatAgentId=null;
-async function generalChatMode(target){
-  const [mine,available]=await Promise.all([
-    rpc('agents.mine'),rpc('providers.available').catch(()=>({providers:[]}))
-  ]);
-  const agent=(mine.agents||[]).find(a=>a.name==='general');
-  generalChatAgentId=agent?.agent_id||null;
-  if(!agent){target.innerHTML='<div class="panel">The General agent is not assigned to your account. Ask an administrator to assign it.</div>';return}
-  const ready=Boolean(agent.provider&&agent.model);
-  target.innerHTML=`<div class="panel"><p class="muted">Talk directly with General. To call several agents with <code>@agent-name</code>, use Team messages.</p>${chatModelPicker(agent,available.providers||[])}${ready?'':'<div class="banner">Choose a provider and model above, then save before sending a message.</div>'}<div class="row"><span class="spacer"></span><button class="btn small" id="generalChatNew" title="Start a fresh conversation. The earlier one stays under Activity.">New chat</button></div><div id="generalChatThread" class="chat-thread"></div><div class="row"><input class="input" id="generalChatInput" placeholder="Message General…" ${ready?'':'disabled'}><button class="btn primary" id="generalChatSend" ${ready?'':'disabled'}>${esc(t('send'))}</button></div></div>`;
-  wireChatModelPicker(agent,available.providers||[],()=>generalChatMode(target));
-  $('#generalChatSend').onclick=sendGeneralChat;
-  $('#generalChatNew').onclick=async()=>{if(!confirm('Start a new chat? The earlier one stays under Activity.'))return;try{await rpc('chat.new',{agent_id:generalChatAgentId});toast('New chat');await renderGeneralChatThread()}catch(e){toast(e.message)}};
-  $('#generalChatInput').onkeydown=e=>{if(e.key==='Enter')sendGeneralChat()};
-  await renderGeneralChatThread();
+async function loadConvList(){
+  const r=await rpc('conv.list');
+  convState.list=r.conversations||[];
+  renderConvList();
 }
-async function renderGeneralChatThread(){
-  if(!generalChatAgentId||!$('#generalChatThread'))return;
+function renderConvList(){
+  const el=$('#convList');if(!el)return;
+  el.innerHTML=convState.list.map(c=>{
+    const sub=c.kind==='room'?`room · ${esc(c.members)} members${c.room_status==='closed'?' · closed':''}`:c.project?`${esc(c.project)} · ${esc(c.agent)}`:esc(c.agent);
+    return `<button class="btn convItem ${c.conversation_id===state.convId?'primary':''}" data-id="${esc(c.conversation_id)}"><div><b>${esc(c.title||'New chat')}</b>${c.busy?' <span class="status s-checking">working</span>':''}</div><div class="u-font-size-11px-opacity-7">${sub}</div></button>`;
+  }).join('')||'<div class="muted">Nothing yet. Start a new chat.</div>';
+  el.querySelectorAll('.convItem').forEach(b=>b.onclick=()=>{state.convId=b.dataset.id;showConv()});
+}
+async function newConv(opts){
   try{
-    const h=await rpc('chat.history',{agent_id:generalChatAgentId});
-    if(!$('#generalChatThread'))return;
-    $('#generalChatThread').innerHTML=(h.messages||[]).map(msgBubble).join('')||'<div class="muted">Say hello to General.</div>';
-    scrollBottom('#generalChatThread');
-  }catch(e){if($('#generalChatThread'))$('#generalChatThread').textContent=e.message}
+    const r=await rpc('conv.new',opts);
+    state.convId=r.conversation_id;
+    await loadConvList();
+    await showConv();
+    $('#convInput')?.focus();
+  }catch(e){toast(e.message);if(!opts.agent_id&&!opts.project_id)newConvModal()}
 }
-async function sendGeneralChat(){
-  const v=$('#generalChatInput')?.value.trim();if(!v||!generalChatAgentId)return;
-  $('#generalChatInput').value='';
-  try{
-    await rpc('chat.send',{agent_id:generalChatAgentId,message:v});
-    await renderGeneralChatThread();
-    if(generalChatPollTimer)clearInterval(generalChatPollTimer);
-    generalChatPollTimer=setInterval(renderGeneralChatThread,3000);
-  }catch(e){toast(e.message)}
-}
-// Project mode: same shape as General, but keyed by project (its own
-// continuing session -- see user_project_chat_sessions) and against
-// whichever agent that project is bound to, with its preset_prompt
-// applied server-side (fn_next_step).
-async function projectChatMode(target){
-  target=target||$('#view');
-  const [pd,md,ds]=await Promise.all([rpc('projects.list').catch(()=>({projects:[]})),rpc('agents.mine').catch(()=>({agents:[]})),rpc('providers.available').catch(()=>({providers:[]}))]);
-  const opts_=(pd.projects||[]).filter(p=>p.is_active&&p.agent_id);
-  if((!state.chatProjectId||!opts_.some(p=>p.project_id===state.chatProjectId))&&opts_.length)
-    state.chatProjectId=opts_[0].project_id;
-  const opts=opts_.map(p=>`<option value="${esc(p.project_id)}" ${p.project_id===state.chatProjectId?'selected':''}>${esc(p.name)} (${esc(p.agent)})</option>`).join('');
-  // require_project_access's own comment: a project is only reachable once
-  // its bound agent is assigned to this user the same way General mode's
-  // agent would be, so that agent is always present in agents.mine too --
-  // no separate lookup needed for the provider/model picker below.
-  state.myAgents=md.agents||[];
-  const curProject=opts_.find(p=>p.project_id===state.chatProjectId);
-  const projectAgent=curProject?state.myAgents.find(a=>a.agent_id===curProject.agent_id):null;
-  const providerOpts=ds.providers||[];
-  target.innerHTML=`<div class="panel"><div class="row u-margin-bottom-22px"><label class="muted u-font-size-12px">Project</label><select class="select u-max-width-300px" id="chatProjectSel">${opts||'<option value="">No project configured for chat yet</option>'}</select></div>${chatModelPicker(projectAgent,providerOpts)}<div class="u-max-height-55vh-overflow-auto-margin-bottom-14px" id="projectChatThread"></div><div class="row"><input class="input" id="projectChatInput" placeholder="Message…" ${opts_.length?'':'disabled'}><button class="btn primary" id="projectChatSend" ${opts_.length?'':'disabled'}>${esc(t('send'))}</button></div></div>`;
-  $('#chatProjectSel').onchange=()=>{state.chatProjectId=$('#chatProjectSel').value;projectChatMode(target)};
-  wireChatModelPicker(projectAgent,providerOpts,()=>projectChatMode(target));
-  $('#projectChatSend').onclick=sendProjectChat;
-  $('#projectChatInput').onkeydown=e=>{if(e.key==='Enter')sendProjectChat()};
-  await renderProjectChatThread();
-}
-async function renderProjectChatThread(){
-  if(!$('#projectChatThread'))return;
-  if(!state.chatProjectId){$('#projectChatThread').innerHTML=`<div class="muted">${esc(t('noData'))}</div>`;return}
-  try{ const h=await rpc('project_chat.history',{project_id:state.chatProjectId});
-    if(!$('#projectChatThread'))return;
-    $('#projectChatThread').innerHTML=(h.messages||[]).map(m=>msgBubble(m)).join('')||'<div class="muted">Say hello.</div>';
-    scrollBottom('#projectChatThread');
-  }catch(e){if($('#projectChatThread'))$('#projectChatThread').innerHTML=`<div class="muted">${esc(e.message)}</div>`}
-}
-let projectChatPollTimer=null;
-async function sendProjectChat(){
-  if(!state.chatProjectId)return;
-  const v=$('#projectChatInput').value.trim(); if(!v)return;
-  $('#projectChatInput').value='';
-  try{
-    await rpc('project_chat.send',{project_id:state.chatProjectId,message:v});
-    await renderProjectChatThread();
-    if(projectChatPollTimer)clearInterval(projectChatPollTimer);
-    projectChatPollTimer=setInterval(renderProjectChatThread,3000);
-  }catch(e){toast(e.message)}
-}
-// --- Messenger: the Slack-style shared channel. A plain post is just
-// stored; "@agent_name" additionally routes the message to that agent
-// (fn_messenger_post), sharing the same session chat.send/chat.history use
-// for that (user, agent) pair -- not a second, divergent conversation. ---
-async function messengerPage(target){
-  target=target||$('#view');
-  target.innerHTML=`<div class="panel"><div class="muted u-font-size-12px-margin-bottom-10px">Talk normally, or use <code>@agent-name</code> to assign work to one or more Agents. Runs and replies stay in the same conversation.</div><div class="u-max-height-60vh-overflow-auto-margin-bottom-14px" id="msgFeed"></div><div class="row"><input class="input" id="msgInput" placeholder="Message… use @agent-name to call an Agent"><button class="btn primary" id="msgSend">${esc(t('send'))}</button></div></div>`;
-  $('#msgSend').onclick=sendMessenger;
-  $('#msgInput').onkeydown=e=>{if(e.key==='Enter')sendMessenger()};
-  await renderMessengerFeed();
-}
-async function renderMessengerFeed(){
-  const d=await rpc('messenger.list',{limit:200});
-  // Same stray-poll-tick guard as renderChatThread: a call already in
-  // flight can still land after navigating away from Messenger.
-  if(!$('#msgFeed'))return;
-  const oneReply=(agent,st,reply)=>{
-    const body=st==='completed'?esc(reply||''):st==='failed'?'(agent failed to respond)':'(waiting for reply…)';
-    return `<div class="msg-body mono u-color-var-accent2">${agent?`<b>${esc(agent)}:</b> `:''}${body}</div>`;
+async function newConvModal(){
+  const admin=state.me?.role==='admin';
+  const [mine,pj]=await Promise.all([rpc('agents.mine'),rpc('projects.list').catch(()=>({projects:[]}))]);
+  const agents=(mine.agents||[]).filter(a=>!isFoldedAgent(a));
+  const projects=(pj.projects||[]).filter(p=>p.is_active&&p.agent_id);
+  $('#modal').classList.remove('hidden');
+  $('#modal').innerHTML=`<div class="dialog"><div class="row"><h3>New conversation</h3><span class="spacer"></span><button class="btn" id="closeM">${esc(t('close'))}</button></div>
+<div class="field"><label>Kind</label><select class="select" id="ncKind"><option value="agent">Chat with one agent</option>${projects.length?'<option value="project">Chat inside a project</option>':''}${admin?'<option value="room">Room with several agents and people</option>':''}</select></div>
+<div class="field" id="ncAgentF"><label>Agent</label><select class="select" id="ncAgent">${agents.map(a=>`<option value="${esc(a.agent_id)}" ${a.name==='general'?'selected':''}>${esc(a.name)}</option>`).join('')||'<option value="">No agent assigned to you</option>'}</select></div>
+<div class="field hidden" id="ncProjectF"><label>Project</label><select class="select" id="ncProject">${projects.map(p=>`<option value="${esc(p.project_id)}">${esc(p.name)} (${esc(p.agent)})</option>`).join('')}</select></div>
+<div class="hidden" id="ncRoomF"><div class="field"><label>Room name</label><input class="input" id="ncRoomName" placeholder="Name"></div><div class="field"><input class="input" id="ncRoomPurpose" placeholder="What it is for (optional)"></div></div>
+<div class="row u-margin-top-12px"><button class="btn primary" id="ncGo">Start</button></div></div>`;
+  $('#closeM').onclick=closeModal;
+  $('#ncKind').onchange=()=>{const k=$('#ncKind').value;$('#ncAgentF').classList.toggle('hidden',k!=='agent');$('#ncProjectF').classList.toggle('hidden',k!=='project');$('#ncRoomF').classList.toggle('hidden',k!=='room')};
+  $('#ncGo').onclick=async()=>{
+    const k=$('#ncKind').value;
+    try{
+      if(k==='room'){
+        const r=await rpc('rooms.create',{name:$('#ncRoomName').value,purpose:$('#ncRoomPurpose').value});
+        closeModal();state.convId=r.room_id;await loadConvList();await showConv();return;
+      }
+      closeModal();
+      await newConv(k==='project'?{project_id:$('#ncProject').value}:{agent_id:$('#ncAgent').value});
+    }catch(e){toast(e.message)}
   };
-  // A multi-mention post (item 40) shows every mentioned agent's own reply,
-  // not just the first -- mentioned_agents is only present for those.
-  const replyLine=m=>{
-    if(Array.isArray(m.mentioned_agents)&&m.mentioned_agents.length)
-      return m.mentioned_agents.map(x=>oneReply(x.agent,x.reply_status,x.reply)).join('');
-    if(!m.mentioned_agent)return '';
-    return oneReply(null,m.reply_status,m.reply);
-  };
-  $('#msgFeed').innerHTML=(d.messages||[]).map(m=>`<div class="msg"><div class="row"><b>${esc(m.author)}</b>${m.mentioned_agent?`<span class="mono muted u-font-size-11px">@${esc(m.mentioned_agent)}</span>`:''}<span class="spacer"></span><span class="mono muted u-font-size-11px">${esc(m.created_at)}</span></div><div class="msg-body">${esc(m.content)}</div>${replyLine(m)}</div>`).join('')||'<div class="muted">No messages yet.</div>';
-  scrollBottom('#msgFeed');
 }
-let msgPollTimer=null;
-async function sendMessenger(){
-  const v=$('#msgInput').value.trim(); if(!v)return;
-  $('#msgInput').value='';
+async function showConv(){
+  convStop();
+  const pane=$('#convPane');if(!pane)return;
+  renderConvList();
+  saveUi('conv_id',state.convId||null);
+  const c=convState.list.find(x=>x.conversation_id===state.convId);
+  if(!c){pane.innerHTML='<div class="panel muted">Pick a conversation on the left, or start a new chat.</div>';return}
+  if(c.kind==='room'){state.roomId=c.conversation_id;await roomsPage(pane);return}
+  await chatPane(pane,c);
+}
+async function chatPane(pane,c){
+  const [mine,available]=await Promise.all([rpc('agents.mine'),rpc('providers.available').catch(()=>({providers:[]}))]);
+  if(state.convId!==c.conversation_id)return;
+  const agent=(mine.agents||[]).find(a=>a.agent_id===c.agent_id);
+  const ready=Boolean(agent&&agent.provider&&agent.model);
+  const label=c.project?`${esc(c.project)} · ${esc(c.agent)}`:esc(c.agent);
+  pane.innerHTML=`<div class="panel"><div class="row wrap"><h3 class="u-margin-bottom-0">${esc(c.title||'New chat')}</h3><span class="status s-checking">${label}</span><span class="spacer"></span><button class="btn small" id="convRename">Rename</button><button class="btn small" id="convArchive" title="Take it out of the list. It stays under Activity.">Archive</button></div>
+<details class="u-margin-top-12px"><summary class="muted">Model</summary>${chatModelPicker(agent,available.providers||[])}</details>
+${ready?'':'<div class="banner u-margin-top-12px">Choose a provider and model above, then save before sending a message.</div>'}
+<div id="convThread" class="chat-thread u-margin-top-12px"></div>
+<div class="row"><input class="input" id="convInput" placeholder="Message ${esc(c.agent)}…" ${ready?'':'disabled'}><button class="btn primary" id="convSend" ${ready?'':'disabled'}>${esc(t('send'))}</button></div></div>`;
+  wireChatModelPicker(agent,available.providers||[],()=>showConv());
+  $('#convSend').onclick=()=>sendConv(c);
+  $('#convInput').onkeydown=e=>{if(e.key==='Enter')sendConv(c)};
+  $('#convRename').onclick=async()=>{
+    const v=prompt('Name this conversation',c.title||'');
+    if(v===null)return;
+    try{await rpc('conv.rename',{conversation_id:c.conversation_id,title:v});await loadConvList();await showConv()}catch(e){toast(e.message)}
+  };
+  $('#convArchive').onclick=async()=>{
+    if(!confirm('Take this conversation out of the list? It stays under Activity.'))return;
+    try{await rpc('conv.archive',{conversation_id:c.conversation_id});state.convId=null;toast('Archived');await chatPage()}catch(e){toast(e.message)}
+  };
+  await renderConvThread(c);
+}
+async function renderConvThread(c){
+  if(state.convId!==c.conversation_id||!$('#convThread'))return;
   try{
-    await rpc('messenger.post',{text:v});
-    await renderMessengerFeed();
-    if(msgPollTimer)clearInterval(msgPollTimer);
-    msgPollTimer=setInterval(renderMessengerFeed,3000);
+    const h=await rpc('conv.history',{conversation_id:c.conversation_id});
+    if(state.convId!==c.conversation_id||!$('#convThread'))return;
+    $('#convThread').innerHTML=(h.messages||[]).map(msgBubble).join('')||`<div class="muted">Say hello to ${esc(c.agent)}.</div>`;
+    scrollBottom('#convThread');
+    if(convPollTimer){clearTimeout(convPollTimer);convPollTimer=null}
+    if(h.busy)convPollTimer=setTimeout(()=>{if(state.page==='Chat')renderConvThread(c)},2000);
+    else if(c.busy||state.convWasBusy===c.conversation_id){state.convWasBusy=null;loadConvList()}
+    if(h.busy)state.convWasBusy=c.conversation_id;
+  }catch(e){if($('#convThread'))$('#convThread').textContent=e.message}
+}
+async function sendConv(c){
+  const v=$('#convInput')?.value.trim();if(!v)return;
+  $('#convInput').value='';
+  try{
+    await rpc('conv.send',{conversation_id:c.conversation_id,message:v});
+    await renderConvThread(c);
+    await loadConvList();
   }catch(e){toast(e.message)}
+}
+// Start a chat inside a project, from the Projects page.
+async function startProjectChat(projectId){
+  state.page='Chat';saveUi('page','Chat');nav();
+  await chatPage();
+  await newConv({project_id:projectId});
 }
 
 // --- My Agents (regular users): the assigned-agents list plus, inline, the
@@ -2268,7 +2262,7 @@ $('#logoutBtn').onclick=async()=>{
 // This person's saved settings, from the database, applied to the screen.
 async function loadPrefs(){
   try{PREFS=(await rpc('me.prefs_get')).prefs||{}}catch{PREFS={}}
-  Object.assign(state,{page:savedUi('page',state.page),chatMode:savedUi('chat_mode',state.chatMode),projectView:savedUi('project_view',state.projectView),auditTab:savedUi('audit_tab',state.auditTab),approvalsTab:savedUi('approvals_tab',state.approvalsTab),apMine:savedUi('ap_mine',state.apMine),settingsTab:savedUi('settings_tab',state.settingsTab)});
+  Object.assign(state,{page:savedUi('page',state.page)==='Rooms'?'Chat':savedUi('page',state.page),convId:savedUi('conv_id','')||null,projectView:savedUi('project_view',state.projectView),auditTab:savedUi('audit_tab',state.auditTab),approvalsTab:savedUi('approvals_tab',state.approvalsTab),apMine:savedUi('ap_mine',state.apMine),settingsTab:savedUi('settings_tab',state.settingsTab)});
   applyTheme();
   if(uiLang()!==document.documentElement.lang)await setUiLang(uiLang(),false);
 }

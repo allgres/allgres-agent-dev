@@ -991,6 +991,25 @@
    "Web": "웹",
    "Data": "데이터",
    "Routines": "루틴"
+  },
+  "conversations": {
+   "More…": "더 보기…",
+   "Nothing yet. Start a new chat.": "아직 대화가 없습니다. 새 대화를 시작하세요.",
+   "working": "작업 중",
+   "New conversation": "새 대화 만들기",
+   "Chat with one agent": "에이전트 한 명과 대화",
+   "Chat inside a project": "프로젝트 안에서 대화",
+   "Room with several agents and people": "여러 에이전트와 사람이 함께하는 룸",
+   "Room name": "룸 이름",
+   "Pick a conversation on the left, or start a new chat.": "왼쪽에서 대화를 고르거나 새 대화를 시작하세요.",
+   "Archive": "보관",
+   "Take it out of the list. It stays under Activity.": "목록에서 뺍니다. 활동에는 남아 있습니다.",
+   "Name this conversation": "대화 이름",
+   "Take this conversation out of the list? It stays under Activity.": "이 대화를 목록에서 뺄까요? 활동에는 남아 있습니다.",
+   "Archived": "보관했습니다",
+   "Talk with an agent, work inside a project, or share a room with people and several agents. All of it is one list.": "에이전트와 대화하거나, 프로젝트 안에서 일하거나, 사람과 여러 에이전트가 룸을 함께 쓸 수 있습니다. 전부 하나의 목록에 있습니다.",
+   "Manage projects: which agent they use and the instructions they add.": "프로젝트를 관리합니다. 어떤 에이전트를 쓰는지, 어떤 지침을 더하는지 정합니다.",
+   "No agent assigned to you": "배정된 에이전트가 없습니다"
   }
  }
 }
