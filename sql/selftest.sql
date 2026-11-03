@@ -5303,7 +5303,7 @@ BEGIN
     'run', 'sessions.cancel', 'sessions.continue', 'auth.login', 'auth.logout', 'auth.me',
     'users.create', 'users.list', 'users.set_active', 'users.set_role', 'assignments.set',
     'assignments.list', 'assignments.for_agent', 'assignments.toggle', 'agents.mine', 'agents.set_my_model',
-    'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
+    'chat.send', 'chat.history', 'conv.list', 'conv.new', 'conv.send', 'conv.history', 'conv.rename', 'conv.archive', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'abilities.declare_point', 'abilities.undeclare_point', 'abilities.declared_points', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
@@ -5334,7 +5334,7 @@ BEGIN
     'run', 'sessions.cancel', 'sessions.continue', 'auth.login', 'auth.logout', 'auth.me',
     'users.create', 'users.list', 'users.set_active', 'users.set_role', 'assignments.set',
     'assignments.list', 'assignments.for_agent', 'assignments.toggle', 'agents.mine', 'agents.set_my_model',
-    'chat.send', 'chat.history', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
+    'chat.send', 'chat.history', 'conv.list', 'conv.new', 'conv.send', 'conv.history', 'conv.rename', 'conv.archive', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'abilities.declare_point', 'abilities.undeclare_point', 'abilities.declared_points', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
@@ -5378,6 +5378,7 @@ BEGIN
   v := v || allgres_private.picker_selftest_cases();
   v := v || allgres_private.decision_extend_selftest_cases();
   v := v || allgres_private.chat_selftest_cases();
+v := v || allgres_private.conv_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.model_registry_selftest_cases();
   v := v || allgres_private.inference_settings_selftest_cases();
@@ -7562,6 +7563,107 @@ $fn$;
 
 -- What a chat shows and starting a fresh chat (sql/control_plane.sql,
 -- sql/operator_accounts_and_chat.sql).
+CREATE OR REPLACE FUNCTION allgres_private.conv_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u uuid; u2 uuid; a uuid; proj uuid; rm uuid;
+  c1 uuid; c2 uuid; c3 uuid; cp uuid;
+  tk text := 'selftest-conv-admin-token';
+  tk2 text := 'selftest-conv-user-token';
+  n int;
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_conv_admin', 'x', 'admin') RETURNING user_id INTO u;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (tk, u, now() + interval '1 hour');
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_conv_user', 'x', 'user') RETURNING user_id INTO u2;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (tk2, u2, now() + interval '1 hour');
+  a := (allgres_public.fn_create_agent('zz11_conv', 'conversation fixture')->>'agent_id')::uuid;
+
+  -- A new conversation is empty and listed; asking again reuses the empty one.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.new', 'agent_id', a, 'session_token', tk));
+  c1 := (r->>'conversation_id')::uuid;
+  ok := c1 IS NOT NULL AND r->>'kind' = 'direct'
+    AND (allgres.dashboard_rpc(jsonb_build_object('action', 'conv.new', 'agent_id', a, 'session_token', tk))->>'conversation_id')::uuid = c1
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'conv.list', 'session_token', tk))->'conversations') x
+                WHERE (x->>'conversation_id')::uuid = c1 AND x->>'kind' = 'direct' AND x->>'agent' = 'zz11_conv');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conv_new_is_listed_and_reused_while_empty', 'ok', ok));
+
+  -- The first message makes the session and names the conversation.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', c1, 'message', 'plan the launch', 'session_token', tk));
+  ok := r->>'session_id' IS NOT NULL
+    AND (SELECT title FROM allgres_private.conversations WHERE conversation_id = c1) = 'plan the launch'
+    AND (allgres.dashboard_rpc(jsonb_build_object('action', 'conv.history', 'conversation_id', c1, 'session_token', tk))->'messages')::text LIKE '%plan the launch%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conv_send_makes_the_session_and_a_title', 'ok', ok));
+
+  -- A second message continues the same session.
+  UPDATE allgres_private.tasks SET status = 'completed', output = '{"answer":"ok"}'::jsonb
+  WHERE session_id = (SELECT session_id FROM allgres_private.conversations WHERE conversation_id = c1);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', c1, 'message', 'and the budget', 'session_token', tk));
+  SELECT count(DISTINCT t.session_id) INTO n FROM allgres_private.tasks t
+  WHERE t.session_id = (SELECT session_id FROM allgres_private.conversations WHERE conversation_id = c1);
+  ok := n = 1 AND (allgres.dashboard_rpc(jsonb_build_object('action', 'conv.history', 'conversation_id', c1, 'session_token', tk))->'messages')::text LIKE '%and the budget%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conv_send_continues_the_same_session', 'ok', ok));
+
+  -- Once it has a session, a new one is a different conversation.
+  c2 := (allgres.dashboard_rpc(jsonb_build_object('action', 'conv.new', 'agent_id', a, 'session_token', tk))->>'conversation_id')::uuid;
+  ok := c2 IS NOT NULL AND c2 <> c1;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conv_new_after_a_used_one_is_a_new_conversation', 'ok', ok));
+
+  -- The older chat.send lands in the same list; a later one of its own is not mixed in.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'chat.send', 'agent_id', a, 'message', 'old style message', 'session_token', tk));
+  SELECT conversation_id INTO c3 FROM allgres_private.conversations WHERE session_id = (r->>'session_id')::uuid AND user_id = u;
+  ok := c3 IS NOT NULL AND c3 <> c1;
+  v := v || jsonb_build_array(jsonb_build_object('name', 'chat_send_registers_a_conversation', 'ok', ok));
+
+  -- Nobody else sees or writes into it, an administrator included.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.history', 'conversation_id', c1, 'session_token', tk2));
+  ok := r->>'ok' = 'false' AND r->>'error' LIKE '%not found%';
+  ok := ok AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'conv.list', 'session_token', tk2))->'conversations') x
+                           WHERE (x->>'conversation_id')::uuid = c1);
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conversations_are_private_to_their_owner', 'ok', ok));
+
+  -- A project conversation carries the project and its agent.
+  proj := (allgres_public.fn_create_project('zz11_conv_project', 'selftest', a, 'Answer briefly.')->>'project_id')::uuid;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.new', 'project_id', proj, 'session_token', tk));
+  cp := (r->>'conversation_id')::uuid;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', cp, 'message', 'project question', 'session_token', tk));
+  ok := r->>'session_id' IS NOT NULL AND r->>'session_id' IS NOT NULL
+    AND (SELECT project_id FROM allgres_private.sessions WHERE session_id = (r->>'session_id')::uuid) = proj
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'conv.list', 'session_token', tk))->'conversations') x
+                WHERE (x->>'conversation_id')::uuid = cp AND x->>'kind' = 'project' AND x->>'project' = 'zz11_conv_project');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'project_conversation_keeps_its_project', 'ok', ok));
+
+  -- A room shows up in the same list under its room id, and conv.send posts into it.
+  rm := (allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.create', 'name', 'zz11 conv room', 'session_token', tk))->>'room_id')::uuid;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', rm, 'message', 'hello room', 'session_token', tk));
+  ok := (r->>'ok')::boolean
+    AND EXISTS (SELECT 1 FROM allgres_private.room_messages WHERE room_id = rm AND content = 'hello room')
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'conv.list', 'session_token', tk))->'conversations') x
+                WHERE (x->>'conversation_id')::uuid = rm AND x->>'kind' = 'room' AND (x->>'members')::int = 1)
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'conv.list', 'session_token', tk2))->'conversations') x
+                    WHERE (x->>'conversation_id')::uuid = rm AND u2 NOT IN (SELECT user_id FROM allgres_private.room_members WHERE room_id = rm AND user_id IS NOT NULL));
+  v := v || jsonb_build_array(jsonb_build_object('name', 'room_is_listed_and_conv_send_posts_into_it', 'ok', ok));
+
+  -- Rename and archive.
+  PERFORM allgres.dashboard_rpc(jsonb_build_object('action', 'conv.rename', 'conversation_id', c1, 'title', 'Launch plan', 'session_token', tk));
+  ok := (SELECT title FROM allgres_private.conversations WHERE conversation_id = c1) = 'Launch plan';
+  PERFORM allgres.dashboard_rpc(jsonb_build_object('action', 'conv.archive', 'conversation_id', c1, 'session_token', tk));
+  ok := ok AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'conv.list', 'session_token', tk))->'conversations') x
+                           WHERE (x->>'conversation_id')::uuid = c1)
+    AND EXISTS (SELECT 1 FROM allgres_private.sessions WHERE session_id = (SELECT session_id FROM allgres_private.conversations WHERE conversation_id = c1));
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', c1, 'message', 'again', 'session_token', tk));
+  ok := ok AND r->>'ok' = 'false' AND r->>'error' LIKE '%archived%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'rename_and_archive_keep_the_session', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_private.chat_selftest_cases()
 RETURNS jsonb
 LANGUAGE plpgsql

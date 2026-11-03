@@ -917,12 +917,14 @@ BEGIN
     v_sid := (v_created->>'session_id')::uuid;
     INSERT INTO allgres_private.user_agent_chat_sessions (user_id, agent_id, session_id)
     VALUES (u.user_id, p_agent_id, v_sid);
+    PERFORM allgres_private.conv_register(u.user_id, 'direct', p_agent_id, NULL, v_sid, btrim(p_message));
     RETURN jsonb_build_object('ok', true, 'session_id', v_sid, 'task_id', v_created->>'task_id');
   END IF;
 
   v_created := allgres_public.fn_continue_session(v_sid, btrim(p_message));
   UPDATE allgres_private.user_agent_chat_sessions SET updated_at = now()
   WHERE user_id = u.user_id AND agent_id = p_agent_id;
+  UPDATE allgres_private.conversations SET updated_at = now() WHERE user_id = u.user_id AND session_id = v_sid;
   RETURN v_created;
 END;
 $fn$;
@@ -1021,12 +1023,14 @@ BEGIN
     v_sid := (v_created->>'session_id')::uuid;
     INSERT INTO allgres_private.user_project_chat_sessions (user_id, project_id, session_id)
     VALUES ((v_access.u).user_id, p_project_id, v_sid);
+    PERFORM allgres_private.conv_register((v_access.u).user_id, 'project', v_access.agent_id, p_project_id, v_sid, btrim(p_message));
     RETURN jsonb_build_object('ok', true, 'session_id', v_sid, 'task_id', v_created->>'task_id');
   END IF;
 
   v_created := allgres_public.fn_continue_session(v_sid, btrim(p_message));
   UPDATE allgres_private.user_project_chat_sessions SET updated_at = now()
   WHERE user_id = (v_access.u).user_id AND project_id = p_project_id;
+  UPDATE allgres_private.conversations SET updated_at = now() WHERE user_id = (v_access.u).user_id AND session_id = v_sid;
   RETURN v_created;
 END;
 $fn$;

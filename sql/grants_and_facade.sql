@@ -1404,6 +1404,28 @@ BEGIN
     WHEN 'chat.new' THEN
       RETURN allgres_public.fn_chat_new(p_request->>'session_token', (p_request->>'agent_id')::uuid);
 
+    -- One list of conversations: chats, project chats and rooms (docs/conversations.md).
+    WHEN 'conv.list' THEN
+      RETURN allgres_public.fn_conv_list(p_request->>'session_token', COALESCE((p_request->>'limit')::int, 200));
+
+    WHEN 'conv.new' THEN
+      RETURN allgres_public.fn_conv_new(p_request->>'session_token',
+        NULLIF(p_request->>'agent_id', '')::uuid, NULLIF(p_request->>'project_id', '')::uuid);
+
+    WHEN 'conv.send' THEN
+      RETURN allgres_public.fn_conv_send(p_request->>'session_token',
+        (p_request->>'conversation_id')::uuid, p_request->>'message');
+
+    WHEN 'conv.history' THEN
+      RETURN allgres_public.fn_conv_history(p_request->>'session_token', (p_request->>'conversation_id')::uuid);
+
+    WHEN 'conv.rename' THEN
+      RETURN allgres_public.fn_conv_rename(p_request->>'session_token',
+        (p_request->>'conversation_id')::uuid, p_request->>'title');
+
+    WHEN 'conv.archive' THEN
+      RETURN allgres_public.fn_conv_archive(p_request->>'session_token', (p_request->>'conversation_id')::uuid);
+
     WHEN 'messenger.post' THEN
       RETURN allgres_public.fn_messenger_post(p_request->>'session_token', p_request->>'text');
 
