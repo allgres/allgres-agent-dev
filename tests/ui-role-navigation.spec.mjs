@@ -1110,10 +1110,11 @@ test('an agent is opened between the dashboard and the Canvas in either directio
     if (r.ok === false) throw new Error(r.error);
   }, name);
   await go(page, 'Agents');
-  const row = page.locator('#view tr', { hasText: name }).first();
-  await row.locator('.agentOnCanvas').click();
-  // The Canvas opens with that agent selected.
+  // The agents list has no Canvas button of its own: the top bar switches to the Canvas.
+  await expect(page.locator('#view tr', { hasText: name }).first().locator('.agentOnCanvas')).toHaveCount(0);
+  await page.locator('#toCanvas').click();
   const cv = page.frameLocator('#canvasFrame');
+  await cv.locator('.an-head', { hasText: name }).first().click({ timeout: 20000 });
   await expect(cv.locator(`aside.inspector[aria-label="${name}"]`)).toBeVisible({ timeout: 20000 });
   // The details header keeps the name readable in the narrow panel: the name is not squeezed to
   // an ellipsis, and the on/off switch and the dashboard button sit on their own row below it.
