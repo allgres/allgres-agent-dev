@@ -1034,7 +1034,13 @@
    "The provider lists no models. Add one by name below.": "프로바이더가 모델을 하나도 알려 주지 않았습니다. 아래에서 이름으로 추가하세요.",
    "Input price per 1k tokens": "1k 토큰당 입력 가격",
    "Output price per 1k tokens": "1k 토큰당 출력 가격",
-   "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas.": "프로바이더가 언어 모델을 공급하는 곳입니다. 프로바이더를 추가하면 그 아래에 모델과 가격이 나옵니다. 그다음 에이전트 페이지나 캔버스에서 에이전트마다 모델을 고르세요."
+   "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas.": "프로바이더가 언어 모델을 공급하는 곳입니다. 프로바이더를 추가하면 그 아래에 모델과 가격이 나옵니다. 그다음 에이전트 페이지나 캔버스에서 에이전트마다 모델을 고르세요.",
+   "Build a team": "팀 만들기",
+   "Give it a first job": "첫 작업 맡기기",
+   "Connect a model": "모델 연결",
+   "Make admin": "관리자로 변경",
+   "Show all agents": "모든 에이전트 보기",
+   "My agents": "내 에이전트"
   }
  }
 }

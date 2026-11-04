@@ -110,6 +110,8 @@ async function untranslated(page, issues, where) {
       // Two or more English words in a row with no Korean in the text.
       if (/[가-힣]/.test(t)) continue;
       const words = t.match(/[A-Za-z][a-z]{2,}/g) || [];
+      // What the crawl made itself (its agents, rooms, messages) and what the mock model says is not the page's text.
+      if (/crawl|mock|allgres|seoul-weather/i.test(t)) continue;
       if (words.length >= 2 && !/[_/@.:\d]/.test(t)) out.add(t.slice(0, 60));
     }
     return [...out];
