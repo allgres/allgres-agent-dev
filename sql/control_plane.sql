@@ -4600,6 +4600,8 @@ BEGIN
       SELECT user_id owner_id FROM allgres_private.user_agent_chat_sessions WHERE session_id=t.session_id
       UNION
       SELECT user_id FROM allgres_private.user_project_chat_sessions WHERE session_id=t.session_id
+      UNION
+      SELECT user_id FROM allgres_private.conversations WHERE session_id=t.session_id
     ) owners LIMIT 1
   );
   v_cfg := p.llm_config || COALESCE(v_user_cfg,'{}'::jsonb);

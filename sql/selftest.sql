@@ -7576,7 +7576,7 @@ DECLARE
   c1 uuid; c2 uuid; c3 uuid; cp uuid;
   tk text := 'selftest-conv-admin-token';
   tk2 text := 'selftest-conv-user-token';
-  n int;
+  n int; v_tid uuid; spec jsonb;
 BEGIN
   INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_conv_admin', 'x', 'admin') RETURNING user_id INTO u;
   INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (tk, u, now() + interval '1 hour');
@@ -7637,6 +7637,15 @@ BEGIN
     AND EXISTS (SELECT 1 FROM jsonb_array_elements(allgres.dashboard_rpc(jsonb_build_object('action', 'conv.list', 'session_token', tk))->'conversations') x
                 WHERE (x->>'conversation_id')::uuid = cp AND x->>'kind' = 'project' AND x->>'project' = 'zz11_conv_project');
   v := v || jsonb_build_array(jsonb_build_object('name', 'project_conversation_keeps_its_project', 'ok', ok));
+
+  -- The model a person chose for themselves (My model) reaches the call made for their conversation.
+  INSERT INTO allgres_private.user_agent_preferences (user_id, agent_id, llm_config)
+  VALUES (u, a, '{"provider":"zz11_prov","model":"zz11-my-model"}'::jsonb)
+  ON CONFLICT (user_id, agent_id) DO UPDATE SET llm_config = EXCLUDED.llm_config;
+  SELECT task_id INTO v_tid FROM allgres_private.tasks WHERE session_id = (r->>'session_id')::uuid LIMIT 1;
+  spec := allgres_public.fn_next_step(v_tid);
+  ok := spec->'llm_config'->>'model' = 'zz11-my-model';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conversation_uses_the_persons_own_model_choice', 'ok', ok));
 
   -- A room shows up in the same list under its room id, and conv.send posts into it.
   rm := (allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.create', 'name', 'zz11 conv room', 'session_token', tk))->>'room_id')::uuid;
