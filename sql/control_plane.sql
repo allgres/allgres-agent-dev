@@ -4202,6 +4202,7 @@ DECLARE
   v_memory_ids uuid[];
   v_procedures jsonb;
   v_procedure_functions jsonb;
+  v_delegates jsonb;
   v_task_ids uuid[];
   v_compacted_before timestamptz;
   v_summary_text text;
@@ -4349,6 +4350,23 @@ BEGIN
     AND pr.name = ANY(allgres_private.agent_permission_refs(t.agent_id, 'procedure'));
   v_functions := v_functions || v_procedure_functions;
 
+  -- The agents this one may hand work to (the lines drawn on the Canvas, or an
+  -- 'agent' permission given any other way), named in its own prompt. Without
+  -- this the agent can only find a target by search_agents, which needs an
+  -- embedding provider; a drawn line then did nothing in a plain setup. The
+  -- check is the one 'delegate' itself makes, so the list can never offer a
+  -- name that would be refused.
+  SELECT COALESCE(jsonb_agg(d.o ORDER BY d.n), '[]'::jsonb) INTO v_delegates FROM (
+    SELECT ag.name AS n,
+           jsonb_strip_nulls(jsonb_build_object('name', ag.name, 'about', NULLIF(
+             CASE WHEN po.system_prompt IS NULL OR po.system_prompt LIKE 'You are an agent whose next action%' THEN ''
+                  ELSE left(regexp_replace(po.system_prompt, '\s+', ' ', 'g'), 160) END, ''))) AS o
+    FROM allgres_private.agents ag
+    LEFT JOIN allgres_private.policies po ON po.agent_id = ag.agent_id
+    WHERE ag.is_active AND ag.agent_id <> t.agent_id
+      AND allgres_private.agent_has_permission(t.agent_id, 'agent', ag.name)
+    ORDER BY ag.name LIMIT 30) d;
+
   -- Bounds come from the database, not from worker code, so revoking a
   -- Project mode (item 42): this session's project, if any, may narrow the
   -- agent with a preset -- appended after the agent's own effective prompt,
@@ -4370,6 +4388,10 @@ BEGIN
       || v_views::text
       || E'\nfunctions: '
       || v_functions::text
+      || CASE WHEN jsonb_array_length(v_delegates) > 0
+           THEN E'\nagents you may hand work to: ' || v_delegates::text
+             || E'\nTo hand work over, use {"action":"delegate","agent_name":"<one of those names>","input":{"goal":"what it should do"},"wait":true} -- no search is needed for these.'
+           ELSE '' END
       || E'\nPick action from final_answer | execute_sql | call_function | run_procedure | create_function | update_function | delegate | search_agents | search_capabilities | recall | await_children | await_human | propose_change | remember.'
       || E'\nFor numeric questions, execute_sql first. Do not invent keys.'
       || E'\nFor an explicit retry of a previous external call, add top-level retry_of_call_id with that call UUID and keep its arguments unchanged. A new action without it is a new operation, even with identical arguments. Never retry an unknown external result without operator confirmation.'
@@ -5239,7 +5261,8 @@ BEGIN
     IF NOT FOUND THEN
       PERFORM allgres_private.append_log(
         p_task_id, t.step_count + 1, 'error',
-        jsonb_build_object('reason', 'no_embedding_provider_configured')
+        jsonb_build_object('reason', 'no_embedding_provider_configured',
+          'hint', 'search is not set up; the agents you may hand work to are listed in your instructions under "agents you may hand work to". Use delegate with one of those names.')
       );
       UPDATE allgres_private.tasks
       SET step_count = step_count + 1, updated_at = now()
