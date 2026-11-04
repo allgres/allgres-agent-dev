@@ -509,6 +509,23 @@ function providerStatusBadge(p){
 // lacks (a fine-tune, a deployment alias, a server that lists nothing). With
 // no list the text field is all there is. The text field keeps the field's
 // own id, so everything that reads it still reads the chosen model.
+// A provider that was never tested has no model list. An administrator who
+// picks it gets the list asked for once, so the dropdown fills itself; anyone
+// else is told to ask. The list that comes back is the one the server offers
+// (models switched off in Models & prices are left out).
+const modelProbeTried=new Set();
+async function ensureModelList(p,onModels){
+  if(!p||!p.provider_id||(p.available_models||[]).length||state.me?.role!=='admin'||modelProbeTried.has(p.provider_id))return;
+  modelProbeTried.add(p.provider_id);
+  try{
+    const a=await rpc('providers.probe_start',{provider_id:p.provider_id,probe:'models'});
+    const s=await awaitProbe('providers.probe_status',a.call_id);
+    if(!s.passed)return;
+    const av=await rpc('providers.available');
+    const list=(av.providers||[]).find(x=>x.name===p.name)?.available_models||[];
+    if(list.length){p.available_models=list;onModels(list)}
+  }catch(e){}
+}
 const MODEL_OTHER='__other__';
 const modelFieldOpts={};
 function modelField(id,models,value,o){
@@ -745,8 +762,10 @@ ${isNew||a.is_system?'':`<div class="field"><label>Copy this agent</label><div c
   if($('#aProvider')&&!$('#aProvider').disabled){
     $('#aProvider').onchange=()=>{
       const p=providerOpts.find(x=>x.name===$('#aProvider').value);
-      setModelField('aModel',p?.available_models||[],true)
+      setModelField('aModel',p?.available_models||[],true);
+      ensureModelList(p,l=>setModelField('aModel',l,true));
     };
+    ensureModelList(providerOpts.find(x=>x.name===$('#aProvider').value),l=>setModelField('aModel',l,true));
   }
   if(!isNew&&opts&&!locked){
     const fillRefOptions=()=>{const t=$('#permType').value;const list=t==='view'?opts.views:t==='agent'?opts.agents:t==='function'?opts.functions:t==='procedure'?opts.procedures:[];$('#permRefOptions').innerHTML=(list||[]).map(v=>`<option value="${esc(v)}">`).join('')};
@@ -2042,8 +2061,10 @@ function wireChatModelPicker(agent,providerOpts,onSaved){
   providerOpts=narrowProviders(agent,providerOpts);
   $('#cmProvider').onchange=()=>{
     const p=providerOpts.find(x=>x.name===$('#cmProvider').value);
-    setModelField('cmModel',p?.available_models||[],true)
+    setModelField('cmModel',p?.available_models||[],true);
+    ensureModelList(p,l=>setModelField('cmModel',l,true));
   };
+  ensureModelList(providerOpts.find(x=>x.name===$('#cmProvider').value),l=>setModelField('cmModel',l,true));
   $('#cmTest').onclick=async()=>{
     const out=$('#cmTestOut'),model=$('#cmModel').value.trim();
     if(!$('#cmProvider').value||!model){out.innerHTML=`${status('error')} Choose a provider and a model first.`;return}

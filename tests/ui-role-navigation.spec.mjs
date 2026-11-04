@@ -1133,11 +1133,6 @@ test('a provider is tested before it is saved, and a 200 with an error body is n
   await expect(page.locator('#npProbeOut')).toContainText('lists');
   await page.locator('#saveNewP').click();
   await expect(page.locator('#view')).toContainText(name);
-  // Testing the saved provider is what records the models it offers.
-  await page.locator('tr', { hasText: name }).getByRole('button', { name: 'Edit' }).click();
-  await page.locator('#testConn').click();
-  await expect(page.locator('#probeOut')).toContainText('it lists 2 model(s)', { timeout: 30000 });
-  await page.locator('#closeM').click();
   // A person tries the model they chose in a chat without sending anything.
   await go(page, 'Chat');
   await page.locator('#convNew').click();
@@ -1145,9 +1140,10 @@ test('a provider is tested before it is saved, and a 200 with an error body is n
   await expect(page.locator('#convInput')).toBeFocused();
   await page.locator('#convPane summary', { hasText: 'Model' }).click();
   await page.locator('#cmProvider').selectOption({ label: `${name} (openai_compat)` });
-  // What the provider reported is a dropdown; the text field is hidden until asked for.
+  // A provider never tested lists nothing yet: picking it asks the server once, and what it
+  // reports becomes a dropdown (the text field is hidden until asked for).
   const sel = page.locator('#cmModel').locator('xpath=preceding-sibling::select');
-  await expect(sel.locator('option', { hasText: 'allgres-mock-embed' })).toHaveCount(1);
+  await expect(sel.locator('option', { hasText: 'allgres-mock-embed' })).toHaveCount(1, { timeout: 20000 });
   await expect(page.locator('#cmModel')).toBeHidden();
   await sel.selectOption('allgres-mock');
   await expect(page.locator('#cmModel')).toHaveValue('allgres-mock');
