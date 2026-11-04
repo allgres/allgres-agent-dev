@@ -1798,7 +1798,7 @@ BEGIN
       END IF;
       RETURN jsonb_build_object('ok', true, 'providers', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
-          'name', p.name, 'kind', p.kind,
+          'name', p.name, 'kind', p.kind, 'provider_id', p.provider_id,
           -- A model switched off in Models & prices is not offered.
           'available_models', CASE WHEN jsonb_typeof(p.available_models) = 'array' THEN COALESCE((
               SELECT jsonb_agg(t.m ORDER BY t.ord) FROM jsonb_array_elements_text(p.available_models) WITH ORDINALITY AS t(m, ord)
