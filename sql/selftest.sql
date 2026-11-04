@@ -5382,6 +5382,7 @@ v := v || allgres_private.conv_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.model_registry_selftest_cases();
 v := v || allgres_private.model_listed_selftest_cases();
+v := v || allgres_private.delegation_prompt_selftest_cases();
   v := v || allgres_private.inference_settings_selftest_cases();
   v := v || allgres_private.agent_models_selftest_cases();
   v := v || allgres_private.agent_clone_selftest_cases();
@@ -8439,6 +8440,58 @@ END;
 $fn$;
 
 -- The model registry (sql/models_apply.sql).
+-- A line drawn on the Canvas ("hands work to") is an 'agent' permission. It has to do something an
+-- agent can act on: the agent is told, in its own instructions, who it may hand work to.
+CREATE OR REPLACE FUNCTION allgres_private.delegation_prompt_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  a_boss uuid; a_help uuid; a_other uuid; a_off uuid;
+  v_task uuid; v_text text;
+BEGIN
+  a_boss := (allgres_public.fn_create_agent('zz20_boss', 'boss')->>'agent_id')::uuid;
+  a_help := (allgres_public.fn_create_agent('zz20_helper', 'helper')->>'agent_id')::uuid;
+  a_other := (allgres_public.fn_create_agent('zz20_other', 'not given')->>'agent_id')::uuid;
+  a_off := (allgres_public.fn_create_agent('zz20_off', 'switched off')->>'agent_id')::uuid;
+  PERFORM allgres_public.fn_set_policy(a_help, 'You answer questions about invoices.');
+  PERFORM allgres_public.fn_grant_permission(a_boss, 'agent', 'zz20_helper');
+  PERFORM allgres_public.fn_grant_permission(a_boss, 'agent', 'zz20_off');
+  UPDATE allgres_private.agents SET is_active = false WHERE agent_id = a_off;
+
+  v_task := ((allgres_public.fn_create_session(a_boss, 'ask the helper'))->>'task_id')::uuid;
+  v_text := allgres_public.fn_next_step(v_task)->'messages'->0->>'content';
+  -- The agent it may hand work to is named, with what that agent is for; nobody else is.
+  ok := v_text LIKE '%agents you may hand work to:%"name": "zz20_helper"%'
+    AND v_text LIKE '%You answer questions about invoices.%'
+    AND v_text LIKE '%"action":"delegate","agent_name":"<one of those names>"%'
+    AND v_text NOT LIKE '%zz20_other%' AND v_text NOT LIKE '%zz20_off%'
+    AND v_text NOT LIKE '%"name": "zz20_boss"%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'agent_is_told_who_it_may_hand_work_to', 'ok', ok));
+
+  -- The name it is told is one delegate accepts: a delegate to it queues the helper's task.
+  PERFORM allgres_public.fn_submit_result(v_task, jsonb_build_object(
+    'type', 'llm_response', 'content', '{"action":"delegate"}',
+    'parsed', jsonb_build_object('action', 'delegate', 'agent_name', 'zz20_helper',
+                                 'input', jsonb_build_object('goal', 'count the invoices'), 'wait', true)));
+  ok := EXISTS (SELECT 1 FROM allgres_private.tasks WHERE parent_task_id = v_task AND agent_id = a_help AND status = 'queued'
+                AND input->>'goal' = 'count the invoices');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'delegating_to_a_listed_agent_queues_its_task', 'ok', ok));
+
+  -- Taking the line away takes the name away.
+  PERFORM allgres_public.fn_revoke_permission(a_boss, 'agent', 'zz20_helper');
+  v_task := ((allgres_public.fn_create_session(a_boss, 'again'))->>'task_id')::uuid;
+  v_text := allgres_public.fn_next_step(v_task)->'messages'->0->>'content';
+  ok := v_text NOT LIKE '%zz20_helper%' AND v_text NOT LIKE '%agents you may hand work to%';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'removing_the_line_removes_the_name', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_private.model_listed_selftest_cases()
 RETURNS jsonb
 LANGUAGE plpgsql
