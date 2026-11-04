@@ -554,7 +554,10 @@ fn handle_web_connection(mut s: TcpStream, cfg: &WebConfig) {
                 "index": 0,
                 "message": {"role": "assistant", "content": content},
                 "finish_reason": "stop"
-            }]
+            }],
+            // Like a real provider, say how many tokens the call used, so a
+            // price set on the model produces a cost that tests can check.
+            "usage": {"prompt_tokens": 120, "completion_tokens": 30}
         })
         .to_string();
         respond_json(&mut s, "200 OK", &body);

@@ -1,0 +1,194 @@
+import { test, expect } from '@playwright/test';
+
+// A crawler: open every page and tab of the dashboard and the Canvas, press the
+// buttons the way a person would, and watch for what should never happen --
+// an uncaught error, a console error, a style-policy violation, a request the
+// server answered with a database error, a page that scrolls sideways, a title
+// cut short. It does not know what is *right*; tests/ui-feature-effects.spec.mjs
+// checks that things work. Buttons that delete or sign out are not pressed, and a
+// dialog that opens is closed without saving.
+const baseURL = process.env.ALLGRES_UI_URL || 'http://127.0.0.1:8088';
+test.describe.configure({ mode: 'serial' });
+
+// Never pressed: they remove data or end the session.
+const SKIP = /delete|remove|archive|sign ?out|log ?out|stop doing|revoke|reset|clear|drop|discard|uninstall|reject|decline|turn off|cancel|danger|rmDrop|rmToggle|mrRemove|rmCancel|rmDecline|clrTok|signOut|#toCanvas|toDashboard/i;
+// An error from the server that the page asked for on purpose (a form refused, a permission denied).
+const BENIGN_SQLSTATE = new Set(['P0001', '42501', '22023']);
+const PRESS = 'button:not([disabled]), summary, [role="tab"]';
+
+async function login(page, username, password) {
+  const rpc = async body => (await page.request.post(baseURL + '/api/v1/rpc', { headers: { 'x-allgres-client': 'dashboard' }, data: body })).json();
+  const t = await rpc({ action: 'auth.login', username, password });
+  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, theme: null, lang: null,
+    'canvas.help_seen': null, 'canvas.ran': null, 'canvas.system': null, 'canvas.guide_hidden': null, 'ui.conv_id': null } });
+  await page.goto(baseURL);
+  await page.locator('#liUser').fill(username);
+  await page.locator('#liPass').fill(password);
+  await page.locator('#liGo').click();
+  await expect(page.locator('#whoami')).toContainText(username);
+}
+const api = (page, body) => page.evaluate(async b => (await (await fetch('/api/v1/rpc', { method: 'POST',
+  headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+  body: JSON.stringify({ ...b, session_token: sessionStorage.getItem('allgres_session_token') }) })).json()), body);
+
+// What the pages show when there is something to show.
+async function seed(page) {
+  const call = async b => { const r = await api(page, b); if (r.ok === false && !/already|duplicate key/i.test(String(r.error))) console.log('seed:', b.action, r.error); return r; };
+  await call({ action: 'provider.create', name: 'crawl_mock', kind: 'openai_compat', base_url: baseURL + '/mock', allow_private_network: true });
+  for (const n of ['crawl_a', 'crawl_b'])
+    await call({ action: 'agents.create', name: n, system_prompt: 'Answers briefly.', llm_config: { provider: 'crawl_mock', model: 'allgres-mock' }, is_active: true });
+  const agents = (await api(page, { action: 'agents.list' })).agents;
+  const a = agents.find(x => x.name === 'crawl_a'), b = agents.find(x => x.name === 'crawl_b');
+  await call({ action: 'permissions.grant', agent_id: a.agent_id, type: 'agent', ref: 'crawl_b' });
+  await call({ action: 'projects.create', name: 'crawl_project', description: 'for the crawler', agent_id: a.agent_id, preset_prompt: 'Be short.' });
+  const room = await call({ action: 'rooms.create', name: 'crawl-room' });
+  if (room.room_id) { await call({ action: 'rooms.member_add', room_id: room.room_id, agent_id: a.agent_id }); await call({ action: 'rooms.member_add', room_id: room.room_id, agent_id: b.agent_id }); }
+  await call({ action: 'connections.create', name: 'crawl_api', base_url: baseURL + '/healthz', auth_kind: 'none', allow_private_network: true });
+  const conv = await call({ action: 'conv.new', agent_id: a.agent_id });
+  if (conv.conversation_id) await call({ action: 'conv.send', conversation_id: conv.conversation_id, message: 'hello crawler' });
+  await call({ action: 'users.create', username: 'crawl_user', password: 'crawl-user-password', role: 'user' });
+}
+
+function watch(page, issues, where) {
+  const add = (kind, text) => issues.push({ where: where(), kind, text: String(text).replace(/\s+/g, ' ').slice(0, 300) });
+  page.on('pageerror', e => add('uncaught error', e.message));
+  page.on('console', m => {
+    if (m.type() !== 'error') return;
+    const text = m.text();
+    // A resource the page asked for and the browser could not load is the network's affair, not the page's.
+    if (/Failed to load resource/.test(text)) return;
+    add('console error', text);
+  });
+  page.on('dialog', d => d.dismiss().catch(() => {}));
+  page.on('response', async r => {
+    if (!r.url().includes('/api/v1/')) return;
+    if (r.status() >= 500) { add('server error', `${r.status()} ${r.url().replace(baseURL, '')}`); return; }
+    if (!r.url().endsWith('/api/v1/rpc')) return;
+    try {
+      const body = await r.json();
+      if (body && body.ok === false && body.sqlstate && !BENIGN_SQLSTATE.has(body.sqlstate)) {
+        let action = '?';
+        try { action = r.request().postDataJSON().action; } catch { /* not JSON */ }
+        add('database error', `${action}: ${body.error} (${body.sqlstate})`);
+      }
+    } catch { /* an event stream or an empty body */ }
+  });
+}
+
+// Wait until the page has stopped asking for things.
+async function settle(page) {
+  await page.waitForTimeout(250);
+  for (let i = 0; i < 12; i++) {
+    const busy = await page.evaluate(() => Boolean(document.querySelector('#view')?.textContent?.match(/^\s*Loading…\s*$/)));
+    if (!busy) break;
+    await page.waitForTimeout(250);
+  }
+}
+
+async function layout(page, issues, where) {
+  const bad = await page.evaluate(() => {
+    const out = [];
+    const de = document.documentElement;
+    if (de.scrollWidth > de.clientWidth + 1) out.push(`the page scrolls sideways (${de.scrollWidth} wide in ${de.clientWidth})`);
+    for (const el of document.querySelectorAll('h1,h2,h3,.title,summary b,th,.convTitle')) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow === 'ellipsis') out.push(`a title is cut short: "${el.textContent.trim().slice(0, 40)}"`);
+    }
+    return out;
+  });
+  for (const text of bad) issues.push({ where: where(), kind: 'layout', text });
+}
+
+// Press every button in `scope` once (never the ones in SKIP), closing what opens.
+async function press(page, scope, reopen, issues, where, limit = 40) {
+  for (let i = 0; i < limit; i++) {
+    const els = scope.locator(PRESS);
+    const n = await els.count();
+    if (i >= n) break;
+    const el = els.nth(i);
+    const label = await el.evaluate(e => `${e.innerText || e.getAttribute('aria-label') || ''} #${e.id} .${e.className}`.replace(/\s+/g, ' ').trim()).catch(() => '');
+    if (!label || SKIP.test(label)) continue;
+    if (!(await el.isVisible().catch(() => false))) continue;
+    const before = await page.evaluate(() => document.querySelector('#pageTitle')?.textContent);
+    try { await el.click({ timeout: 2500 }); } catch { continue; }
+    await settle(page);
+    if (await page.locator('#modal:not(.hidden)').count()) {
+      await layout(page, issues, () => `${where()} > ${label.slice(0, 40)}`);
+      await page.evaluate(() => closeModal?.());
+    }
+    const after = await page.evaluate(() => document.querySelector('#pageTitle')?.textContent);
+    if (before !== after) await reopen();   // the press took us elsewhere: come back
+  }
+}
+
+async function crawlDashboard(page, issues, current) {
+  const pages = await page.locator('#nav button').allInnerTexts();
+  for (const name of pages) {
+    const open = async () => { await page.locator('#nav').getByRole('button', { name, exact: true }).click(); await settle(page); };
+    current.page = name; current.tab = '';
+    await open();
+    await layout(page, issues, () => `${name}`);
+    const tabs = await page.locator('#pageTabs [role="tab"]').allInnerTexts();
+    const list = tabs.length ? tabs : [''];
+    for (const tab of list) {
+      current.tab = tab;
+      const reopen = async () => { await open(); if (tab) await page.locator('#pageTabs').getByRole('tab', { name: tab, exact: true }).click(); await settle(page); };
+      await reopen();
+      await layout(page, issues, () => `${name}${tab ? ' / ' + tab : ''}`);
+      await press(page, page.locator('#view'), reopen, issues, () => `${name}${tab ? ' / ' + tab : ''}`);
+    }
+  }
+}
+
+async function crawlCanvas(page, issues, current) {
+  current.page = 'Canvas'; current.tab = '';
+  await page.locator('#toCanvas').click();
+  const cv = page.frameLocator('#canvasFrame');
+  await cv.locator('body').waitFor({ timeout: 20000 });
+  await page.waitForTimeout(1500);
+  await layout(page, issues, () => 'Canvas');
+  // The board's own buttons, then an agent's details and each of its tabs.
+  await press(page, cv.locator('body'), async () => { await page.locator('#toCanvas').click(); await page.waitForTimeout(800); }, issues, () => 'Canvas', 25);
+  const card = cv.locator('.agent-node, .an-head').first();
+  if (await card.count()) {
+    await card.click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    for (const tab of ['Overview', 'Chat', 'Activity']) {
+      const t = cv.getByRole('tab', { name: tab, exact: true });
+      if (await t.count()) { await t.click().catch(() => {}); await page.waitForTimeout(500); await layout(page, issues, () => `Canvas / details / ${tab}`); }
+    }
+  }
+}
+
+function report(issues) {
+  const seen = new Set();
+  const rows = issues.filter(i => { const k = `${i.kind}|${i.where}|${i.text}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  return rows.map(i => `[${i.kind}] ${i.where}: ${i.text}`).join('\n');
+}
+
+test('the dashboard and the Canvas, as an administrator, show no error when every button is pressed', async ({ page }) => {
+  test.setTimeout(20 * 60 * 1000);
+  const issues = [], current = { page: '', tab: '' };
+  const where = () => `${current.page}${current.tab ? ' / ' + current.tab : ''}`;
+  await login(page, 'ui_admin', 'ui-admin-password');
+  await seed(page);
+  watch(page, issues, where);
+  await crawlDashboard(page, issues, current);
+  await crawlCanvas(page, issues, current);
+  const text = report(issues);
+  if (text) console.log('\nCRAWL FOUND:\n' + text + '\n');
+  expect(text, 'what the crawl found').toBe('');
+});
+
+test('the pages of a person who is not an administrator show no error either', async ({ page }) => {
+  test.setTimeout(10 * 60 * 1000);
+  const issues = [], current = { page: '', tab: '' };
+  const where = () => `(user) ${current.page}${current.tab ? ' / ' + current.tab : ''}`;
+  await login(page, 'crawl_user', 'crawl-user-password');
+  watch(page, issues, where);
+  await crawlDashboard(page, issues, current);
+  const text = report(issues);
+  if (text) console.log('\nCRAWL FOUND (user):\n' + text + '\n');
+  expect(text, 'what the crawl found').toBe('');
+});
