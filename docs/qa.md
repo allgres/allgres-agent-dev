@@ -10,6 +10,8 @@ with the mock model on (`ALLGRES_ENABLE_MOCK=1`) and an administrator
 | Feature effects | Does a feature *do* what its button says? (The result is read from the server, not the screen.) | `npm run test:ui` |
 | Crawler | Does anything break when every button is pressed, in either language? | `npm run test:crawl` (`CRAWL_LANG=ko` for Korean) |
 
+`npm run test:ui` runs the role-navigation suite first and the feature-effect suite after it, on purpose: the feature-effect tests make agents with lines between them, and the first-run checks in the role-navigation suite need a database with no team yet.
+
 ## The crawler
 
 It opens every menu entry and tab (and the Canvas), presses each button once,

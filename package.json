@@ -1,7 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "test:ui": "playwright test",
+    "test:ui": "playwright test ui-role-navigation && playwright test ui-feature-effects",
     "test:crawl": "playwright test -c playwright.crawl.config.mjs"
   },
   "devDependencies": {
