@@ -69,8 +69,9 @@ test('a line drawn on the Canvas is what lets an agent hand work over', async ({
 
   // Draw the line in the Canvas's details, as a person does.
   await go(page, 'Agents');
-  await page.locator('#view tr', { hasText: 'fx_boss' }).first().locator('.agentOnCanvas').click();
+  await page.locator('#toCanvas').click();
   const cv = page.frameLocator('#canvasFrame');
+  await cv.locator('.an-head', { hasText: 'fx_boss' }).first().click();
   await expect(cv.locator('aside.inspector[aria-label="fx_boss"]')).toBeVisible({ timeout: 20000 });
   await cv.getByLabel('Add who it hands work to').selectOption({ label: 'fx_helper' });
   await expect.poll(async () => (await api(page, { action: 'permissions.list', agent_id: boss })).permissions?.some(p => p.type === 'agent' && p.ref === 'fx_helper'),
@@ -169,9 +170,9 @@ test('an agent switched off in the Canvas takes no work, and switched on takes i
   await login(page, 'ui_admin', 'ui-admin-password');
   await seed(page);
   const id = await makeAgent(page, 'fx_switch', 'Answers briefly.');
-  await go(page, 'Agents');
-  await page.locator('#view tr', { hasText: 'fx_switch' }).first().locator('.agentOnCanvas').click();
+  await page.locator('#toCanvas').click();
   const cv = page.frameLocator('#canvasFrame');
+  await cv.locator('.an-head', { hasText: 'fx_switch' }).first().click();
   const insp = cv.locator('aside.inspector[aria-label="fx_switch"]');
   await expect(insp).toBeVisible({ timeout: 20000 });
   const sw = insp.getByRole('switch');
@@ -192,7 +193,10 @@ test('an archived chat leaves the list and takes no more messages', async ({ pag
   await seed(page);
   page.on('dialog', d => d.accept());
   await go(page, 'Chat');
+  await expect(page.locator('#convList .convItem').first()).toBeVisible();   // the list has arrived
   await page.locator('#convNew').click();
+  // (A chat that is already blank is the one "New chat" gives back; if the pane has not shown it, pick it from the list.)
+  if (!(await page.locator('#convArchive').isVisible({ timeout: 3000 }).catch(() => false))) await page.locator('#convList .convItem', { hasText: 'New chat' }).first().click();
   await expect(page.locator('#convArchive')).toBeVisible();
   const id = await page.evaluate(() => state.convId);
   expect(id).toBeTruthy();
