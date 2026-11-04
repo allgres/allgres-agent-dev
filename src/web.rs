@@ -77,7 +77,10 @@ pub(crate) struct RateWindows {
 pub(crate) static RATE_LIMIT: LazyLock<Mutex<RateWindows>> = LazyLock::new(|| {
     Mutex::new(RateWindows { general: HashMap::new(), auth_fail: HashMap::new() })
 });
-pub(crate) const RATE_GENERAL_LIMIT: usize = 120;
+/// Requests per minute from one address. A dashboard page asks for 2 to 10 things, so a person
+/// clicking quickly between menus makes dozens of requests a minute; 120 stopped people doing
+/// ordinary work. Guessing a token is limited by its own, much tighter cap (`RATE_AUTH_FAIL_LIMIT`).
+pub(crate) const RATE_GENERAL_LIMIT: usize = 1200;
 /// `RATE_GENERAL_LIMIT` unless ALLGRES_RATE_LIMIT_PER_MINUTE names another
 /// positive number, read once.  Only for a deployment whose clients really
 /// share one address (a browser test suite, a reverse proxy that does not

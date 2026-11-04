@@ -1608,16 +1608,20 @@ const SETTINGS_PAGES={
 };
 async function settings(scope){
   // Independent lists, fetched together: one round trip's wait instead of eleven in a row.
+  // A page asks only for the lists its own panels show (it used to ask for all nine every time,
+  // which with quick clicking between menus made a person run into the request limit).
+  const needs={APIs:['conns'],Abilities:['procs','funcs','texps','caps'],Schedules:['scheds'],Settings:['al']};
+  const want=k=>!scope||(needs[state.page]||[]).includes(k);
   const [d,al,conns,procs,funcs,da,scheds,texps,caps]=await Promise.all([
     api('/api/v1/settings'),
-    rpc('allowlist.list').catch(()=>({allowlist:[]})),
-    rpc('connections.list').catch(()=>({connections:[]})),
-    rpc('procedures.list').catch(()=>({procedures:[]})),
-    rpc('functions.list').catch(()=>({functions:[]})),
+    want('al')?rpc('allowlist.list').catch(()=>({allowlist:[]})):{allowlist:[]},
+    want('conns')?rpc('connections.list').catch(()=>({connections:[]})):{connections:[]},
+    want('procs')?rpc('procedures.list').catch(()=>({procedures:[]})):{procedures:[]},
+    want('funcs')?rpc('functions.list').catch(()=>({functions:[]})):{functions:[]},
     state.agents.length?null:api('/api/v1/agents'),
-    rpc('schedules.list').catch(()=>({schedules:[]})),
-    rpc('function_experiments.list').catch(()=>({experiments:[]})),
-    rpc('capabilities.list').catch(()=>({capabilities:[],metrics:{}}))
+    want('scheds')?rpc('schedules.list').catch(()=>({schedules:[]})):{schedules:[]},
+    want('texps')?rpc('function_experiments.list').catch(()=>({experiments:[]})):{experiments:[]},
+    want('caps')?rpc('capabilities.list').catch(()=>({capabilities:[],metrics:{}})):{capabilities:[],metrics:{}}
   ]);
   state.settings=d;
   state.connections=conns.connections||[];
