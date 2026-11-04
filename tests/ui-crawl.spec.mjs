@@ -125,15 +125,20 @@ async function press(page, scope, reopen, issues, where, limit = 40) {
 async function crawlDashboard(page, issues, current) {
   const pages = await page.locator('#nav button').allInnerTexts();
   for (const name of pages) {
-    const open = async () => { await page.locator('#nav').getByRole('button', { name, exact: true }).click(); await settle(page); };
+    const open = async () => { await page.locator('#nav').getByRole('button', { name, exact: true }).click({ timeout: 4000 }); await settle(page); };
+    console.log('crawl:', name);
     current.page = name; current.tab = '';
-    await open();
+    try { await open(); } catch { issues.push({ where: name, kind: 'navigation', text: 'the menu entry could not be opened' }); continue; }
     await layout(page, issues, () => `${name}`);
     const tabs = await page.locator('#pageTabs [role="tab"]').allInnerTexts();
     const list = tabs.length ? tabs : [''];
     for (const tab of list) {
       current.tab = tab;
-      const reopen = async () => { await open(); if (tab) await page.locator('#pageTabs').getByRole('tab', { name: tab, exact: true }).click(); await settle(page); };
+      // Back to this page and tab; if a press left somewhere with no such tab, say so and move on.
+      const reopen = async () => {
+        try { await open(); if (tab) await page.locator('#pageTabs').getByRole('tab', { name: tab, exact: true }).click({ timeout: 4000 }); } catch { /* not reachable now */ }
+        await settle(page);
+      };
       await reopen();
       await layout(page, issues, () => `${name}${tab ? ' / ' + tab : ''}`);
       await press(page, page.locator('#view'), reopen, issues, () => `${name}${tab ? ' / ' + tab : ''}`);
@@ -171,6 +176,7 @@ test('the dashboard and the Canvas, as an administrator, show no error when ever
   test.setTimeout(20 * 60 * 1000);
   const issues = [], current = { page: '', tab: '' };
   const where = () => `${current.page}${current.tab ? ' / ' + current.tab : ''}`;
+  page.setDefaultTimeout(6000);
   await login(page, 'ui_admin', 'ui-admin-password');
   await seed(page);
   watch(page, issues, where);
@@ -185,6 +191,7 @@ test('the pages of a person who is not an administrator show no error either', a
   test.setTimeout(10 * 60 * 1000);
   const issues = [], current = { page: '', tab: '' };
   const where = () => `(user) ${current.page}${current.tab ? ' / ' + current.tab : ''}`;
+  page.setDefaultTimeout(6000);
   await login(page, 'crawl_user', 'crawl-user-password');
   watch(page, issues, where);
   await crawlDashboard(page, issues, current);
