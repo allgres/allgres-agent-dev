@@ -47,6 +47,11 @@ export function AgentInspector({ board, agent, onClose }: { board: Board; agent:
           <b>{agent.name}</b>
           <small>{agent.is_system ? t('System agent') : !model ? t('Needs a model') : !agent.is_active ? t('Turned off: it takes no work.') : `${t('Ready')} · ${model}`}</small>
         </div>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label={t('Close details')}>
+          ×
+        </button>
+      </header>
+      <div className="in-actions">
         {!agent.is_system && (
           <button type="button" role="switch" aria-checked={agent.is_active} className={`switch${agent.is_active ? ' on' : ''}`} onClick={toggle} title={t(agent.is_active ? 'Turn off' : 'Turn on')}>
             <span />
@@ -63,10 +68,7 @@ export function AgentInspector({ board, agent, onClose }: { board: Board; agent:
             {t('Open in Dashboard')}
           </button>
         )}
-        <button type="button" className="icon-btn" onClick={onClose} aria-label={t('Close details')}>
-          ×
-        </button>
-      </header>
+      </div>
       <div className="tabs" role="tablist">
         {(['overview', 'chat', 'activity'] as Tab[]).map((k) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>

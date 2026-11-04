@@ -1092,6 +1092,13 @@ test('an agent is opened between the dashboard and the Canvas in either directio
   // The Canvas opens with that agent selected.
   const cv = page.frameLocator('#canvasFrame');
   await expect(cv.locator(`aside.inspector[aria-label="${name}"]`)).toBeVisible({ timeout: 20000 });
+  // The details header keeps the name readable in the narrow panel: the name is not squeezed to
+  // an ellipsis, and the on/off switch and the dashboard button sit on their own row below it.
+  const title = await cv.locator('aside.inspector .in-title b').boundingBox();
+  const actions = await cv.locator('aside.inspector .in-actions').boundingBox();
+  const head = await cv.locator('aside.inspector .in-head').boundingBox();
+  expect(title.width).toBeGreaterThan(120);
+  expect(actions.y).toBeGreaterThanOrEqual(head.y + head.height - 1);
   // And its details lead back to the dashboard's edit form for it.
   await cv.getByRole('button', { name: 'Open in Dashboard' }).click();
   await expect(page.locator('#pageTitle')).toHaveText('Agents');
