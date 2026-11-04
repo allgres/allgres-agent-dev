@@ -7600,6 +7600,14 @@ BEGIN
     AND (allgres.dashboard_rpc(jsonb_build_object('action', 'conv.history', 'conversation_id', c1, 'session_token', tk))->'messages')::text LIKE '%plan the launch%';
   v := v || jsonb_build_array(jsonb_build_object('name', 'conv_send_makes_the_session_and_a_title', 'ok', ok));
 
+  -- While the agent has not answered the thread says so; once it has, it does not.
+  ok := (allgres.dashboard_rpc(jsonb_build_object('action', 'conv.history', 'conversation_id', c1, 'session_token', tk))->>'busy')::boolean;
+  UPDATE allgres_private.tasks SET status = 'failed', error = 'selftest model unreachable'
+  WHERE session_id = (SELECT session_id FROM allgres_private.conversations WHERE conversation_id = c1);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.history', 'conversation_id', c1, 'session_token', tk));
+  ok := ok AND (r->>'busy')::boolean IS FALSE AND r->>'last_error' = 'selftest model unreachable';
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conv_history_says_busy_then_why_it_failed', 'ok', ok));
+
   -- A second message continues the same session.
   UPDATE allgres_private.tasks SET status = 'completed', output = '{"answer":"ok"}'::jsonb
   WHERE session_id = (SELECT session_id FROM allgres_private.conversations WHERE conversation_id = c1);

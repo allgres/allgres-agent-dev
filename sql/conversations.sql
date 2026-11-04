@@ -233,6 +233,12 @@ BEGIN
     'busy', c.session_id IS NOT NULL AND EXISTS (
       SELECT 1 FROM allgres_private.tasks k
       WHERE k.session_id = c.session_id AND k.status NOT IN ('completed', 'failed', 'cancelled')),
+    -- Why the last turn gave no answer, when it ended without one.
+    'last_error', (SELECT COALESCE(NULLIF(x.error, ''), x.status) FROM (
+                     SELECT k.error, k.status FROM allgres_private.tasks k
+                     WHERE k.session_id = c.session_id AND k.parent_task_id IS NULL
+                     ORDER BY k.created_at DESC LIMIT 1) x
+                   WHERE x.status IN ('failed', 'cancelled')),
     'messages', CASE WHEN c.session_id IS NULL THEN '[]'::jsonb
                      ELSE allgres_private.session_chat_messages(c.session_id) END);
 END;
