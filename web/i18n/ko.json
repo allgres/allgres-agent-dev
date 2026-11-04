@@ -1009,7 +1009,8 @@
    "Archived": "보관했습니다",
    "Talk with an agent, work inside a project, or share a room with people and several agents. All of it is one list.": "에이전트와 대화하거나, 프로젝트 안에서 일하거나, 사람과 여러 에이전트가 룸을 함께 쓸 수 있습니다. 전부 하나의 목록에 있습니다.",
    "Manage projects: which agent they use and the instructions they add.": "프로젝트를 관리합니다. 어떤 에이전트를 쓰는지, 어떤 지침을 더하는지 정합니다.",
-   "No agent assigned to you": "배정된 에이전트가 없습니다"
+   "No agent assigned to you": "배정된 에이전트가 없습니다",
+   "Type another…": "직접 입력…"
   }
  }
 }

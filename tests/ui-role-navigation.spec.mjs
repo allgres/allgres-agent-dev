@@ -1133,6 +1133,11 @@ test('a provider is tested before it is saved, and a 200 with an error body is n
   await expect(page.locator('#npProbeOut')).toContainText('lists');
   await page.locator('#saveNewP').click();
   await expect(page.locator('#view')).toContainText(name);
+  // Testing the saved provider is what records the models it offers.
+  await page.locator('tr', { hasText: name }).getByRole('button', { name: 'Edit' }).click();
+  await page.locator('#testConn').click();
+  await expect(page.locator('#probeOut')).toContainText('it lists 2 model(s)', { timeout: 30000 });
+  await page.locator('#closeM').click();
   // A person tries the model they chose in a chat without sending anything.
   await go(page, 'Chat');
   await page.locator('#convNew').click();
@@ -1140,10 +1145,19 @@ test('a provider is tested before it is saved, and a 200 with an error body is n
   await expect(page.locator('#convInput')).toBeFocused();
   await page.locator('#convPane summary', { hasText: 'Model' }).click();
   await page.locator('#cmProvider').selectOption({ label: `${name} (openai_compat)` });
-  await page.locator('#cmModel').fill('allgres-mock');
+  // What the provider reported is a dropdown; the text field is hidden until asked for.
+  const sel = page.locator('#cmModel').locator('xpath=preceding-sibling::select');
+  await expect(sel.locator('option', { hasText: 'allgres-mock-embed' })).toHaveCount(1);
+  await expect(page.locator('#cmModel')).toBeHidden();
+  await sel.selectOption('allgres-mock');
+  await expect(page.locator('#cmModel')).toHaveValue('allgres-mock');
   await page.locator('#cmTest').click();
   await expect(page.locator('#cmTestOut')).toContainText('The model answered', { timeout: 30000 });
-  await page.locator('#cmModel').fill('allgres-mock');
+  // A name the list lacks is typed after choosing "Type another…".
+  await sel.selectOption({ label: 'Type another…' });
+  await expect(page.locator('#cmModel')).toBeVisible();
+  await page.locator('#cmModel').fill('my-own-alias');
+  await expect(page.locator('#cmModel')).toHaveValue('my-own-alias');
   await expect(page.locator('#convThread')).not.toContainText('Unexpected endpoint');
 });
 

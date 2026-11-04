@@ -1505,6 +1505,9 @@ BEGIN
         UNION ALL
         SELECT 1 FROM allgres_private.user_project_chat_sessions p
         WHERE p.user_id=v_user.user_id AND p.session_id=v_id
+        UNION ALL
+        SELECT 1 FROM allgres_private.conversations c
+        WHERE c.user_id=v_user.user_id AND c.session_id=v_id
       ) THEN
         RAISE EXCEPTION 'session access denied' USING ERRCODE='42501';
       END IF;
