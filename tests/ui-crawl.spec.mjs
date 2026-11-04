@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
 const baseURL = process.env.ALLGRES_UI_URL || 'http://127.0.0.1:8088';
 
 // Never pressed: they remove data or end the session.
-const SKIP = /delete|remove|archive|sign ?out|log ?out|stop doing|revoke|reset|clear|drop|discard|uninstall|reject|decline|turn off|cancel|danger|rmDrop|rmToggle|mrRemove|rmCancel|rmDecline|clrTok|signOut|#toCanvas|toDashboard/i;
+const SKIP = /delete|remove|archive|sign ?out|log ?out|stop doing|revoke|reset|clear|drop|discard|uninstall|reject|decline|turn off|cancel|danger|rmDrop|rmToggle|mrRemove|rmCancel|rmDecline|clrTok|signOut|#toCanvas|toDashboard|activate|toggleActive|toggleRole|make (admin|user)|manageAssign/i;
 // An error from the server that the page asked for on purpose (a form refused, a permission denied).
 const BENIGN_SQLSTATE = new Set(['P0001', '42501', '22023']);
 const PRESS = 'button:not([disabled]), summary, [role="tab"]';

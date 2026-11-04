@@ -1581,7 +1581,8 @@ async function langPanel(){
   if(!langs.length)return;
   sel.innerHTML=langs.map(l=>`<option value="${esc(l.code)}">${esc(l.native||l.name||l.code)}${l.code!=='en'&&l.coverage!=null?` — ${esc(l.coverage)}%`:''}</option>`).join('');
   sel.value=uiLang();
-  const note=()=>{const l=langs.find(x=>x.code===sel.value);$('#uiLangNote').textContent=l&&l.code!=='en'?'Parts without a translation are shown in English.':''};
+  // The list above arrives late; the person may have left the page by then.
+  const note=()=>{const el=$('#uiLangNote');if(!el)return;const l=langs.find(x=>x.code===sel.value);el.textContent=l&&l.code!=='en'?'Parts without a translation are shown in English.':''};
   note();
   sel.onchange=async()=>{await setUiLang(sel.value);note();loadPage()};
 }
