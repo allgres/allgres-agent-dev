@@ -2098,8 +2098,10 @@ async function newConvModal(){
         const r=await rpc('rooms.create',{name:$('#ncRoomName').value,purpose:$('#ncRoomPurpose').value});
         closeModal();state.convId=r.room_id;await loadConvList();await showConv();return;
       }
+      // Read the choice before the dialog is closed: closing empties it.
+      const opts=k==='project'?{project_id:$('#ncProject').value}:{agent_id:$('#ncAgent').value};
       closeModal();
-      await newConv(k==='project'?{project_id:$('#ncProject').value}:{agent_id:$('#ncAgent').value});
+      await newConv(opts);
     }catch(e){toast(e.message)}
   };
 }
