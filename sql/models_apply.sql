@@ -257,6 +257,34 @@ INSERT INTO allgres_private.llm_models (provider_id, model, source)
 SELECT provider_id, model, 'used' FROM allgres_private.llm_model_prices
 ON CONFLICT (provider_id, model) DO NOTHING;
 
+-- What a provider reports it serves is kept in this table, so a model can be
+-- picked and called without asking the provider again. A model already here
+-- (switched off, with a note or a price) is left as it is.
+CREATE OR REPLACE FUNCTION allgres_private.models_register_listed(p_provider_id uuid, p_models jsonb)
+RETURNS int
+LANGUAGE plpgsql
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  v_n int := 0;
+BEGIN
+  IF p_models IS NULL OR jsonb_typeof(p_models) <> 'array' THEN
+    RETURN 0;
+  END IF;
+  INSERT INTO allgres_private.llm_models (provider_id, model, source)
+  SELECT p_provider_id, btrim(e), 'listed'
+  FROM jsonb_array_elements_text(p_models) e
+  WHERE btrim(e) <> '' AND EXISTS (SELECT 1 FROM allgres_private.llm_providers WHERE provider_id = p_provider_id AND purpose = 'chat')
+  ON CONFLICT (provider_id, model) DO NOTHING;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n;
+END;
+$fn$;
+
+-- Providers already tested before this existed: their lists move into the table.
+SELECT allgres_private.models_register_listed(provider_id, available_models) FROM allgres_private.llm_providers
+WHERE jsonb_typeof(available_models) = 'array';
+
 -- A model that is switched off cannot be put on agents.
 CREATE OR REPLACE FUNCTION allgres_private.models_check_enabled(p_provider text, p_model text)
 RETURNS void
@@ -294,6 +322,7 @@ BEGIN
         SELECT jsonb_agg(jsonb_build_object(
           'model', m.model, 'is_enabled', m.is_enabled, 'source', m.source, 'note', m.note, 'params', m.params,
           'input_price_per_1k', pr.input_price_per_1k, 'output_price_per_1k', pr.output_price_per_1k,
+          'reported', CASE WHEN pr.model IS NULL THEN p.reported_prices->m.model ELSE NULL END,
           'agents', COALESCE((SELECT jsonb_agg(a.name ORDER BY a.name)
                               FROM allgres_private.policies po JOIN allgres_private.agents a ON a.agent_id = po.agent_id
                               WHERE NOT a.is_system AND po.llm_config->>'provider' = p.name AND po.llm_config->>'model' = m.model), '[]'::jsonb),

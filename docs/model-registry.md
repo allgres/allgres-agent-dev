@@ -1,18 +1,21 @@
-# Models by provider
+# Providers and their models
 
-**Connections → Models & prices** lists each chat provider as a section that folds open to its models.
+**Connections → Models & prices** is one list: each provider, and folded open under it the models it serves, with each model's price beside it.
 
 | Column | Meaning |
 | --- | --- |
 | Model (checkbox) | On or off. A model that is off cannot be put on agents. |
-| Price in / out per 1k | From the price sheet; only a priced model's calls count toward a cost limit. |
+| Price in / out per 1k | Typed in the row and saved with **Save**; both blank removes it. Only a priced model's calls count toward a cost limit. If the provider reported a price, it is shown under the row with **Use this price**; it is never applied on its own. |
 | Used by | Agents, functions and procedures that use it now. |
 
-- **Add model** takes a name, or pick from what the provider lists (run *Test connection* on the provider first). *Add all listed* adds everything it lists.
+- **Models are stored.** When a provider is added or edited, it is asked for its models once; what it answers is kept in `llm_models` (source `listed`), so a model can be picked and called without asking again, and nothing needs the provider's *Test connection* first. A model already in the table (switched off, with a note or a price) is left as it is. **Refresh the list** asks again. Every picker (an agent's settings, Chat, My agents) reads this table, and offers only models that are on.
+- **Add model** takes a name the provider does not list (a fine-tune, a deployment alias).
 - A model an agent already uses is in the list by itself, so nothing that worked before is lost.
-- **Use on agents…** puts the model on every ordinary agent or on the ones you tick, and on chosen functions and procedures as their own override. Only the provider and model change; the rest of each agent's policy stays. System agents are never touched. What each one had before is kept in the audit entry (`models.apply`). *Also make it the model new agents start with* sets the default for agents created later; it is never a hidden fallback at run time.
+- **Use on agents…** puts the model on every ordinary agent or on the ones you tick, and on chosen functions and procedures as their own override. Only the provider and model change; the rest of each agent's setup stays.
 - **Remove** is refused while the model is in use (by an agent, a function, a procedure or as the default); switch it off or move them first.
-- **Price** and **Note** are per model.
+- **Note** and **Settings** are per model.
+- A banner lists models that are in use and have no price.
+- On upgrade, the lists providers had already reported are moved into the table.
 
 Actions: `models.registry`, `models.registry_add`, `models.registry_set`, `models.registry_remove`, `models.apply`, `models.targets`, `models.clear_overrides`, `models.default_clear`. Table: `llm_models` (provider, model, on/off, note, default settings).
 
