@@ -2109,17 +2109,25 @@ function convStop(){
   if(convPollTimer){clearTimeout(convPollTimer);convPollTimer=null}
   if(roomPollTimer){clearTimeout(roomPollTimer);roomPollTimer=null}
 }
+// A person may pick a conversation (or start one) before the page has finished
+// loading its own list. What they picked wins: a list that arrives late, or the
+// page's own default choice, must not replace it.
+let convListSeq=0,convPicked=false;
 async function chatPage(){
   convStop();
+  convPicked=false;
   $('#view').innerHTML=`<div class="rooms-grid"><div class="panel convSide"><div class="row wrap u-gap-8px"><button class="btn primary small" id="convNew">New chat</button><button class="btn small" id="convOther">More…</button></div><div id="convList" class="u-margin-top-12px"></div></div><div id="convPane"></div></div>`;
   $('#convNew').onclick=()=>newConv({});
   $('#convOther').onclick=newConvModal;
   await loadConvList();
+  if(convPicked)return;
   if(!convState.list.some(c=>c.conversation_id===state.convId))state.convId=convState.list[0]?.conversation_id||null;
   await showConv();
 }
 async function loadConvList(){
+  const my=++convListSeq;
   const r=await rpc('conv.list');
+  if(my!==convListSeq)return;
   convState.list=r.conversations||[];
   renderConvList();
 }
@@ -2129,12 +2137,12 @@ function renderConvList(){
     const sub=c.kind==='room'?`room · ${esc(c.members)} members${c.room_status==='closed'?' · closed':''}`:c.project?`${esc(c.project)} · ${esc(c.agent)}`:esc(c.agent);
     return `<button class="btn convItem ${c.conversation_id===state.convId?'primary':''}" data-id="${esc(c.conversation_id)}"><b class="convTitle">${esc(c.title||'New chat')}</b><span class="convSub">${sub}${c.busy?' · working…':''}</span></button>`;
   }).join('')||'<div class="muted">Nothing yet. Start a new chat.</div>';
-  el.querySelectorAll('.convItem').forEach(b=>b.onclick=()=>{state.convId=b.dataset.id;showConv()});
+  el.querySelectorAll('.convItem').forEach(b=>b.onclick=()=>{convPicked=true;state.convId=b.dataset.id;showConv()});
 }
 async function newConv(opts){
   try{
     const r=await rpc('conv.new',opts);
-    state.convId=r.conversation_id;
+    convPicked=true;state.convId=r.conversation_id;
     await loadConvList();
     await showConv();
     $('#convInput')?.focus();
@@ -2159,7 +2167,7 @@ async function newConvModal(){
     try{
       if(k==='room'){
         const r=await rpc('rooms.create',{name:$('#ncRoomName').value,purpose:$('#ncRoomPurpose').value});
-        closeModal();state.convId=r.room_id;await loadConvList();await showConv();return;
+        closeModal();convPicked=true;state.convId=r.room_id;await loadConvList();await showConv();return;
       }
       // Read the choice before the dialog is closed: closing empties it.
       const opts=k==='project'?{project_id:$('#ncProject').value}:{agent_id:$('#ncAgent').value};

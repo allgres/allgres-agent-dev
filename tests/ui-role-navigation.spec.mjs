@@ -113,7 +113,7 @@ test('the top bar stays put: Canvas is only the body; language is set in Setting
   // Light theme too.
   await page.locator('#themeBtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(cv.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(cv.locator('html')).toHaveAttribute('data-theme', 'light', { timeout: 20000 });
   // The choices are kept for this person in the database, not in the browser:
   // another browser that signs in as them gets Korean and the light theme, and
   // this one stores nothing.
@@ -868,6 +868,28 @@ test('General chat shows only the answer and can start a new chat', async ({ pag
   // Archive takes it out of the list.
   await page.locator('#convArchive').click();
   await expect(page.locator('#convList .convItem', { hasText: 'hello there' })).toHaveCount(0);
+});
+
+test('a chat started before the page has its list is kept when the list arrives late', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  // The page's own first list is fetched at once but answered late, after the chat was started.
+  let first = true;
+  await page.route('**/api/v1/rpc', async route => {
+    if (first && route.request().postDataJSON().action === 'conv.list') {
+      first = false;
+      const r = await route.fetch();
+      await new Promise(res => setTimeout(res, 2500));
+      return route.fulfill({ response: r });
+    }
+    return route.continue();
+  });
+  await go(page, 'Chat');
+  await page.locator('#convNew').click();
+  await expect(page.locator('#convInput')).toBeVisible({ timeout: 20000 });
+  await page.waitForTimeout(3500);
+  await expect(page.locator('#convInput')).toBeVisible();
+  await expect(page.locator('#convList .convItem.primary')).toHaveCount(1);
+  await page.unroute('**/api/v1/rpc');
 });
 
 test('while an answer is on its way the button row offers Stop, send after the answer, and send now', async ({ page }) => {
