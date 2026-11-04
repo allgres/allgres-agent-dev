@@ -1682,7 +1682,8 @@ async function settings(scope){
   $('#addAllow').onclick=async()=>{try{await rpc('allowlist.add',{ref:$('#allowRef').value});toast('Added');loadPage()}catch(e){toast(e.message)}};
   $('#setTok').onclick=askToken;$('#clrTok').onclick=()=>{setTok('');location.reload()};
   $('#setOpName').onclick=()=>{askOpName();loadPage()};
-  $('#runSelftest').onclick=async()=>{try{$('#selftestOut').textContent='running…';const r=await api('/api/v1/selftest',{method:'POST'});$('#selftestOut').textContent=`passed ${r.passed}, failed ${r.failed}`+(r.failed?': '+(r.cases||[]).filter(c=>!c.ok).map(c=>c.name).join(', '):'')}catch(e){$('#selftestOut').textContent=e.message}}
+  // The self-test takes a while: the person may have gone to another page by the time it answers.
+  $('#runSelftest').onclick=async()=>{const out=txt=>{const el=$('#selftestOut');if(el)el.textContent=txt};try{out('running…');const r=await api('/api/v1/selftest',{method:'POST'});out(`passed ${r.passed}, failed ${r.failed}`+(r.failed?': '+(r.cases||[]).filter(c=>!c.ok).map(c=>c.name).join(', '):''))}catch(e){out(e.message)}}
   document.querySelectorAll('.themeBtn').forEach(b=>b.onclick=()=>{setTheme(b.dataset.theme);loadPage()});
 }
 

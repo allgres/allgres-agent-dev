@@ -8,7 +8,6 @@ import { test, expect } from '@playwright/test';
 // checks that things work. Buttons that delete or sign out are not pressed, and a
 // dialog that opens is closed without saving.
 const baseURL = process.env.ALLGRES_UI_URL || 'http://127.0.0.1:8088';
-test.describe.configure({ mode: 'serial' });
 
 // Never pressed: they remove data or end the session.
 const SKIP = /delete|remove|archive|sign ?out|log ?out|stop doing|revoke|reset|clear|drop|discard|uninstall|reject|decline|turn off|cancel|danger|rmDrop|rmToggle|mrRemove|rmCancel|rmDecline|clrTok|signOut|#toCanvas|toDashboard/i;
@@ -49,9 +48,18 @@ async function seed(page) {
   await call({ action: 'users.create', username: 'crawl_user', password: 'crawl-user-password', role: 'user' });
 }
 
+// Make the things the pages show, as an administrator in a page of its own (every seed call is repeatable).
+async function ensureSeeded(browser) {
+  const ctx = await browser.newContext();
+  const p = await ctx.newPage();
+  await login(p, 'ui_admin', 'ui-admin-password');
+  await seed(p);
+  await ctx.close();
+}
+
 function watch(page, issues, where) {
-  const add = (kind, text) => issues.push({ where: where(), kind, text: String(text).replace(/\s+/g, ' ').slice(0, 300) });
-  page.on('pageerror', e => add('uncaught error', e.message));
+  const add = (kind, text) => issues.push({ where: where(), kind, text: String(text).replace(/\s+/g, ' ').slice(0, 500) });
+  page.on('pageerror', e => add('uncaught error', `${e.message} @ ${String(e.stack || '').split('\n').slice(1, 3).map(l => l.trim()).join(' | ')}`));
   page.on('console', m => {
     if (m.type() !== 'error') return;
     const text = m.text();
@@ -172,26 +180,28 @@ function report(issues) {
   return rows.map(i => `[${i.kind}] ${i.where}: ${i.text}`).join('\n');
 }
 
-test('the dashboard and the Canvas, as an administrator, show no error when every button is pressed', async ({ page }) => {
+test('the dashboard and the Canvas, as an administrator, show no error when every button is pressed', async ({ page, browser }) => {
   test.setTimeout(20 * 60 * 1000);
   const issues = [], current = { page: '', tab: '' };
   const where = () => `${current.page}${current.tab ? ' / ' + current.tab : ''}`;
   page.setDefaultTimeout(6000);
+  await ensureSeeded(browser);
   await login(page, 'ui_admin', 'ui-admin-password');
-  await seed(page);
   watch(page, issues, where);
-  await crawlDashboard(page, issues, current);
+  // CRAWL_ONLY=canvas runs just the Canvas (to look into something it found).
+  if (process.env.CRAWL_ONLY !== 'canvas') await crawlDashboard(page, issues, current);
   await crawlCanvas(page, issues, current);
   const text = report(issues);
   if (text) console.log('\nCRAWL FOUND:\n' + text + '\n');
   expect(text, 'what the crawl found').toBe('');
 });
 
-test('the pages of a person who is not an administrator show no error either', async ({ page }) => {
+test('the pages of a person who is not an administrator show no error either', async ({ page, browser }) => {
   test.setTimeout(10 * 60 * 1000);
   const issues = [], current = { page: '', tab: '' };
   const where = () => `(user) ${current.page}${current.tab ? ' / ' + current.tab : ''}`;
   page.setDefaultTimeout(6000);
+  await ensureSeeded(browser);
   await login(page, 'crawl_user', 'crawl-user-password');
   watch(page, issues, where);
   await crawlDashboard(page, issues, current);
