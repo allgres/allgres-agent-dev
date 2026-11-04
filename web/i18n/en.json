@@ -1012,7 +1012,9 @@
    "Type another…": "Type another…",
    "No model list yet. Ask an administrator to test this provider, or type a name.": "No model list yet. Ask an administrator to test this provider, or type a name.",
    "Asking the provider for its models…": "Asking the provider for its models…",
-   "The provider lists no model that is switched on. Type a name.": "The provider lists no model that is switched on. Type a name."
+   "The provider lists no model that is switched on. Type a name.": "The provider lists no model that is switched on. Type a name.",
+   "Waiting for the answer…": "Waiting for the answer…",
+   "Wait for the answer first": "Wait for the answer first"
   }
  }
 }

@@ -114,6 +114,10 @@ body{font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFon
 .convItem .convSub{display:block;margin-top:2px;font-size:11px;font-weight:400;opacity:.8}
 .modelField .modelSel+.input{margin-top:6px}
 .modelNote{font-size:12px;margin-top:4px}
+.pending .dots i{display:inline-block;width:5px;height:5px;margin-left:3px;border-radius:50%;background:currentColor;animation:pendingBlink 1.2s infinite both}
+.pending .dots i:nth-child(2){animation-delay:.2s}.pending .dots i:nth-child(3){animation-delay:.4s}
+@keyframes pendingBlink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.pending .dots i{animation:none;opacity:.6}}
 .modelNote:empty{display:none}
 #chatThread,#projectChatThread,#msgFeed{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 #chatThread::-webkit-scrollbar,#projectChatThread::-webkit-scrollbar,#msgFeed::-webkit-scrollbar{width:10px}
@@ -2100,7 +2104,9 @@ function wireChatModelPicker(agent,providerOpts,onSaved){
 // open beside the thread only there. ---
 let convPollTimer=null;
 const convState={list:[]};
+let convTickTimer=null;
 function convStop(){
+  if(convTickTimer){clearInterval(convTickTimer);convTickTimer=null}
   if(convPollTimer){clearTimeout(convPollTimer);convPollTimer=null}
   if(roomPollTimer){clearTimeout(roomPollTimer);roomPollTimer=null}
 }
@@ -2203,8 +2209,19 @@ async function renderConvThread(c){
   try{
     const h=await rpc('conv.history',{conversation_id:c.conversation_id});
     if(state.convId!==c.conversation_id||!$('#convThread'))return;
-    $('#convThread').innerHTML=(h.messages||[]).map(msgBubble).join('')||`<div class="muted">Say hello to ${esc(c.agent)}.</div>`;
+    const waiting=h.busy?`<div class="bubblerow bubblerow-agent"><div class="bubble bubble-agent pending"><span>${esc(c.agent)} · ${esc(t('Waiting for the answer…'))}</span><span class="dots"><i></i><i></i><i></i></span> <span class="muted pendingTime"></span></div></div>`
+      :h.last_error?`<div class="banner">${esc(c.agent)} could not answer: ${esc(h.last_error)}</div>`:'';
+    $('#convThread').innerHTML=((h.messages||[]).map(msgBubble).join('')||`<div class="muted">Say hello to ${esc(c.agent)}.</div>`)+waiting;
     scrollBottom('#convThread');
+    // The send button waits while an answer is on its way (a second message would be refused).
+    state.convBusy=h.busy?c.conversation_id:null;
+    if($('#convSend'))$('#convSend').disabled=Boolean(h.busy)||!$('#convInput')||$('#convInput').disabled;
+    if(h.busy&&state.convBusySince?.id!==c.conversation_id)state.convBusySince={id:c.conversation_id,at:Date.now()};
+    if(convTickTimer){clearInterval(convTickTimer);convTickTimer=null}
+    if(h.busy){
+      const tick=()=>{const el=document.querySelector('#convThread .pendingTime');if(el)el.textContent=Math.max(0,Math.round((Date.now()-state.convBusySince.at)/1000))+' s'};
+      tick();convTickTimer=setInterval(tick,1000);
+    }else state.convBusySince=null;
     if(convPollTimer){clearTimeout(convPollTimer);convPollTimer=null}
     if(h.busy)convPollTimer=setTimeout(()=>{if(state.page==='Chat')renderConvThread(c)},2000);
     else if(c.busy||state.convWasBusy===c.conversation_id){state.convWasBusy=null;loadConvList()}
@@ -2213,9 +2230,11 @@ async function renderConvThread(c){
 }
 async function sendConv(c){
   const v=$('#convInput')?.value.trim();if(!v)return;
+  if(state.convBusy===c.conversation_id){toast(t('Wait for the answer first'));return}
   $('#convInput').value='';
   try{
     await rpc('conv.send',{conversation_id:c.conversation_id,message:v});
+    state.convBusySince={id:c.conversation_id,at:Date.now()};
     await renderConvThread(c);
     await loadConvList();
   }catch(e){toast(e.message)}

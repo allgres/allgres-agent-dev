@@ -1013,7 +1013,9 @@
    "Type another…": "직접 입력…",
    "No model list yet. Ask an administrator to test this provider, or type a name.": "모델 목록이 아직 없습니다. 관리자에게 이 프로바이더 테스트를 요청하거나 이름을 직접 입력하세요.",
    "Asking the provider for its models…": "프로바이더에 모델 목록을 묻는 중…",
-   "The provider lists no model that is switched on. Type a name.": "프로바이더가 켜져 있는 모델을 하나도 알려 주지 않았습니다. 이름을 직접 입력하세요."
+   "The provider lists no model that is switched on. Type a name.": "프로바이더가 켜져 있는 모델을 하나도 알려 주지 않았습니다. 이름을 직접 입력하세요.",
+   "Waiting for the answer…": "답변을 기다리는 중…",
+   "Wait for the answer first": "답변이 올 때까지 기다려 주세요"
   }
  }
 }
