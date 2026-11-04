@@ -850,6 +850,12 @@ test('General chat shows only the answer and can start a new chat', async ({ pag
   await expect(page.locator('#convThread')).not.toContainText('"action"');
   // The first message names the conversation in the list.
   await expect(page.locator('#convList .convItem', { hasText: 'hello there' })).toHaveCount(1);
+  // More... > a named agent starts a chat with it (the choice is read before the dialog closes).
+  await page.locator('#convOther').click();
+  await page.locator('#ncAgent').selectOption({ label: 'general' });
+  await page.locator('#ncGo').click();
+  await expect(page.locator('#modal')).toBeHidden();
+  await expect(page.locator('#convInput')).toBeFocused();
   // A new chat is a different conversation; the first one is still in the list.
   await page.locator('#convNew').click();
   await expect(page.locator('#convThread')).toContainText('Say hello to general.');
