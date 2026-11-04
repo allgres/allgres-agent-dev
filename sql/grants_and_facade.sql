@@ -1806,10 +1806,10 @@ BEGIN
         SELECT jsonb_agg(jsonb_build_object(
           'name', p.name, 'kind', p.kind, 'provider_id', p.provider_id,
           -- A model switched off in Models & prices is not offered.
-          'available_models', CASE WHEN jsonb_typeof(p.available_models) = 'array' THEN COALESCE((
-              SELECT jsonb_agg(t.m ORDER BY t.ord) FROM jsonb_array_elements_text(p.available_models) WITH ORDINALITY AS t(m, ord)
-              WHERE NOT EXISTS (SELECT 1 FROM allgres_private.llm_models lm WHERE lm.provider_id = p.provider_id AND lm.model = t.m AND NOT lm.is_enabled)
-            ), '[]'::jsonb) ELSE p.available_models END
+          'available_models', COALESCE((
+              SELECT jsonb_agg(lm.model ORDER BY lm.model) FROM allgres_private.llm_models lm
+              WHERE lm.provider_id = p.provider_id AND lm.is_enabled
+            ), '[]'::jsonb)
         ) ORDER BY p.name)
         FROM allgres_private.llm_providers p
         WHERE p.is_enabled AND p.purpose = 'chat' AND p.name NOT LIKE 'selftest%'
@@ -1846,11 +1846,17 @@ BEGIN
       IF NULLIF(p_request->>'api_key','') IS NOT NULL THEN
         PERFORM allgres_public.fn_set_provider_secret(v_id, p_request->>'api_key');
       END IF;
+      -- Ask the provider for its models now, so they are in the table without another click.
+      BEGIN
+        PERFORM allgres_public.fn_provider_probe_start(v_id, 'models', NULL,
+          (allgres_private.session_user(p_request->>'session_token')).user_id, true);
+      EXCEPTION WHEN others THEN NULL;
+      END;
       RETURN jsonb_build_object('ok', true, 'provider_id', v_id);
 
     WHEN 'provider.create' THEN
       PERFORM allgres_private.require_admin_if_accounts_exist(p_request->>'session_token');
-      RETURN allgres_public.fn_create_provider(
+      v_created := allgres_public.fn_create_provider(
         p_request->>'name',
         p_request->>'kind',
         p_request->>'base_url',
@@ -1860,6 +1866,15 @@ BEGIN
         NULLIF(p_request->>'embedding_model',''),
         COALESCE((p_request->>'response_format_json_object')::boolean, true)
       );
+      -- Ask the provider for its models now, so they are in the table without another click.
+      IF COALESCE(NULLIF(p_request->>'purpose',''), 'chat') = 'chat' AND (v_created->>'provider_id') IS NOT NULL THEN
+        BEGIN
+          PERFORM allgres_public.fn_provider_probe_start((v_created->>'provider_id')::uuid, 'models', NULL,
+            (allgres_private.session_user(p_request->>'session_token')).user_id, true);
+        EXCEPTION WHEN others THEN NULL;
+        END;
+      END IF;
+      RETURN v_created;
 
     -- Manual price sheet (allgres_private.llm_model_prices' own comment) --
     -- same platform-configuration guard class as provider.*, not open

@@ -5381,6 +5381,7 @@ BEGIN
 v := v || allgres_private.conv_selftest_cases();
   v := v || allgres_private.models_apply_selftest_cases();
   v := v || allgres_private.model_registry_selftest_cases();
+v := v || allgres_private.model_listed_selftest_cases();
   v := v || allgres_private.inference_settings_selftest_cases();
   v := v || allgres_private.agent_models_selftest_cases();
   v := v || allgres_private.agent_clone_selftest_cases();
@@ -8438,6 +8439,52 @@ END;
 $fn$;
 
 -- The model registry (sql/models_apply.sql).
+CREATE OR REPLACE FUNCTION allgres_private.model_listed_selftest_cases()
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  v jsonb := '[]'::jsonb;
+  ok boolean;
+  r jsonb;
+  u uuid; v_prov uuid; v_call uuid;
+  tk text := 'selftest-listed-admin-token';
+BEGIN
+  INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_listed_admin', 'x', 'admin') RETURNING user_id INTO u;
+  INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (tk, u, now() + interval '1 hour');
+
+  -- A new provider is asked for its models without another click.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'provider.create', 'name', 'zz19_prov', 'kind', 'openai_compat',
+    'base_url', 'https://llm.example.com/v1', 'session_token', tk));
+  v_prov := (r->>'provider_id')::uuid;
+  ok := (r->>'ok')::boolean
+    AND EXISTS (SELECT 1 FROM allgres_private.provider_probes WHERE provider_id = v_prov AND probe = 'models' AND status = 'queued');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'new_provider_is_asked_for_its_models_by_itself', 'ok', ok));
+
+  -- What it answers is kept in the models table and offered to the pickers.
+  SELECT call_id INTO v_call FROM allgres_private.provider_probes WHERE provider_id = v_prov AND probe = 'models' ORDER BY created_at DESC LIMIT 1;
+  UPDATE allgres_private.provider_probes SET status = 'in_flight' WHERE call_id = v_call;
+  PERFORM allgres_public.fn_complete_provider_probe(v_call, 200, '{"data":[{"id":"zz19-a"},{"id":"zz19-b"}]}');
+  ok := (SELECT count(*) = 2 FROM allgres_private.llm_models WHERE provider_id = v_prov AND source = 'listed' AND is_enabled);
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.available', 'session_token', tk));
+  ok := ok AND (SELECT x->'available_models' = '["zz19-a","zz19-b"]'::jsonb FROM jsonb_array_elements(r->'providers') x WHERE x->>'name' = 'zz19_prov');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'listed_models_are_kept_in_the_table_and_offered', 'ok', ok));
+
+  -- A later list adds what is new and leaves a model that was switched off alone.
+  UPDATE allgres_private.llm_models SET is_enabled = false WHERE provider_id = v_prov AND model = 'zz19-b';
+  v_call := (allgres_public.fn_provider_probe_start(v_prov)->>'call_id')::uuid;
+  UPDATE allgres_private.provider_probes SET status = 'in_flight' WHERE call_id = v_call;
+  PERFORM allgres_public.fn_complete_provider_probe(v_call, 200, '{"data":[{"id":"zz19-a"},{"id":"zz19-b"},{"id":"zz19-c"}]}');
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'providers.available', 'session_token', tk));
+  ok := (SELECT is_enabled FROM allgres_private.llm_models WHERE provider_id = v_prov AND model = 'zz19-b') IS FALSE
+    AND (SELECT x->'available_models' = '["zz19-a","zz19-c"]'::jsonb FROM jsonb_array_elements(r->'providers') x WHERE x->>'name' = 'zz19_prov');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'a_later_list_adds_new_models_and_keeps_switched_off_ones_off', 'ok', ok));
+
+  RETURN v;
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION allgres_private.model_registry_selftest_cases()
 RETURNS jsonb
 LANGUAGE plpgsql

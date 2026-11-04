@@ -1022,7 +1022,19 @@
    "Stop": "중단",
    "Stopped": "중단했습니다",
    "Send after answer": "답변 뒤에 보내기",
-   "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one.": "리더(Make lead)는 아무도 부르지 않은 메시지를 받고, 태스크를 제안할 수 있는 유일한 에이전트입니다. 룸에는 한 명만 둡니다."
+   "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one.": "리더(Make lead)는 아무도 부르지 않은 메시지를 받고, 태스크를 제안할 수 있는 유일한 에이전트입니다. 룸에는 한 명만 둡니다.",
+   "Each provider and, folded open under it, the models it serves, with what each costs. A provider is asked for its models when it is saved.": "각 프로바이더와, 그 아래에 펼쳐지는 모델과 모델별 가격입니다. 프로바이더는 저장할 때 모델 목록을 자동으로 묻습니다.",
+   "add a model by name": "이름으로 모델 추가",
+   "Refresh the list": "목록 새로고침",
+   "Ask the provider for its models again": "프로바이더에 모델 목록을 다시 묻습니다",
+   "Give both the input and the output price": "입력 가격과 출력 가격을 모두 입력하세요",
+   "Price removed": "가격을 지웠습니다",
+   "Asking…": "묻는 중…",
+   "The provider did not list its models. Check its address and key under Edit, then ask again.": "프로바이더가 모델 목록을 알려 주지 않았습니다. 수정에서 주소와 키를 확인한 뒤 다시 시도하세요.",
+   "The provider lists no models. Add one by name below.": "프로바이더가 모델을 하나도 알려 주지 않았습니다. 아래에서 이름으로 추가하세요.",
+   "Input price per 1k tokens": "1k 토큰당 입력 가격",
+   "Output price per 1k tokens": "1k 토큰당 출력 가격",
+   "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas.": "프로바이더가 언어 모델을 공급하는 곳입니다. 프로바이더를 추가하면 그 아래에 모델과 가격이 나옵니다. 그다음 에이전트 페이지나 캔버스에서 에이전트마다 모델을 고르세요."
   }
  }
 }

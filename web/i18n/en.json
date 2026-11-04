@@ -1021,7 +1021,19 @@
    "Stop": "Stop",
    "Stopped": "Stopped",
    "Send after answer": "Send after answer",
-   "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one.": "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one."
+   "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one.": "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one.",
+   "Each provider and, folded open under it, the models it serves, with what each costs. A provider is asked for its models when it is saved.": "Each provider and, folded open under it, the models it serves, with what each costs. A provider is asked for its models when it is saved.",
+   "add a model by name": "add a model by name",
+   "Refresh the list": "Refresh the list",
+   "Ask the provider for its models again": "Ask the provider for its models again",
+   "Give both the input and the output price": "Give both the input and the output price",
+   "Price removed": "Price removed",
+   "Asking…": "Asking…",
+   "The provider did not list its models. Check its address and key under Edit, then ask again.": "The provider did not list its models. Check its address and key under Edit, then ask again.",
+   "The provider lists no models. Add one by name below.": "The provider lists no models. Add one by name below.",
+   "Input price per 1k tokens": "Input price per 1k tokens",
+   "Output price per 1k tokens": "Output price per 1k tokens",
+   "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas.": "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas."
   }
  }
 }

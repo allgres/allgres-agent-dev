@@ -351,8 +351,7 @@ test('admin tests an API connection and accepts a reported model price', async (
       body: JSON.stringify({ ...body, session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
     const p = await call({ action: 'provider.create', name: 'ui_price_mock', kind: 'openai_compat', base_url: base + '/mock', allow_private_network: true });
     if (p.ok === false) throw new Error(p.error);
-    const probe = await call({ action: 'providers.probe_start', provider_id: p.provider_id });
-    if (probe.ok === false) throw new Error(probe.error);
+    // No probe is started here: saving the provider already asked it for its models.
     const c = await call({ action: 'connections.create', name: 'ui_ping_mock', base_url: base + '/healthz', auth_kind: 'none', allow_private_network: true });
     if (c.ok === false) throw new Error(c.error);
   }, baseURL);
@@ -362,13 +361,17 @@ test('admin tests an API connection and accepts a reported model price', async (
   await row.getByRole('button', { name: 'Test' }).click();
   await expect(row.getByText('reachable', { exact: true })).toBeVisible({ timeout: 20000 });
   await go(page, 'Models & prices');
-  const block = page.locator('#unpricedBlock');
-  await expect(block).toContainText('no price', { timeout: 20000 });
-  const model = block.locator('tbody tr', { hasText: 'allgres-mock' }).filter({ hasText: 'ui_price_mock' }).filter({ hasNotText: 'embed' });
-  await expect(model).toContainText('0.001 in / 0.002 out');
+  // The provider and, folded open under it, its models with their prices: what the provider
+  // reported when it was saved is offered beside the model, and used only when a person says so.
+  const prov = page.locator('details.mrProv[data-prov="ui_price_mock"]');
+  await expect(prov).toBeVisible();
+  if ((await prov.getAttribute('open')) === null) await prov.locator('summary').click();
+  const model = prov.locator('tr[data-model="allgres-mock"]');
+  await expect(model).toContainText('The provider says $0.001 in / $0.002 out', { timeout: 30000 });
+  await expect(model.locator('.mrIn')).toHaveValue('');
   await model.getByRole('button', { name: 'Use this price' }).click();
-  const priced = page.locator('#view tbody tr', { hasText: 'ui_price_mock' }).filter({ hasText: '0.001' });
-  await expect(priced.first()).toBeVisible({ timeout: 20000 });
+  await expect(model.locator('.mrIn')).toHaveValue('0.001', { timeout: 20000 });
+  await expect(model.locator('.mrOut')).toHaveValue('0.002');
 });
 
 test('admin connects a decision model and sees its checkpoints', async ({ page }) => {
@@ -972,13 +975,11 @@ test('one model is put on chosen agents at once, and can be the default for new 
   await prov.locator('.mrAdd').click();
   const spare = prov.locator('tr[data-model="ma-spare"]');
   await expect(spare).toBeVisible();
-  await spare.locator('.mrPrice').click();
-  await page.locator('#mrIn').fill('0.001');
-  await page.locator('#mrOut').fill('0.002');
-  await page.locator('#mrSavePrice').click();
-  await expect(spare).toContainText('$0.001');
-  await expect(page.locator('#modal')).toHaveClass(/hidden/);
-  await expect(spare).toContainText('$0.001');
+  await spare.locator('.mrIn').fill('0.001');
+  await spare.locator('.mrOut').fill('0.002');
+  await spare.locator('.mrPriceSave').click();
+  await expect(prov.locator('tr[data-model="ma-spare"] .mrIn')).toHaveValue('0.001');
+  await expect(prov.locator('tr[data-model="ma-spare"] .mrOut')).toHaveValue('0.002');
   await spare.locator('.mrRemove').click();
   await expect(prov.locator('tr[data-model="ma-spare"]')).toHaveCount(0);
 });

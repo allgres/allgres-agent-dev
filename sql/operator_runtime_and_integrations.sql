@@ -2115,6 +2115,10 @@ BEGIN
         available_models = COALESCE(v_models, available_models),
         reported_prices = CASE WHEN v_models IS NULL THEN reported_prices ELSE COALESCE(v_prices, '{}'::jsonb) END
     WHERE provider_id = c.provider_id;
+    -- The models it reports go into the models table too (docs/model-registry.md).
+    IF v_models IS NOT NULL THEN
+      PERFORM allgres_private.models_register_listed(c.provider_id, v_models);
+    END IF;
   END IF;
 
   RETURN jsonb_build_object(
