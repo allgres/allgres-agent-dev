@@ -1020,7 +1020,8 @@
    "Send now": "Send now",
    "Stop": "Stop",
    "Stopped": "Stopped",
-   "Send after answer": "Send after answer"
+   "Send after answer": "Send after answer",
+   "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one.": "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one."
   }
  }
 }

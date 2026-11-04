@@ -494,7 +494,7 @@ test('assisted room: agents ask each other, the lead proposes, a person confirms
   }, baseURL);
   await newRoom(page, 'ui-assisted');
   await expect(page.getByRole('heading', { name: 'ui-assisted' })).toBeVisible();
-  for (const [name, role] of [['ui_as_lead', 'lead'], ['ui_as_rev', 'reviewer'], ['ui_as_impl', 'implementer']]) {
+  for (const [name, role] of [['ui_as_lead', 'no role'], ['ui_as_rev', 'reviewer'], ['ui_as_impl', 'implementer']]) {
     await page.locator('#rmAgent').selectOption({ label: name });
     await page.locator('#rmRole').selectOption({ label: role });
     await page.locator('#rmAddAgent').click();
@@ -556,7 +556,7 @@ test('auto room: the lead proposes and the room starts the task by itself', asyn
   }, baseURL);
   await newRoom(page, 'ui-auto');
   await expect(page.getByRole('heading', { name: 'ui-auto' })).toBeVisible();
-  for (const [name, role] of [['ui_au_lead', 'lead'], ['ui_au_impl', 'implementer']]) {
+  for (const [name, role] of [['ui_au_lead', 'no role'], ['ui_au_impl', 'implementer']]) {
     await page.locator('#rmAgent').selectOption({ label: name });
     await page.locator('#rmRole').selectOption({ label: role });
     await page.locator('#rmAddAgent').click();

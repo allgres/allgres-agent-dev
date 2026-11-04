@@ -5,7 +5,8 @@ A room is where people and agents work on something together. Open **Work → Ro
 ## What a room is
 
 - **Members.** People and agents, chosen by an admin. An agent cannot join a room or bring another in by itself, and system agents cannot be members.
-- **Roles.** An agent in a room can have a role (`lead`, `reviewer`, `implementer`, `recorder`, or one an admin writes). A role is text that tells the agent what it is asked to do in that room. **It grants nothing**: what an agent may use is decided by its own permissions, exactly as everywhere else.
+- **The lead.** A room has at most one lead, set with **Make lead**. The lead gets a message that calls nobody, is the only one who proposes tasks, and is told it leads the room (keep the discussion focused, say when something is settled). A room that runs by itself needs one. There is no role called `lead`: it used to be a role beside this, and the two did different things under one name. On upgrade, a room that had an agent in the `lead` role and no lead of its own makes that agent its lead; the role is removed.
+- **Roles.** An agent in a room can have a role (`reviewer`, `implementer`, `recorder`, or one an admin writes). A role is text that tells the agent what it is asked to do in that room. **It grants nothing**: what an agent may use is decided by its own permissions, exactly as everywhere else.
 - **Mode.** `manual` (default) or `assisted`; an admin chooses. In a manual room only a person's message calls an agent. In an assisted room agents may also ask each other for turns, and the lead may propose tasks (see below). A third mode, `auto`, lets the room confirm the lead's proposals itself (see below).
 - **Limits.** Agent turns (default 12), cost (default $1), and chain depth (default 4, how many agents-calling-agents hops one request may make). A message that would pass either limit is refused with the reason, and an admin can raise it. A closed room accepts nothing.
 
