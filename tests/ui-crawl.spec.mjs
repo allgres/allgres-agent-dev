@@ -13,12 +13,14 @@ const baseURL = process.env.ALLGRES_UI_URL || 'http://127.0.0.1:8088';
 const SKIP = /delete|remove|archive|sign ?out|log ?out|stop doing|revoke|reset|clear|drop|discard|uninstall|reject|decline|turn off|cancel|danger|rmDrop|rmToggle|mrRemove|rmCancel|rmDecline|clrTok|signOut|#toCanvas|toDashboard|activate|toggleActive|toggleRole|make (admin|user)|manageAssign/i;
 // An error from the server that the page asked for on purpose (a form refused, a permission denied).
 const BENIGN_SQLSTATE = new Set(['P0001', '42501', '22023']);
+const SKIP_KO = /삭제|제거|보관|로그아웃|중단|폐기|초기화|비우기|거절|거부|끄기|취소|활성화|비활성|해지|관리자로|일반 사용자로/;
+const LANG = process.env.CRAWL_LANG === 'ko' ? 'ko' : 'en';
 const PRESS = 'button:not([disabled]), summary, [role="tab"]';
 
 async function login(page, username, password) {
   const rpc = async body => (await page.request.post(baseURL + '/api/v1/rpc', { headers: { 'x-allgres-client': 'dashboard' }, data: body })).json();
   const t = await rpc({ action: 'auth.login', username, password });
-  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, theme: null, lang: null,
+  if (t.session_token) await rpc({ action: 'me.prefs_set', session_token: t.session_token, prefs: { 'ui.page': null, theme: null, lang: LANG === 'ko' ? 'ko' : null,
     'canvas.help_seen': null, 'canvas.ran': null, 'canvas.system': null, 'canvas.guide_hidden': null, 'ui.conv_id': null } });
   await page.goto(baseURL);
   await page.locator('#liUser').fill(username);
@@ -93,7 +95,30 @@ async function settle(page) {
   }
 }
 
+// In Korean, a visible word of plain English left on a page is a string nobody translated.
+async function untranslated(page, issues, where) {
+  if (LANG !== 'ko') return;
+  const found = await page.evaluate(() => {
+    const out = new Set();
+    const w = document.createTreeWalker(document.querySelector('#view') || document.body, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const el = n.parentElement;
+      if (!el || /^(SCRIPT|STYLE|CODE|PRE|OPTION|TEXTAREA|INPUT)$/.test(el.tagName) || el.closest('code,pre,.mono,td.mono,[data-user]')) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const t = n.textContent.trim();
+      // Two or more English words in a row with no Korean in the text.
+      if (/[가-힣]/.test(t)) continue;
+      const words = t.match(/[A-Za-z][a-z]{2,}/g) || [];
+      if (words.length >= 2 && !/[_/@.:\d]/.test(t)) out.add(t.slice(0, 60));
+    }
+    return [...out];
+  });
+  for (const t of found.slice(0, 8)) issues.push({ where: where(), kind: 'untranslated', text: t });
+}
+
 async function layout(page, issues, where) {
+  await untranslated(page, issues, where);
   const bad = await page.evaluate(() => {
     const out = [];
     const de = document.documentElement;
@@ -103,26 +128,70 @@ async function layout(page, issues, where) {
       if (r.width === 0 || r.height === 0) continue;
       if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow === 'ellipsis') out.push(`a title is cut short: "${el.textContent.trim().slice(0, 40)}"`);
     }
+    // Text standing on end: a table cell far narrower than its words, so each line holds a letter or two.
+    for (const el of document.querySelectorAll('td,th')) {
+      const r = el.getBoundingClientRect();
+      const txt = el.textContent.trim();
+      if (r.width === 0 || txt.length < 4 || /\s/.test(txt) && txt.split(/\s+/).every(w => w.length < 3)) continue;
+      if (r.width < 34 && r.height > r.width * 2.2) out.push(`text stands on end in a narrow column: "${txt.slice(0, 30)}" (${Math.round(r.width)}px wide, ${Math.round(r.height)}px tall)`);
+    }
+    // A button cut off at the edge of its box or the window.
+    for (const el of document.querySelectorAll('#view button, #view .btn')) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      let p = el.parentElement, clipped = false;
+      while (p && p !== document.body) {
+        const o = getComputedStyle(p);
+        if (/(auto|scroll|hidden)/.test(o.overflowX) && p.scrollWidth > p.clientWidth + 1) break;   // it can be scrolled to
+        p = p.parentElement;
+      }
+      if (!p || p === document.body) clipped = r.right > window.innerWidth + 1;
+      if (clipped) out.push(`a button is beyond the window: "${(el.innerText || '').trim().slice(0, 30)}"`);
+    }
+    // Buttons side by side in one row that are not one height.
+    for (const row of document.querySelectorAll('td, .row, .actions, .btnrow')) {
+      const bs = [...row.querySelectorAll(':scope > button, :scope > .btn')].filter(b => { const r = b.getBoundingClientRect(); return r.width && r.height; });
+      if (bs.length < 2) continue;
+      const hs = bs.map(b => Math.round(b.getBoundingClientRect().height));
+      if (Math.max(...hs) - Math.min(...hs) > 4) out.push(`buttons in one row are not one height (${hs.join(', ')}px): ${bs.map(b => '"' + (b.innerText || '').trim().slice(0, 14) + '"').join(', ')}`);
+    }
+    // The notice a person sees when they have asked for too much.
+    if (/rate_limited|too many requests/i.test(document.querySelector('#toast')?.textContent || '')) out.push('the server said "rate_limited"');
     return out;
   });
   for (const text of bad) issues.push({ where: where(), kind: 'layout', text });
 }
 
+// The page shows a failure it caught itself as a notice at the bottom. A notice that is a program error
+// ("null is not an object", "x is not a function") and not a message written for a person is a bug.
+const PROGRAM_ERROR = /is not an object|is null|is undefined|undefined is not|cannot read|cannot set|is not a function|is not iterable|TypeError|ReferenceError|SyntaxError|\[object Object\]/i;
+async function toastCheck(page, issues, where) {
+  const text = await page.evaluate(() => { const t = document.querySelector('#toast'); return t && getComputedStyle(t).display !== 'none' ? t.textContent : ''; }).catch(() => '');
+  if (text && PROGRAM_ERROR.test(text)) issues.push({ where: where(), kind: 'error notice', text });
+}
+
 // Press every button in `scope` once (never the ones in SKIP), closing what opens.
-async function press(page, scope, reopen, issues, where, limit = 40) {
+async function press(page, scope, reopen, issues, where, limit = 40, alsoSkip = null) {
   for (let i = 0; i < limit; i++) {
     const els = scope.locator(PRESS);
     const n = await els.count();
     if (i >= n) break;
     const el = els.nth(i);
     const label = await el.evaluate(e => `${e.innerText || e.getAttribute('aria-label') || ''} #${e.id} .${e.className}`.replace(/\s+/g, ' ').trim()).catch(() => '');
-    if (!label || SKIP.test(label)) continue;
+    if (!label || SKIP.test(label) || SKIP_KO.test(label) || (alsoSkip && alsoSkip.test(label))) continue;
     if (!(await el.isVisible().catch(() => false))) continue;
     const before = await page.evaluate(() => document.querySelector('#pageTitle')?.textContent);
+    if (process.env.CRAWL_VERBOSE) console.log('  press:', where(), '>', label.slice(0, 60));
     try { await el.click({ timeout: 2500 }); } catch { continue; }
     await settle(page);
+    await toastCheck(page, issues, () => `${where()} > ${label.slice(0, 40)}`);
     if (await page.locator('#modal:not(.hidden)').count()) {
-      await layout(page, issues, () => `${where()} > ${label.slice(0, 40)}`);
+      const inDialog = () => `${where()} > ${label.slice(0, 40)}`;
+      await layout(page, issues, inDialog);
+      // A dialog's own buttons are pressed once too (Start, Save, Add...): that is where "null is
+      // not an object" hides. What they save is throwaway data of the crawl.
+      // Its Close button is left for last (closeModal below), or the others would never be reached.
+      await press(page, page.locator('#modal'), async () => {}, issues, inDialog, 12, /closeM|^close\b/i);
       await page.evaluate(() => closeModal?.());
     }
     const after = await page.evaluate(() => document.querySelector('#pageTitle')?.textContent);
@@ -131,7 +200,9 @@ async function press(page, scope, reopen, issues, where, limit = 40) {
 }
 
 async function crawlDashboard(page, issues, current) {
-  const pages = await page.locator('#nav button').allInnerTexts();
+  let pages = await page.locator('#nav button').allInnerTexts();
+  // CRAWL_PAGES=Chat,Agents crawls only those menu entries (to look into something it found).
+  if (process.env.CRAWL_PAGES) pages = pages.filter(n => process.env.CRAWL_PAGES.split(',').includes(n));
   for (const name of pages) {
     const open = async () => { await page.locator('#nav').getByRole('button', { name, exact: true }).click({ timeout: 4000 }); await settle(page); };
     console.log('crawl:', name);
