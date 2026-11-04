@@ -5303,7 +5303,7 @@ BEGIN
     'run', 'sessions.cancel', 'sessions.continue', 'auth.login', 'auth.logout', 'auth.me',
     'users.create', 'users.list', 'users.set_active', 'users.set_role', 'assignments.set',
     'assignments.list', 'assignments.for_agent', 'assignments.toggle', 'agents.mine', 'agents.set_my_model',
-    'chat.send', 'chat.history', 'conv.list', 'conv.new', 'conv.send', 'conv.history', 'conv.rename', 'conv.archive', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
+    'chat.send', 'chat.history', 'conv.list', 'conv.new', 'conv.send', 'conv.history', 'conv.rename', 'conv.archive', 'conv.stop', 'conv.unqueue', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'abilities.declare_point', 'abilities.undeclare_point', 'abilities.declared_points', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
@@ -5334,7 +5334,7 @@ BEGIN
     'run', 'sessions.cancel', 'sessions.continue', 'auth.login', 'auth.logout', 'auth.me',
     'users.create', 'users.list', 'users.set_active', 'users.set_role', 'assignments.set',
     'assignments.list', 'assignments.for_agent', 'assignments.toggle', 'agents.mine', 'agents.set_my_model',
-    'chat.send', 'chat.history', 'conv.list', 'conv.new', 'conv.send', 'conv.history', 'conv.rename', 'conv.archive', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
+    'chat.send', 'chat.history', 'conv.list', 'conv.new', 'conv.send', 'conv.history', 'conv.rename', 'conv.archive', 'conv.stop', 'conv.unqueue', 'messenger.post', 'messenger.list', 'sessions.list', 'sessions.get',
     'tasks.list', 'logs.list', 'memories.list', 'memories.create', 'memories.remove', 'history.search',
     'audit.list', 'settings.get', 'providers.available', 'provider.update', 'provider.create', 'connections.list',
     'connections.create', 'connections.update', 'connections.delete', 'connections.test', 'rooms.list', 'rooms.get', 'rooms.create', 'rooms.set', 'rooms.member_add', 'rooms.member_remove', 'rooms.roles', 'rooms.role_save', 'rooms.post', 'rooms.make_task', 'rooms.cancel_task', 'rooms.proposal_decide', 'chat.new', 'models.targets', 'models.apply', 'models.clear_overrides', 'models.default_clear', 'me.prefs_get', 'me.prefs_set', 'models.registry', 'models.registry_add', 'models.registry_set', 'models.registry_remove', 'agents.set_allowed_models', 'agents.clone', 'providers.draft_probe_start', 'providers.test_model', 'providers.test_status', 'proposals.grant', 'delegation.overview', 'delegation.set', 'delegation.off_all', 'delegation.switch', 'delegation.rules', 'delegation.rule_save', 'delegation.rule_set_enabled', 'delegation.rule_delete', 'delegation.rule_move', 'delegation.rule_backtest', 'abilities.declare_point', 'abilities.undeclare_point', 'abilities.declared_points', 'delegation.eval_record', 'delegation.checkpoint_switch', 'teams.list', 'teams.secondary_set', 'teams.intake_set', 'teams.handoff', 'teams.handoff_assign', 'teams.handoffs', 'memory_scopes.list', 'memory_scopes.add', 'memory_scopes.delete', 'memory_scopes.access_set', 'inbound.receive', 'inbound.sources', 'inbound.source_create', 'inbound.source_rotate', 'inbound.source_set', 'inbound.source_delete', 'inbound.events', 'inbound.event_start', 'decision_models.list', 'decision_models.connect', 'model_prices.unpriced', 'model_prices.apply_reported', 'mcp.servers', 'mcp.oauth_start', 'mcp.oauth_forget', 'oauth.callback', 'mcp.connect', 'mcp.discover', 'mcp.tools', 'mcp.tool_risk', 'mcp.tool_register', 'procedures.list', 'procedures.get',
@@ -7576,7 +7576,7 @@ DECLARE
   c1 uuid; c2 uuid; c3 uuid; cp uuid;
   tk text := 'selftest-conv-admin-token';
   tk2 text := 'selftest-conv-user-token';
-  n int; v_tid uuid; spec jsonb;
+  n int; v_tid uuid; spec jsonb; cq uuid; sq uuid;
 BEGIN
   INSERT INTO allgres_private.users (username, password_hash, role) VALUES ('selftest_conv_admin', 'x', 'admin') RETURNING user_id INTO u;
   INSERT INTO allgres_private.web_sessions (session_token, user_id, expires_at) VALUES (tk, u, now() + interval '1 hour');
@@ -7676,6 +7676,35 @@ BEGIN
   r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', c1, 'message', 'again', 'session_token', tk));
   ok := ok AND r->>'ok' = 'false' AND r->>'error' LIKE '%archived%';
   v := v || jsonb_build_array(jsonb_build_object('name', 'rename_and_archive_keep_the_session', 'ok', ok));
+
+  -- Writing while the agent is still answering: "after" keeps the message and sends it when the turn ends.
+  cq := (allgres.dashboard_rpc(jsonb_build_object('action', 'conv.new', 'agent_id', a, 'session_token', tk))->>'conversation_id')::uuid;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', cq, 'message', 'first ask', 'session_token', tk));
+  sq := (r->>'session_id')::uuid;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', cq, 'message', 'second ask', 'mode', 'after', 'session_token', tk));
+  ok := (r->>'queued')::boolean
+    AND (allgres.dashboard_rpc(jsonb_build_object('action', 'conv.history', 'conversation_id', cq, 'session_token', tk))->>'queued_message') = 'second ask';
+  UPDATE allgres_private.tasks SET status = 'completed', output = '{"answer":"ok"}'::jsonb
+  WHERE session_id = sq AND parent_task_id IS NULL AND status NOT IN ('completed', 'failed', 'cancelled');
+  ok := ok AND (SELECT queued_message FROM allgres_private.conversations WHERE conversation_id = cq) IS NULL
+    AND EXISTS (SELECT 1 FROM allgres_private.tasks WHERE session_id = sq AND status = 'queued' AND input->>'goal' = 'second ask');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conv_send_after_keeps_the_message_until_the_turn_ends', 'ok', ok));
+
+  -- "now": the answer stops and the new message goes together with the unanswered one.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', cq, 'message', 'third ask', 'mode', 'now', 'session_token', tk));
+  ok := (r->>'interrupted')::boolean
+    AND (SELECT count(*) FROM allgres_private.tasks WHERE session_id = sq AND status = 'cancelled') = 1
+    AND EXISTS (SELECT 1 FROM allgres_private.tasks WHERE session_id = sq AND status = 'queued' AND input->>'goal' LIKE '%third ask%');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conv_send_now_stops_the_answer_and_sends_both', 'ok', ok));
+
+  -- Stop ends the turn and drops what was waiting.
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.send', 'conversation_id', cq, 'message', 'fourth ask', 'mode', 'after', 'session_token', tk));
+  ok := (r->>'queued')::boolean;
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.stop', 'conversation_id', cq, 'session_token', tk));
+  r := allgres.dashboard_rpc(jsonb_build_object('action', 'conv.history', 'conversation_id', cq, 'session_token', tk));
+  ok := ok AND (r->>'busy')::boolean IS FALSE AND r->>'queued_message' IS NULL
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.tasks WHERE session_id = sq AND status = 'queued');
+  v := v || jsonb_build_array(jsonb_build_object('name', 'conv_stop_ends_the_turn_and_drops_the_queue', 'ok', ok));
 
   RETURN v;
 END;

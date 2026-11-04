@@ -796,6 +796,23 @@
     "params": [
       "conversation_id",
       "message",
+      "mode",
+      "session_token"
+    ]
+  },
+  {
+    "action": "conv.stop",
+    "guards": [],
+    "params": [
+      "conversation_id",
+      "session_token"
+    ]
+  },
+  {
+    "action": "conv.unqueue",
+    "guards": [],
+    "params": [
+      "conversation_id",
       "session_token"
     ]
   },

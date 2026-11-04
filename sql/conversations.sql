@@ -79,6 +79,60 @@ BEGIN
 END;
 $fn$;
 
+-- A message written while an answer is still on its way waits here and goes
+-- out when that turn ends (conv_deliver_queued), even if the page was closed.
+ALTER TABLE allgres_private.conversations ADD COLUMN IF NOT EXISTS queued_message text;
+
+CREATE OR REPLACE FUNCTION allgres_private.conv_deliver_queued(p_session_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  c allgres_private.conversations%ROWTYPE;
+  v_msg text;
+BEGIN
+  SELECT * INTO c FROM allgres_private.conversations
+  WHERE session_id = p_session_id AND queued_message IS NOT NULL FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+  IF EXISTS (SELECT 1 FROM allgres_private.tasks
+             WHERE session_id = p_session_id AND parent_task_id IS NULL
+               AND status IN ('queued', 'running', 'waiting_human', 'waiting_children')) THEN
+    RETURN;
+  END IF;
+  v_msg := c.queued_message;
+  UPDATE allgres_private.conversations SET queued_message = NULL, updated_at = now()
+  WHERE conversation_id = c.conversation_id;
+  PERFORM allgres_public.fn_continue_session(p_session_id, v_msg);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION allgres_private.conv_deliver_queued_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+BEGIN
+  PERFORM allgres_private.conv_deliver_queued(NEW.session_id);
+  RETURN NEW;
+EXCEPTION WHEN others THEN
+  -- The message stays queued; a task update must never fail because of it.
+  RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS conv_deliver_queued ON allgres_private.tasks;
+CREATE TRIGGER conv_deliver_queued
+  AFTER UPDATE OF status ON allgres_private.tasks
+  FOR EACH ROW
+  WHEN (NEW.parent_task_id IS NULL AND NEW.status IN ('completed', 'failed', 'cancelled')
+        AND OLD.status IS DISTINCT FROM NEW.status)
+  EXECUTE FUNCTION allgres_private.conv_deliver_queued_trigger();
+
 -- Everything the person can talk in, newest first: their own chats and the
 -- rooms they are in (administrators see every room, as rooms.list does).
 CREATE OR REPLACE FUNCTION allgres_public.fn_conv_list(p_token text, p_limit int DEFAULT 200)
@@ -172,7 +226,14 @@ $fn$;
 
 -- Say something. A chat continues its session (the first message makes it);
 -- a room takes the message the way rooms.post does.
-CREATE OR REPLACE FUNCTION allgres_public.fn_conv_send(p_token text, p_conversation_id uuid, p_message text)
+--
+-- While the agent is still answering, p_mode decides what happens to a new
+-- message: 'after' (default) keeps it until the answer is done and then sends
+-- it; 'now' stops the answer and sends the new message together with the
+-- earlier one the agent had not finished.
+DROP FUNCTION IF EXISTS allgres_public.fn_conv_send(text, uuid, text);
+CREATE OR REPLACE FUNCTION allgres_public.fn_conv_send(
+  p_token text, p_conversation_id uuid, p_message text, p_mode text DEFAULT 'after')
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -180,14 +241,20 @@ SET search_path = allgres_private, allgres_public, pg_temp
 AS $fn$
 DECLARE
   c allgres_private.conversations%ROWTYPE;
+  u allgres_private.users%ROWTYPE;
   v_msg text := btrim(COALESCE(p_message, ''));
   v_created jsonb;
   v_sid uuid;
+  v_queued text;
 BEGIN
   IF EXISTS (SELECT 1 FROM allgres_private.rooms WHERE room_id = p_conversation_id) THEN
     RETURN allgres_public.fn_room_post(p_token, p_conversation_id, p_message);
   END IF;
+  IF COALESCE(p_mode, 'after') NOT IN ('after', 'now') THEN
+    RAISE EXCEPTION 'mode must be after or now' USING ERRCODE = 'P0001';
+  END IF;
   c := allgres_private.conv_own(p_token, p_conversation_id);
+  u := allgres_private.session_user(p_token);
   IF v_msg = '' THEN
     RAISE EXCEPTION 'message required' USING ERRCODE = 'P0001';
   END IF;
@@ -210,9 +277,72 @@ BEGIN
     WHERE conversation_id = c.conversation_id;
     RETURN jsonb_build_object('ok', true, 'session_id', v_sid, 'task_id', v_created->>'task_id');
   END IF;
-  v_created := allgres_public.fn_continue_session(c.session_id, v_msg);
-  UPDATE allgres_private.conversations SET updated_at = now() WHERE conversation_id = c.conversation_id;
-  RETURN v_created;
+
+  IF NOT EXISTS (SELECT 1 FROM allgres_private.tasks
+                 WHERE session_id = c.session_id AND parent_task_id IS NULL
+                   AND status IN ('queued', 'running', 'waiting_human', 'waiting_children')) THEN
+    v_created := allgres_public.fn_continue_session(c.session_id, v_msg);
+    UPDATE allgres_private.conversations SET updated_at = now() WHERE conversation_id = c.conversation_id;
+    RETURN v_created;
+  END IF;
+
+  IF p_mode = 'now' THEN
+    v_queued := c.queued_message;
+    UPDATE allgres_private.conversations SET queued_message = NULL WHERE conversation_id = c.conversation_id;
+    PERFORM allgres_public.fn_cancel_session(c.session_id, 'Stopped by ' || u.username || ' to send a new message.');
+    v_created := allgres_public.fn_continue_session(c.session_id,
+      'My earlier message was not answered because I stopped you. Answer it together with this:'
+      || E'\n\n' || COALESCE(v_queued || E'\n\n', '') || v_msg);
+    UPDATE allgres_private.conversations SET updated_at = now() WHERE conversation_id = c.conversation_id;
+    PERFORM allgres_private.audit('conversations.interrupt', jsonb_build_object('conversation_id', c.conversation_id, 'user_id', u.user_id));
+    RETURN v_created || jsonb_build_object('interrupted', true);
+  END IF;
+
+  UPDATE allgres_private.conversations
+  SET queued_message = CASE WHEN queued_message IS NULL THEN v_msg ELSE queued_message || E'\n\n' || v_msg END,
+      updated_at = now()
+  WHERE conversation_id = c.conversation_id;
+  -- The turn may have ended just now, before the message was kept.
+  PERFORM allgres_private.conv_deliver_queued(c.session_id);
+  RETURN jsonb_build_object('ok', true, 'queued', true);
+END;
+$fn$;
+
+-- Stop the answer that is on its way. A queued message is dropped with it.
+CREATE OR REPLACE FUNCTION allgres_public.fn_conv_stop(p_token text, p_conversation_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, allgres_public, pg_temp
+AS $fn$
+DECLARE
+  c allgres_private.conversations%ROWTYPE;
+  u allgres_private.users%ROWTYPE;
+BEGIN
+  c := allgres_private.conv_own(p_token, p_conversation_id);
+  u := allgres_private.session_user(p_token);
+  UPDATE allgres_private.conversations SET queued_message = NULL WHERE conversation_id = c.conversation_id;
+  IF c.session_id IS NOT NULL THEN
+    PERFORM allgres_public.fn_cancel_session(c.session_id, 'Stopped by ' || u.username || '.');
+  END IF;
+  PERFORM allgres_private.audit('conversations.stop', jsonb_build_object('conversation_id', c.conversation_id, 'user_id', u.user_id));
+  RETURN jsonb_build_object('ok', true);
+END;
+$fn$;
+
+-- Take back a message that was waiting for the answer to finish.
+CREATE OR REPLACE FUNCTION allgres_public.fn_conv_unqueue(p_token text, p_conversation_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = allgres_private, pg_temp
+AS $fn$
+DECLARE
+  c allgres_private.conversations%ROWTYPE;
+BEGIN
+  c := allgres_private.conv_own(p_token, p_conversation_id);
+  UPDATE allgres_private.conversations SET queued_message = NULL WHERE conversation_id = c.conversation_id;
+  RETURN jsonb_build_object('ok', true);
 END;
 $fn$;
 
@@ -230,6 +360,7 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'kind', c.kind, 'agent_id', c.agent_id, 'project_id', c.project_id,
     'title', c.title, 'session_id', c.session_id,
     'status', (SELECT status FROM allgres_private.sessions WHERE session_id = c.session_id),
+    'queued_message', c.queued_message,
     'busy', c.session_id IS NOT NULL AND EXISTS (
       SELECT 1 FROM allgres_private.tasks k
       WHERE k.session_id = c.session_id AND k.status NOT IN ('completed', 'failed', 'cancelled')),
