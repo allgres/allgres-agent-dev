@@ -1414,7 +1414,13 @@ BEGIN
 
     WHEN 'conv.send' THEN
       RETURN allgres_public.fn_conv_send(p_request->>'session_token',
-        (p_request->>'conversation_id')::uuid, p_request->>'message');
+        (p_request->>'conversation_id')::uuid, p_request->>'message', COALESCE(NULLIF(p_request->>'mode', ''), 'after'));
+
+    WHEN 'conv.stop' THEN
+      RETURN allgres_public.fn_conv_stop(p_request->>'session_token', (p_request->>'conversation_id')::uuid);
+
+    WHEN 'conv.unqueue' THEN
+      RETURN allgres_public.fn_conv_unqueue(p_request->>'session_token', (p_request->>'conversation_id')::uuid);
 
     WHEN 'conv.history' THEN
       RETURN allgres_public.fn_conv_history(p_request->>'session_token', (p_request->>'conversation_id')::uuid);

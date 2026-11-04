@@ -1014,7 +1014,13 @@
    "Asking the provider for its models…": "Asking the provider for its models…",
    "The provider lists no model that is switched on. Type a name.": "The provider lists no model that is switched on. Type a name.",
    "Waiting for the answer…": "Waiting for the answer…",
-   "Wait for the answer first": "Wait for the answer first"
+   "Queued for after the answer:": "Queued for after the answer:",
+   "Take it back": "Take it back",
+   "Stop the answer and send this together with the earlier message": "Stop the answer and send this together with the earlier message",
+   "Send now": "Send now",
+   "Stop": "Stop",
+   "Stopped": "Stopped",
+   "Send after answer": "Send after answer"
   }
  }
 }

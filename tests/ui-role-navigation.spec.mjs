@@ -867,6 +867,50 @@ test('General chat shows only the answer and can start a new chat', async ({ pag
   await expect(page.locator('#convList .convItem', { hasText: 'hello there' })).toHaveCount(0);
 });
 
+test('while an answer is on its way the button row offers Stop, send after the answer, and send now', async ({ page }) => {
+  await login(page, 'ui_admin', 'ui-admin-password');
+  // The server's own behaviour is covered by the selftest; here the page is given a busy thread.
+  const seen = [];
+  let busy = true;
+  await page.route('**/api/v1/rpc', async route => {
+    const body = route.request().postDataJSON();
+    if (body.action === 'conv.history') {
+      const r = await route.fetch();
+      const j = await r.json();
+      return route.fulfill({ response: r, json: { ...j, busy, queued_message: seen.some(x => x.action === 'conv.send' && x.mode === 'after') && busy ? 'later question' : null } });
+    }
+    if (body.action === 'conv.send' || body.action === 'conv.stop') {
+      seen.push({ action: body.action, mode: body.mode, message: body.message });
+      if (body.action === 'conv.stop') busy = false;
+      return route.fulfill({ json: { ok: true, queued: body.mode === 'after' } });
+    }
+    return route.continue();
+  });
+  await go(page, 'Chat');
+  await page.locator('#convNew').click();
+  await expect(page.locator('#convInput')).toBeFocused();
+  await expect(page.locator('#convThread .pending')).toBeVisible();
+  await expect(page.locator('#convStop')).toBeVisible();
+  // Nothing typed: nothing to send yet, but the answer can be stopped.
+  await expect(page.locator('#convSend')).toHaveText('Send after answer');
+  await expect(page.locator('#convSend')).toBeDisabled();
+  await expect(page.locator('#convNow')).toBeDisabled();
+  await page.locator('#convInput').fill('later question');
+  await expect(page.locator('#convSend')).toBeEnabled();
+  await expect(page.locator('#convNow')).toBeEnabled();
+  await page.locator('#convSend').click();
+  await expect.poll(() => seen.find(x => x.mode === 'after')?.message).toBe('later question');
+  await expect(page.locator('#convQueued')).toContainText('later question');
+  await page.locator('#convInput').fill('right away');
+  await page.locator('#convNow').click();
+  await expect.poll(() => seen.find(x => x.mode === 'now')?.message).toBe('right away');
+  await page.locator('#convStop').click();
+  await expect.poll(() => seen.some(x => x.action === 'conv.stop')).toBe(true);
+  await expect(page.locator('#convStop')).toBeHidden();
+  await expect(page.locator('#convSend')).toHaveText('Send');
+  await page.unroute('**/api/v1/rpc');
+});
+
 test('one model is put on chosen agents at once, and can be the default for new agents', async ({ page }) => {
   test.setTimeout(90000);
   await login(page, 'ui_admin', 'ui-admin-password');

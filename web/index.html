@@ -2180,6 +2180,7 @@ async function showConv(){
   await chatPane(pane,c);
 }
 async function chatPane(pane,c){
+  state.convBusy=null;state.convQueued='';
   const [mine,available]=await Promise.all([rpc('agents.mine'),rpc('providers.available').catch(()=>({providers:[]}))]);
   if(state.convId!==c.conversation_id)return;
   const agent=(mine.agents||[]).find(a=>a.agent_id===c.agent_id);
@@ -2189,10 +2190,15 @@ async function chatPane(pane,c){
 <details class="u-margin-top-12px"><summary class="muted">Model</summary>${chatModelPicker(agent,available.providers||[])}</details>
 ${ready?'':'<div class="banner u-margin-top-12px">Choose a provider and model above, then save before sending a message.</div>'}
 <div id="convThread" class="chat-thread u-margin-top-12px"></div>
-<div class="row"><input class="input" id="convInput" placeholder="Message ${esc(c.agent)}…" ${ready?'':'disabled'}><button class="btn primary" id="convSend" ${ready?'':'disabled'}>${esc(t('send'))}</button></div></div>`;
+<div id="convQueued" class="row u-margin-top-8px hidden"><span class="muted">${esc(t('Queued for after the answer:'))}</span><span id="convQueuedText"></span><span class="spacer"></span><button class="btn small" id="convUnqueue">${esc(t('Take it back'))}</button></div>
+<div class="row"><input class="input" id="convInput" placeholder="Message ${esc(c.agent)}…" ${ready?'':'disabled'}><button class="btn primary" id="convSend" ${ready?'':'disabled'}>${esc(t('send'))}</button><button class="btn hidden" id="convNow" title="${esc(t('Stop the answer and send this together with the earlier message'))}">${esc(t('Send now'))}</button><button class="btn danger hidden" id="convStop">${esc(t('Stop'))}</button></div></div>`;
   wireChatModelPicker(agent,available.providers||[],()=>showConv());
-  $('#convSend').onclick=()=>sendConv(c);
-  $('#convInput').onkeydown=e=>{if(e.key==='Enter')sendConv(c)};
+  $('#convSend').onclick=()=>sendConv(c,'after');
+  $('#convNow').onclick=()=>sendConv(c,'now');
+  $('#convStop').onclick=async()=>{try{await rpc('conv.stop',{conversation_id:c.conversation_id});toast(t('Stopped'));await renderConvThread(c);await loadConvList()}catch(e){toast(e.message)}};
+  $('#convUnqueue').onclick=async()=>{try{await rpc('conv.unqueue',{conversation_id:c.conversation_id});await renderConvThread(c)}catch(e){toast(e.message)}};
+  $('#convInput').onkeydown=e=>{if(e.key==='Enter')sendConv(c,'after')};
+  $('#convInput').oninput=()=>convComposer();
   $('#convRename').onclick=async()=>{
     const v=prompt('Name this conversation',c.title||'');
     if(v===null)return;
@@ -2213,9 +2219,9 @@ async function renderConvThread(c){
       :h.last_error?`<div class="banner">${esc(c.agent)} could not answer: ${esc(h.last_error)}</div>`:'';
     $('#convThread').innerHTML=((h.messages||[]).map(msgBubble).join('')||`<div class="muted">Say hello to ${esc(c.agent)}.</div>`)+waiting;
     scrollBottom('#convThread');
-    // The send button waits while an answer is on its way (a second message would be refused).
     state.convBusy=h.busy?c.conversation_id:null;
-    if($('#convSend'))$('#convSend').disabled=Boolean(h.busy)||!$('#convInput')||$('#convInput').disabled;
+    state.convQueued=h.queued_message||'';
+    convComposer();
     if(h.busy&&state.convBusySince?.id!==c.conversation_id)state.convBusySince={id:c.conversation_id,at:Date.now()};
     if(convTickTimer){clearInterval(convTickTimer);convTickTimer=null}
     if(h.busy){
@@ -2228,13 +2234,26 @@ async function renderConvThread(c){
     if(h.busy)state.convWasBusy=c.conversation_id;
   }catch(e){if($('#convThread'))$('#convThread').textContent=e.message}
 }
-async function sendConv(c){
+// While an answer is on its way the button row changes: Stop is always there,
+// and a message typed meanwhile can wait for the answer to finish or go now.
+function convComposer(){
+  const busy=Boolean(state.convBusy&&state.convBusy===state.convId),inp=$('#convInput');
+  if(!inp)return;
+  const typed=inp.value.trim()!=='',off=inp.disabled;
+  $('#convStop').classList.toggle('hidden',!busy);
+  $('#convNow').classList.toggle('hidden',!busy);
+  $('#convNow').disabled=off||!typed;
+  $('#convSend').textContent=busy?t('Send after answer'):t('send');
+  $('#convSend').disabled=off||(busy&&!typed);
+  const q=$('#convQueued');
+  if(q){q.classList.toggle('hidden',!state.convQueued);$('#convQueuedText').textContent=state.convQueued||''}
+}
+async function sendConv(c,mode){
   const v=$('#convInput')?.value.trim();if(!v)return;
-  if(state.convBusy===c.conversation_id){toast(t('Wait for the answer first'));return}
   $('#convInput').value='';
   try{
-    await rpc('conv.send',{conversation_id:c.conversation_id,message:v});
-    state.convBusySince={id:c.conversation_id,at:Date.now()};
+    const r=await rpc('conv.send',{conversation_id:c.conversation_id,message:v,mode:mode||'after'});
+    if(!r.queued||mode==='now')state.convBusySince={id:c.conversation_id,at:Date.now()};
     await renderConvThread(c);
     await loadConvList();
   }catch(e){toast(e.message)}
