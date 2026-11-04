@@ -1009,7 +1009,10 @@
    "Talk with an agent, work inside a project, or share a room with people and several agents. All of it is one list.": "Talk with an agent, work inside a project, or share a room with people and several agents. All of it is one list.",
    "Manage projects: which agent they use and the instructions they add.": "Manage projects: which agent they use and the instructions they add.",
    "No agent assigned to you": "No agent assigned to you",
-   "Type another…": "Type another…"
+   "Type another…": "Type another…",
+   "No model list yet. Ask an administrator to test this provider, or type a name.": "No model list yet. Ask an administrator to test this provider, or type a name.",
+   "Asking the provider for its models…": "Asking the provider for its models…",
+   "The provider lists no model that is switched on. Type a name.": "The provider lists no model that is switched on. Type a name."
   }
  }
 }

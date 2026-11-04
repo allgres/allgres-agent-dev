@@ -4,6 +4,7 @@ All notable changes will be documented here.
 
 ## Unreleased
 
+- The model field says why it has no list. Under the field, an administrator sees "Asking the provider for its models…" while the list is being fetched, and, if the provider cannot list them (unreachable, wrong address, nothing switched on), the reason; anyone else sees that an administrator has to test the provider. Until now the field stayed a silent text box.
 - The model dropdown fills itself. A provider that was never tested has no model list; when an administrator picks it in Chat's model picker or in an agent's settings, the server is asked for its models once and the dropdown appears (models switched off in Models & prices are left out). Anyone else still sees the text field until an administrator has tested the provider. `providers.available` now carries each provider's `provider_id`.
 - Models are chosen from a list. Once a provider has been tested, its models appear in a dropdown wherever a model is picked: the agent's form, the model picker in Chat, My agents, and the price form. **Type another…** opens a text field for a name the list lacks; a provider that lists nothing still shows the text field alone. Changing the provider redraws the list.
 - Fixed: a chat started from the new conversation list ignored the person's own model choice (My model), so an agent with no default model never answered. The call now finds the person through the conversation, as it does for the older chats. The same list also lets a regular user open the session behind their own conversation.
