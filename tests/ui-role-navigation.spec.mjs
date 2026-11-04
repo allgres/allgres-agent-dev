@@ -1154,6 +1154,20 @@ test('a provider is tested before it is saved, and a 200 with an error body is n
   await expect(page.locator('#cmModel')).toBeVisible();
   await page.locator('#cmModel').fill('my-own-alias');
   await expect(page.locator('#cmModel')).toHaveValue('my-own-alias');
+  // A provider that cannot list its models says why instead of leaving the field silently empty.
+  await page.evaluate(async ([base, n]) => {
+    const r = await (await fetch('/api/v1/rpc', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-allgres-client': 'dashboard' },
+      body: JSON.stringify({ action: 'provider.create', name: n, kind: 'openai_compat', base_url: base + '/nowhere', allow_private_network: true,
+        session_token: sessionStorage.getItem('allgres_session_token') }) })).json();
+    if (r.ok === false) throw new Error(r.error);
+  }, [baseURL, name + '_down']);
+  await go(page, 'Chat');
+  await page.locator('#convNew').click();
+  await expect(page.locator('#convInput')).toBeFocused();
+  await page.locator('#convPane summary', { hasText: 'Model' }).click();
+  await page.locator('#cmProvider').selectOption({ label: `${name}_down (openai_compat)` });
+  await expect(page.locator('.modelField[data-field="cmModel"] .modelNote')).toContainText('did not list its models', { timeout: 30000 });
   await expect(page.locator('#convThread')).not.toContainText('Unexpected endpoint');
 });
 

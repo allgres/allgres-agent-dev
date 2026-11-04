@@ -113,6 +113,8 @@ body{font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFon
 .convItem .convTitle{display:block;font-weight:650}
 .convItem .convSub{display:block;margin-top:2px;font-size:11px;font-weight:400;opacity:.8}
 .modelField .modelSel+.input{margin-top:6px}
+.modelNote{font-size:12px;margin-top:4px}
+.modelNote:empty{display:none}
 #chatThread,#projectChatThread,#msgFeed{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 #chatThread::-webkit-scrollbar,#projectChatThread::-webkit-scrollbar,#msgFeed::-webkit-scrollbar{width:10px}
 #chatThread::-webkit-scrollbar-track,#projectChatThread::-webkit-scrollbar-track,#msgFeed::-webkit-scrollbar-track{background:transparent}
@@ -513,18 +515,24 @@ function providerStatusBadge(p){
 // picks it gets the list asked for once, so the dropdown fills itself; anyone
 // else is told to ask. The list that comes back is the one the server offers
 // (models switched off in Models & prices are left out).
-const modelProbeTried=new Set();
-async function ensureModelList(p,onModels){
-  if(!p||!p.provider_id||(p.available_models||[]).length||state.me?.role!=='admin'||modelProbeTried.has(p.provider_id))return;
-  modelProbeTried.add(p.provider_id);
+const modelProbeTried=new Map();
+function modelNote(id,text){const el=document.querySelector(`.modelField[data-field="${id}"] .modelNote`);if(el)el.textContent=text||''}
+async function ensureModelList(p,onModels,id){
+  if(!p||!p.provider_id||(p.available_models||[]).length)return;
+  if(state.me?.role!=='admin'){modelNote(id,'No model list yet. Ask an administrator to test this provider, or type a name.');return}
+  if(modelProbeTried.has(p.provider_id)){modelNote(id,modelProbeTried.get(p.provider_id));return}
+  const fail=msg=>{modelProbeTried.set(p.provider_id,msg);modelNote(id,msg)};
+  modelNote(id,'Asking the provider for its models…');
   try{
     const a=await rpc('providers.probe_start',{provider_id:p.provider_id,probe:'models'});
     const s=await awaitProbe('providers.probe_status',a.call_id);
-    if(!s.passed)return;
+    if(!s.passed){fail('The provider did not list its models: '+probeErrorText(s.error)+' Type a name, or test it under Connections.');return}
     const av=await rpc('providers.available');
     const list=(av.providers||[]).find(x=>x.name===p.name)?.available_models||[];
-    if(list.length){p.available_models=list;onModels(list)}
-  }catch(e){}
+    if(!list.length){fail('The provider lists no model that is switched on. Type a name.');return}
+    modelProbeTried.set(p.provider_id,'');
+    p.available_models=list;onModels(list);
+  }catch(e){fail(e.message)}
 }
 const MODEL_OTHER='__other__';
 const modelFieldOpts={};
@@ -533,7 +541,7 @@ function modelField(id,models,value,o){
   models=[...new Set(models||[])];value=value||'';
   const inList=models.includes(value),typing=!models.length||(value!==''&&!inList),dis=o.disabled?' disabled':'';
   const sel=models.length?`<select class="select modelSel" data-for="${esc(id)}"${dis}><option value=""${value===''&&!typing?' selected':''}>— select —</option>${models.map(m=>`<option value="${esc(m)}"${m===value?' selected':''}>${esc(m)}</option>`).join('')}<option value="${MODEL_OTHER}"${typing?' selected':''}>Type another…</option></select>`:'';
-  return `<div class="modelField" data-field="${esc(id)}">${sel}<input class="input${o.cls?' '+o.cls:''}${typing?'':' hidden'}" id="${esc(id)}" ${o.attrs||''} value="${esc(value)}" placeholder="${esc(o.ph||'')}"${dis}></div>`;
+  return `<div class="modelField" data-field="${esc(id)}">${sel}<input class="input${o.cls?' '+o.cls:''}${typing?'':' hidden'}" id="${esc(id)}" ${o.attrs||''} value="${esc(value)}" placeholder="${esc(o.ph||'')}"${dis}><div class="muted modelNote"></div></div>`;
 }
 // Redraw one field with another provider's list; the current text stays only if that list has it.
 function setModelField(id,models,keep,value){
@@ -763,9 +771,9 @@ ${isNew||a.is_system?'':`<div class="field"><label>Copy this agent</label><div c
     $('#aProvider').onchange=()=>{
       const p=providerOpts.find(x=>x.name===$('#aProvider').value);
       setModelField('aModel',p?.available_models||[],true);
-      ensureModelList(p,l=>setModelField('aModel',l,true));
+      ensureModelList(p,l=>setModelField('aModel',l,true),'aModel');
     };
-    ensureModelList(providerOpts.find(x=>x.name===$('#aProvider').value),l=>setModelField('aModel',l,true));
+    ensureModelList(providerOpts.find(x=>x.name===$('#aProvider').value),l=>setModelField('aModel',l,true),'aModel');
   }
   if(!isNew&&opts&&!locked){
     const fillRefOptions=()=>{const t=$('#permType').value;const list=t==='view'?opts.views:t==='agent'?opts.agents:t==='function'?opts.functions:t==='procedure'?opts.procedures:[];$('#permRefOptions').innerHTML=(list||[]).map(v=>`<option value="${esc(v)}">`).join('')};
@@ -2062,9 +2070,9 @@ function wireChatModelPicker(agent,providerOpts,onSaved){
   $('#cmProvider').onchange=()=>{
     const p=providerOpts.find(x=>x.name===$('#cmProvider').value);
     setModelField('cmModel',p?.available_models||[],true);
-    ensureModelList(p,l=>setModelField('cmModel',l,true));
+    ensureModelList(p,l=>setModelField('cmModel',l,true),'cmModel');
   };
-  ensureModelList(providerOpts.find(x=>x.name===$('#cmProvider').value),l=>setModelField('cmModel',l,true));
+  ensureModelList(providerOpts.find(x=>x.name===$('#cmProvider').value),l=>setModelField('cmModel',l,true),'cmModel');
   $('#cmTest').onclick=async()=>{
     const out=$('#cmTestOut'),model=$('#cmModel').value.trim();
     if(!$('#cmProvider').value||!model){out.innerHTML=`${status('error')} Choose a provider and a model first.`;return}
