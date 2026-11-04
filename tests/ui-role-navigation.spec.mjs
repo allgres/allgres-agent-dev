@@ -110,7 +110,9 @@ test('the top bar stays put: Canvas is only the body; language is set in Setting
   // It is remembered across a reload.
   await page.reload();
   await expect(page.locator('#nav').getByRole('button', { name: '채팅', exact: true })).toBeVisible();
-  // Light theme too.
+  // Light theme too (the page remembered on reload is saved a moment after it is left, so go to the Canvas again rather than rely on it).
+  await page.evaluate(() => openPage('Canvas'));
+  await expect(page.locator('#canvasFrame')).toHaveCount(1);
   await page.locator('#themeBtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(cv.locator('html')).toHaveAttribute('data-theme', 'light', { timeout: 20000 });
