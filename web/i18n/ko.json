@@ -1021,7 +1021,8 @@
    "Send now": "지금 보내기",
    "Stop": "중단",
    "Stopped": "중단했습니다",
-   "Send after answer": "답변 뒤에 보내기"
+   "Send after answer": "답변 뒤에 보내기",
+   "The lead (Make lead) gets a message that calls nobody and is the only one who proposes tasks. A room has one.": "리더(Make lead)는 아무도 부르지 않은 메시지를 받고, 태스크를 제안할 수 있는 유일한 에이전트입니다. 룸에는 한 명만 둡니다."
   }
  }
 }

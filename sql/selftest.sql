@@ -6710,7 +6710,7 @@ BEGIN
   a_out := (allgres_public.fn_create_agent('zz_room_out', 'agent not in the room')->>'agent_id')::uuid;
   SELECT agent_id INTO a_sys FROM allgres_private.agents WHERE is_system LIMIT 1;
   INSERT INTO allgres_private.user_agent_assignments (user_id, agent_id) VALUES (u_member, a_lead), (u_member, a_rev);
-  SELECT role_id INTO v_role_lead FROM allgres_private.room_roles WHERE name = 'lead';
+  SELECT role_id INTO v_role_lead FROM allgres_private.room_roles WHERE name = 'implementer';
   SELECT role_id INTO v_role_rev FROM allgres_private.room_roles WHERE name = 'reviewer';
 
   r := allgres.dashboard_rpc(jsonb_build_object('action', 'rooms.create', 'name', 'zz_room', 'session_token', tm));
@@ -6875,7 +6875,7 @@ BEGIN
   a_impl := (allgres_public.fn_create_agent('zz5_impl', 'implementer fixture')->>'agent_id')::uuid;
   a_nope := (allgres_public.fn_create_agent('zz5_nope', 'no permission fixture')->>'agent_id')::uuid;
   v_room := (allgres_public.fn_room_create(tk, 'zz5_room', 'reconcile the ledger', 50, 100)->>'room_id')::uuid;
-  PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_lead, (SELECT role_id FROM allgres_private.room_roles WHERE name = 'lead'));
+  PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_lead, NULL);
   PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_rev, (SELECT role_id FROM allgres_private.room_roles WHERE name = 'reviewer'));
   PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_impl, (SELECT role_id FROM allgres_private.room_roles WHERE name = 'implementer'));
   PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_nope, NULL);
@@ -6900,7 +6900,10 @@ BEGIN
   v_t := (r->'tasks'->>0)::uuid;
   SELECT s.goal INTO v_goal FROM allgres_private.tasks t JOIN allgres_private.sessions s USING (session_id) WHERE t.task_id = v_t;
   ok := v_goal LIKE '%The agents in this room: zz5_impl (implementer), zz5_lead (lead), zz5_nope, zz5_rev (reviewer).%'
-    AND v_goal LIKE '%You are the lead:%PROPOSE @agent-name:%';
+    AND v_goal LIKE '%You are the lead:%PROPOSE @agent-name:%'
+    -- Being the room's lead is what makes it the lead; there is no role of that name.
+    AND v_goal LIKE '%You lead this room.%'
+    AND NOT EXISTS (SELECT 1 FROM allgres_private.room_roles WHERE name = 'lead');
   UPDATE allgres_private.tasks SET status = 'completed', output = jsonb_build_object('answer', 'I need @zz5_rev to look.') WHERE task_id = v_t;
   SELECT t.task_id INTO v_t2 FROM allgres_private.room_turns t WHERE t.room_id = v_room AND t.agent_id = a_rev;
   ok := ok AND v_t2 IS NOT NULL
@@ -7043,7 +7046,7 @@ BEGIN
   WHERE agent_id IN (a_lead, a_impl);
   PERFORM allgres_public.fn_grant_permission(a_lead, 'agent', 'zz6_impl');
   v_room := (allgres_public.fn_room_create(tk, 'zz6_room', 'ship the report', 20, 5)->>'room_id')::uuid;
-  PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_lead, (SELECT role_id FROM allgres_private.room_roles WHERE name = 'lead'));
+  PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_lead, NULL);
   PERFORM allgres_public.fn_room_member_add(v_room, NULL, a_impl, (SELECT role_id FROM allgres_private.room_roles WHERE name = 'implementer'));
 
   -- Auto needs a lead, a cost limit, sane limits, and priced models.
