@@ -1039,7 +1039,11 @@
    "Connect a model": "Connect a model",
    "Make admin": "Make admin",
    "Show all agents": "Show all agents",
-   "My agents": "My agents"
+   "My agents": "My agents",
+   "not tested": "not tested",
+   "chat not tested": "chat not tested",
+   "chat failed": "chat failed",
+   "Use this price": "Use this price"
   }
  }
 }

@@ -1040,7 +1040,11 @@
    "Connect a model": "모델 연결",
    "Make admin": "관리자로 변경",
    "Show all agents": "모든 에이전트 보기",
-   "My agents": "내 에이전트"
+   "My agents": "내 에이전트",
+   "not tested": "테스트 안 함",
+   "chat not tested": "대화 테스트 안 함",
+   "chat failed": "대화 실패",
+   "Use this price": "이 가격 사용"
   }
  }
 }

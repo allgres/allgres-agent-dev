@@ -111,7 +111,10 @@ async function untranslated(page, issues, where) {
       if (/[가-힣]/.test(t)) continue;
       const words = t.match(/[A-Za-z][a-z]{2,}/g) || [];
       // What the crawl made itself (its agents, rooms, messages) and what the mock model says is not the page's text.
-      if (/crawl|mock|allgres|seoul-weather/i.test(t)) continue;
+      if (/crawl|mock|allgres|seoul-weather|laya-serve/i.test(t)) continue;
+      // A sentence with <b>/<code> inside is translated whole by the pack's own rules, not by piece; only whole texts are judged.
+      if (el.parentElement && [...el.parentElement.children].some(c => /^(CODE|B|I|A|EM|STRONG)$/.test(c.tagName)) && el.children.length) continue;
+      if (/^(CODE|B|I|A|EM|STRONG)$/.test(el.tagName) === false && [...el.childNodes].some(c => c.nodeType === 1 && /^(CODE|B|I|EM|STRONG)$/.test(c.tagName))) continue;
       if (words.length >= 2 && !/[_/@.:\d]/.test(t)) out.add(t.slice(0, 60));
     }
     return [...out];
