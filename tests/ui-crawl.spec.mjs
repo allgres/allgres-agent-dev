@@ -185,13 +185,13 @@ async function press(page, scope, reopen, issues, where, limit = 40, alsoSkip = 
     try { await el.click({ timeout: 2500 }); } catch { continue; }
     await settle(page);
     await toastCheck(page, issues, () => `${where()} > ${label.slice(0, 40)}`);
-    if (await page.locator('#modal:not(.hidden)').count()) {
+    if (!alsoSkip && await page.locator('#modal:not(.hidden)').count()) {
       const inDialog = () => `${where()} > ${label.slice(0, 40)}`;
       await layout(page, issues, inDialog);
       // A dialog's own buttons are pressed once too (Start, Save, Add...): that is where "null is
       // not an object" hides. What they save is throwaway data of the crawl.
       // Its Close button is left for last (closeModal below), or the others would never be reached.
-      await press(page, page.locator('#modal'), async () => {}, issues, inDialog, 12, /closeM|^close\b/i);
+      await press(page, page.locator('#modal'), async () => {}, issues, inDialog, 12, /closeM|^close\b|^닫기/i);
       await page.evaluate(() => closeModal?.());
     }
     const after = await page.evaluate(() => document.querySelector('#pageTitle')?.textContent);
