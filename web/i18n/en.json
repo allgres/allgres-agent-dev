@@ -1033,7 +1033,17 @@
    "The provider lists no models. Add one by name below.": "The provider lists no models. Add one by name below.",
    "Input price per 1k tokens": "Input price per 1k tokens",
    "Output price per 1k tokens": "Output price per 1k tokens",
-   "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas.": "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas."
+   "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas.": "Where agents get their language models. Add a provider; its models are listed under it with their prices. Then choose a model for each agent on the Agents page or the Canvas.",
+   "Build a team": "Build a team",
+   "Give it a first job": "Give it a first job",
+   "Connect a model": "Connect a model",
+   "Make admin": "Make admin",
+   "Show all agents": "Show all agents",
+   "My agents": "My agents",
+   "not tested": "not tested",
+   "chat not tested": "chat not tested",
+   "chat failed": "chat failed",
+   "Use this price": "Use this price"
   }
  }
 }

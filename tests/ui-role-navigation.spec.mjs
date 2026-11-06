@@ -110,7 +110,9 @@ test('the top bar stays put: Canvas is only the body; language is set in Setting
   // It is remembered across a reload.
   await page.reload();
   await expect(page.locator('#nav').getByRole('button', { name: '채팅', exact: true })).toBeVisible();
-  // Light theme too.
+  // Light theme too (the page remembered on reload is saved a moment after it is left, so go to the Canvas again rather than rely on it).
+  await page.evaluate(() => openPage('Canvas'));
+  await expect(page.locator('#canvasFrame')).toHaveCount(1);
   await page.locator('#themeBtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(cv.locator('html')).toHaveAttribute('data-theme', 'light', { timeout: 20000 });
@@ -1110,10 +1112,11 @@ test('an agent is opened between the dashboard and the Canvas in either directio
     if (r.ok === false) throw new Error(r.error);
   }, name);
   await go(page, 'Agents');
-  const row = page.locator('#view tr', { hasText: name }).first();
-  await row.locator('.agentOnCanvas').click();
-  // The Canvas opens with that agent selected.
+  // The agents list has no Canvas button of its own: the top bar switches to the Canvas.
+  await expect(page.locator('#view tr', { hasText: name }).first().locator('.agentOnCanvas')).toHaveCount(0);
+  await page.locator('#toCanvas').click();
   const cv = page.frameLocator('#canvasFrame');
+  await cv.locator('.an-head', { hasText: name }).first().click({ timeout: 20000 });
   await expect(cv.locator(`aside.inspector[aria-label="${name}"]`)).toBeVisible({ timeout: 20000 });
   // The details header keeps the name readable in the narrow panel: the name is not squeezed to
   // an ellipsis, and the on/off switch and the dashboard button sit on their own row below it.
@@ -1338,6 +1341,25 @@ test('admin sets up approval routing and sees the decision records', async ({ pa
   await expect(page.getByRole('button', { name: 'Mine', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Decisions', exact: true })).toHaveCount(0);
   await expect(page.locator('#nav').getByRole('button', { name: 'Users', exact: true })).toHaveCount(0);
+});
+
+test('going through every menu entry and tab once asks for a modest number of things', async ({ page }) => {
+  test.setTimeout(120000);
+  await login(page, 'ui_admin', 'ui-admin-password');
+  // A person clicking quickly from menu to menu must not run into the request limit (1200 a minute):
+  // one pass over every page and tab is about fifty requests, and must stay below ninety.
+  let asked = 0, refused = 0;
+  page.on('request', r => { if (r.url().startsWith(baseURL + '/') && /\/api\/v1\/(rpc|settings|agents|events\/ticket)/.test(r.url())) asked++; });
+  page.on('response', r => { if (r.status() === 429) refused++; });
+  const names = await page.locator('#nav button').allInnerTexts();
+  for (const name of names) {
+    await page.locator('#nav').getByRole('button', { name, exact: true }).click();
+    for (const tab of await page.locator('#pageTabs [role="tab"]').allInnerTexts().catch(() => []))
+      await page.locator('#pageTabs').getByRole('tab', { name: tab, exact: true }).click();
+  }
+  await page.waitForTimeout(1500);
+  expect(refused).toBe(0);
+  expect(asked, 'requests for one pass over every page and tab').toBeLessThan(90);
 });
 
 test('mobile navigation remains keyboard reachable', async ({ page }) => {

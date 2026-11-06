@@ -1,5 +1,10 @@
 {
   "private": true,
-  "scripts": {"test:ui": "playwright test"},
-  "devDependencies": {"@playwright/test": "1.55.0"}
+  "scripts": {
+    "test:ui": "playwright test ui-role-navigation && playwright test ui-feature-effects",
+    "test:crawl": "playwright test -c playwright.crawl.config.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0"
+  }
 }
