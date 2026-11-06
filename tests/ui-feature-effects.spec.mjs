@@ -55,66 +55,74 @@ async function finished(page, session_id, ms = 60000) {
 }
 
 test('a line drawn on the Canvas is what lets an agent hand work over', async ({ page }) => {
+  const S = '_' + Date.now().toString(36);   // names of this attempt only: a retry starts from a clean slate
   test.setTimeout(120000);
   await login(page, 'ui_admin', 'ui-admin-password');
   await seed(page);
   // MOCK_ACTION makes the mock model answer with exactly this action.
-  const script = 'MOCK_ACTION: {"action":"delegate","agent_name":"fx_helper","input":{"goal":"count the invoices"},"wait":false}';
-  const boss = await makeAgent(page, 'fx_boss', script);
-  await makeAgent(page, 'fx_helper', 'Answers briefly.');
+  const script = `MOCK_ACTION: {"action":"delegate","agent_name":"fx_helper${S}","input":{"goal":"count the invoices"},"wait":false}`;
+  const boss = await makeAgent(page, 'fx_boss'+S, script);
+  await makeAgent(page, 'fx_helper'+S, 'Answers briefly.');
 
   // No line: the boss tries to hand work over and is refused, so nothing is made for the helper.
   const before = await finished(page, need(await api(page, { action: 'run', agent_id: boss, goal: 'go' })).session_id);
-  expect(before.tasks.filter(t => t.agent === 'fx_helper')).toHaveLength(0);
+  expect(before.tasks.filter(t => t.agent === 'fx_helper'+S)).toHaveLength(0);
 
   // Draw the line in the Canvas's details, as a person does.
   await go(page, 'Agents');
   await page.locator('#toCanvas').click();
   const cv = page.frameLocator('#canvasFrame');
-  await cv.locator('.an-head', { hasText: 'fx_boss' }).first().click();
-  await expect(cv.locator('aside.inspector[aria-label="fx_boss"]')).toBeVisible({ timeout: 20000 });
-  await cv.getByLabel('Add who it hands work to').selectOption({ label: 'fx_helper' });
-  await expect.poll(async () => (await api(page, { action: 'permissions.list', agent_id: boss })).permissions?.some(p => p.type === 'agent' && p.ref === 'fx_helper'),
+  await cv.locator('.an-head', { hasText: 'fx_boss'+S }).first().dispatchEvent('click');   // the board may still be settling: a real click can land on a card that is moving
+  await expect(cv.locator(`aside.inspector[aria-label="fx_boss${S}"]`)).toBeVisible({ timeout: 20000 });
+  await cv.getByLabel('Add who it hands work to').selectOption({ label: 'fx_helper'+S });
+  await expect.poll(async () => (await api(page, { action: 'permissions.list', agent_id: boss })).permissions?.some(p => p.type === 'agent' && p.ref === 'fx_helper'+S),
     { timeout: 20000 }).toBe(true);
 
   // With the line: the same request now ends with a task for the helper, and it ran.
   const after = await finished(page, need(await api(page, { action: 'run', agent_id: boss, goal: 'go again' })).session_id, 90000);
-  const helperTask = after.tasks.find(t => t.agent === 'fx_helper');
+  const helperTask = after.tasks.find(t => t.agent === 'fx_helper'+S);
   expect(helperTask, 'the helper got a task').toBeTruthy();
-  expect(helperTask.parent_task_id).toBe(after.tasks.find(t => t.agent === 'fx_boss').task_id);
+  expect(helperTask.parent_task_id).toBe(after.tasks.find(t => t.agent === 'fx_boss'+S).task_id);
   expect(helperTask.status).toBe('completed');
 });
 
 test('the lead of a room is the one who gets a message that calls nobody', async ({ page }) => {
+  const S = '_' + Date.now().toString(36);
   test.setTimeout(120000);
   await login(page, 'ui_admin', 'ui-admin-password');
   await seed(page);
-  const lead = await makeAgent(page, 'fx_room_lead', 'Answers briefly.');
-  const mate = await makeAgent(page, 'fx_room_mate', 'Answers briefly.');
-  const room = need(await api(page, { action: 'rooms.create', name: 'fx-lead-room' })).room_id;
+  const lead = await makeAgent(page, 'fx_room_lead'+S, 'Answers briefly.');
+  const mate = await makeAgent(page, 'fx_room_mate'+S, 'Answers briefly.');
+  const room = need(await api(page, { action: 'rooms.create', name: 'fx-lead-room'+S })).room_id;
   for (const id of [lead, mate]) need(await api(page, { action: 'rooms.member_add', room_id: room, agent_id: id }));
 
   await go(page, 'Chat');
-  await page.locator('#convList .convItem', { hasText: 'fx-lead-room' }).click();
-  await page.locator('#view .row', { hasText: 'fx_room_lead' }).getByRole('button', { name: 'Make lead' }).click();
+  await page.locator('#convList .convItem', { hasText: 'fx-lead-room'+S }).click();
+  await page.locator('#view .row', { hasText: 'fx_room_lead'+S }).getByRole('button', { name: 'Make lead' }).click();
   await expect.poll(async () => (await api(page, { action: 'rooms.get', room_id: room })).room.lead_agent_id, { timeout: 20000 }).toBe(lead);
 
   await page.locator('#rmText').fill('Who is looking at the quarter figures?');
   await page.locator('#rmSend').click();
   // Nobody was called by name, yet an agent answered, and it was the lead and nobody else.
-  await expect(page.locator('#rmThread .msg', { hasText: 'Allgres mock runtime OK' })).toBeVisible({ timeout: 60000 });
-  const got = await api(page, { action: 'rooms.get', room_id: room });
+  // First the server's side (so a failure says where it stopped), then what the page shows.
+  let got;
+  await expect.poll(async () => {
+    got = await api(page, { action: 'rooms.get', room_id: room });
+    return (got.messages || []).some(m => m.by_agent && m.kind === 'say');
+  }, { timeout: 60000, message: () => 'no agent answered in the room: ' + JSON.stringify({ lead: got?.room?.lead_agent_id, want: lead, status: got?.room?.status, messages: (got?.messages || []).map(m => [m.author, m.kind, String(m.text || '').slice(0, 60)]) }) }).toBe(true);
+  await expect(page.locator('#rmThread .msg', { hasText: 'Allgres mock runtime OK' })).toBeVisible({ timeout: 30000 });
   const answers = got.messages.filter(m => m.by_agent && m.kind === 'say');
   expect(answers.length).toBeGreaterThan(0);
-  expect(answers.every(m => m.author === 'fx_room_lead')).toBe(true);
+  expect(answers.every(m => m.author === 'fx_room_lead'+S)).toBe(true);
 });
 
 test('a price typed beside a model is the price that counts toward a room\'s cost', async ({ page }) => {
+  const S = '_' + Date.now().toString(36);
   test.setTimeout(120000);
   await login(page, 'ui_admin', 'ui-admin-password');
   await seed(page);
-  const agent = await makeAgent(page, 'fx_priced', 'Answers briefly.');
-  const room = need(await api(page, { action: 'rooms.create', name: 'fx-cost-room' })).room_id;
+  const agent = await makeAgent(page, 'fx_priced'+S, 'Answers briefly.');
+  const room = need(await api(page, { action: 'rooms.create', name: 'fx-cost-room'+S })).room_id;
   need(await api(page, { action: 'rooms.member_add', room_id: room, agent_id: agent }));
 
   await go(page, 'Models & prices');
@@ -128,15 +136,16 @@ test('a price typed beside a model is the price that counts toward a room\'s cos
   await row.locator('.mrPriceSave').click();
   await expect(prov.locator('tr[data-model="allgres-mock"] .mrIn')).toHaveValue('5');
 
-  need(await api(page, { action: 'rooms.post', room_id: room, text: 'hello @fx_priced' }));
+  need(await api(page, { action: 'rooms.post', room_id: room, text: 'hello @fx_priced'+S }));
   await expect.poll(async () => Number((await api(page, { action: 'rooms.get', room_id: room })).room.cost_usd), { timeout: 60000 }).toBeGreaterThan(0);
 });
 
 test('a model that is switched off is not offered, is refused by Use on agents, and fails an agent set to it', async ({ page }) => {
+  const S = '_' + Date.now().toString(36);
   test.setTimeout(90000);
   await login(page, 'ui_admin', 'ui-admin-password');
   await seed(page);
-  await makeAgent(page, 'fx_off_target', 'Answers briefly.');
+  await makeAgent(page, 'fx_off_target'+S, 'Answers briefly.');
   const offered = async () => (await api(page, { action: 'providers.available' })).providers.find(p => p.name === 'fx_mock')?.available_models || [];
 
   await go(page, 'Models & prices');
@@ -151,7 +160,7 @@ test('a model that is switched off is not offered, is refused by Use on agents, 
   // "Use on agents…" refuses it. An agent that was set to it some other way says why it cannot
   // work, and its turn fails instead of calling the model.
   const agents = (await api(page, { action: 'agents.list' })).agents;
-  const target = agents.find(a => a.name === 'fx_off_target');
+  const target = agents.find(a => a.name === 'fx_off_target'+S);
   const applied = await api(page, { action: 'models.apply', provider: 'fx_mock', model: 'allgres-mock-embed', agent_ids: [target.agent_id] });
   expect(applied.ok).toBe(false);
   need(await api(page, { action: 'agents.update', agent_id: target.agent_id, llm_config: { provider: 'fx_mock', model: 'allgres-mock-embed' } }));
@@ -166,14 +175,15 @@ test('a model that is switched off is not offered, is refused by Use on agents, 
 });
 
 test('an agent switched off in the Canvas takes no work, and switched on takes it again', async ({ page }) => {
+  const S = '_' + Date.now().toString(36);
   test.setTimeout(120000);
   await login(page, 'ui_admin', 'ui-admin-password');
   await seed(page);
-  const id = await makeAgent(page, 'fx_switch', 'Answers briefly.');
+  const id = await makeAgent(page, 'fx_switch'+S, 'Answers briefly.');
   await page.locator('#toCanvas').click();
   const cv = page.frameLocator('#canvasFrame');
-  await cv.locator('.an-head', { hasText: 'fx_switch' }).first().click();
-  const insp = cv.locator('aside.inspector[aria-label="fx_switch"]');
+  await cv.locator('.an-head', { hasText: 'fx_switch'+S }).first().dispatchEvent('click');
+  const insp = cv.locator(`aside.inspector[aria-label="fx_switch${S}"]`);
   await expect(insp).toBeVisible({ timeout: 20000 });
   const sw = insp.getByRole('switch');
   if ((await sw.getAttribute('aria-checked')) === 'true') await sw.click();

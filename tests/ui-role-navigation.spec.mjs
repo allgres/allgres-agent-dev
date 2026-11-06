@@ -812,13 +812,14 @@ test('teams are made, renamed and deleted from the dashboard', async ({ page }) 
   page.on('dialog', d => d.accept());
   await go(page, 'Teams');
   // The page draws the form, then may draw it again; fill again if that cleared it.
-  await expect(async () => {
-    await page.locator('#tnewName').fill('ui-made-team');
-    await expect(page.locator('#tnewName')).toHaveValue('ui-made-team');
-  }).toPass({ timeout: 15000 });
-  await page.locator('#tnewGo').click();
   const box = page.locator('#view .panel[data-team="ui-made-team"]');
-  await expect(box).toBeVisible();
+  // Fill and press together, and again if the page was drawn again in between (which empties the name).
+  await expect(async () => {
+    if (await box.count()) return;
+    await page.locator('#tnewName').fill('ui-made-team');
+    await page.locator('#tnewGo').click();
+    await expect(box).toBeVisible({ timeout: 4000 });
+  }).toPass({ timeout: 30000 });
   await box.locator('summary', { hasText: 'Rename' }).click();
   await box.locator('.tmName').fill('ui-renamed-team');
   await box.locator('.tmKind').selectOption('division');
