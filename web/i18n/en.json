@@ -1070,7 +1070,12 @@
    "Switch a model off to stop it being put on agents, and use <b>Use on agents…</b> to give a model to every agent or to chosen ones, and to functions and procedures. Only the provider and model change; each agent's instructions and limits stay. A price lets a model's calls count toward a cost limit; a model with no price is never treated as free.": "Switch a model off to stop it being put on agents, and use <b>Use on agents…</b> to give a model to every agent or to chosen ones, and to functions and procedures. Only the provider and model change; each agent's instructions and limits stay. A price lets a model's calls count toward a cost limit; a model with no price is never treated as free.",
    "Views an agent's <code>execute_sql</code> action may read from, in addition to that agent holding a matching view permission -- both are required. See README, \"The SQL sandbox\".": "Views an agent's <code>execute_sql</code> action may read from, in addition to that agent holding a matching view permission -- both are required. See README, \"The SQL sandbox\".",
    "{0} of {1} agent turns · ${2} of ${3}": "{0} of {1} agent turns · ${2} of ${3}",
-   "Your Provider and Model choices apply only to your conversations. They never change the shared Agent default.": "Your Provider and Model choices apply only to your conversations. They never change the shared Agent default."
+   "Your Provider and Model choices apply only to your conversations. They never change the shared Agent default.": "Your Provider and Model choices apply only to your conversations. They never change the shared Agent default.",
+   "{0} agent": "{0} agent",
+   "{0} agents": "{0} agents",
+   "{0} project": "{0} project",
+   "{0} projects": "{0} projects",
+   "Click to read all": "Click to read all"
   }
  }
 }

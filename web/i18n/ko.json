@@ -1071,7 +1071,12 @@
    "Switch a model off to stop it being put on agents, and use <b>Use on agents…</b> to give a model to every agent or to chosen ones, and to functions and procedures. Only the provider and model change; each agent's instructions and limits stay. A price lets a model's calls count toward a cost limit; a model with no price is never treated as free.": "모델을 끄면 에이전트에 붙지 않습니다. <b>에이전트에 사용…</b>로 모델을 모든 에이전트나 고른 에이전트, 그리고 함수와 프로시저에 줄 수 있습니다. 제공자와 모델만 바뀌고 각 에이전트의 지침과 한도는 그대로입니다. 가격이 있어야 모델 호출이 비용 한도에 집계되며, 가격이 없는 모델은 무료로 취급되지 않습니다.",
    "Views an agent's <code>execute_sql</code> action may read from, in addition to that agent holding a matching view permission -- both are required. See README, \"The SQL sandbox\".": "에이전트의 <code>execute_sql</code> 동작이 읽을 수 있는 뷰입니다. 그 에이전트가 해당 뷰 권한도 가지고 있어야 하며, 둘 다 필요합니다. README의 \"The SQL sandbox\"를 보세요.",
    "{0} of {1} agent turns · ${2} of ${3}": "에이전트 턴 {0} / {1} · 비용 ${2} / ${3}",
-   "Your Provider and Model choices apply only to your conversations. They never change the shared Agent default.": "내가 고른 제공자와 모델은 내 대화에만 적용되며, 공유 에이전트 기본값은 바뀌지 않습니다."
+   "Your Provider and Model choices apply only to your conversations. They never change the shared Agent default.": "내가 고른 제공자와 모델은 내 대화에만 적용되며, 공유 에이전트 기본값은 바뀌지 않습니다.",
+   "{0} agent": "에이전트 {0}개",
+   "{0} agents": "에이전트 {0}개",
+   "{0} project": "프로젝트 {0}개",
+   "{0} projects": "프로젝트 {0}개",
+   "Click to read all": "눌러서 전체 보기"
   }
  }
 }
