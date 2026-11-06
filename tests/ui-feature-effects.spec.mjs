@@ -104,8 +104,13 @@ test('the lead of a room is the one who gets a message that calls nobody', async
   await page.locator('#rmText').fill('Who is looking at the quarter figures?');
   await page.locator('#rmSend').click();
   // Nobody was called by name, yet an agent answered, and it was the lead and nobody else.
-  await expect(page.locator('#rmThread .msg', { hasText: 'Allgres mock runtime OK' })).toBeVisible({ timeout: 60000 });
-  const got = await api(page, { action: 'rooms.get', room_id: room });
+  // First the server's side (so a failure says where it stopped), then what the page shows.
+  let got;
+  await expect.poll(async () => {
+    got = await api(page, { action: 'rooms.get', room_id: room });
+    return (got.messages || []).some(m => m.by_agent && m.kind === 'say');
+  }, { timeout: 60000, message: () => 'no agent answered in the room: ' + JSON.stringify({ lead: got?.room?.lead_agent_id, want: lead, status: got?.room?.status, messages: (got?.messages || []).map(m => [m.author, m.kind, String(m.text || '').slice(0, 60)]) }) }).toBe(true);
+  await expect(page.locator('#rmThread .msg', { hasText: 'Allgres mock runtime OK' })).toBeVisible({ timeout: 30000 });
   const answers = got.messages.filter(m => m.by_agent && m.kind === 'say');
   expect(answers.length).toBeGreaterThan(0);
   expect(answers.every(m => m.author === 'fx_room_lead'+S)).toBe(true);
