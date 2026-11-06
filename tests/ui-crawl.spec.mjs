@@ -111,11 +111,20 @@ async function untranslated(page, issues, where) {
       if (/[가-힣]/.test(t)) continue;
       const words = t.match(/[A-Za-z][a-z]{2,}/g) || [];
       // What the crawl made itself (its agents, rooms, messages) and what the mock model says is not the page's text.
-      if (/crawl|mock|allgres|seoul-weather|laya-serve/i.test(t)) continue;
+      if (/crawl|mock|allgres|seoul-weather|laya-serve|Ubuntu|^\d+\.\d+ \(/i.test(t)) continue;
       // A sentence with <b>/<code> inside is translated whole by the pack's own rules, not by piece; only whole texts are judged.
       if (el.parentElement && [...el.parentElement.children].some(c => /^(CODE|B|I|A|EM|STRONG)$/.test(c.tagName)) && el.children.length) continue;
       if (/^(CODE|B|I|A|EM|STRONG)$/.test(el.tagName) === false && [...el.childNodes].some(c => c.nodeType === 1 && /^(CODE|B|I|EM|STRONG)$/.test(c.tagName))) continue;
       if (words.length >= 2 && !/[_@]|:\/\//.test(t)) out.add(t.slice(0, 90));
+    }
+    // A sentence with <b>/<code> inside is translated whole, by its HTML.
+    for (const el of document.querySelectorAll('#view *')) {
+      if (!el.children.length || el.children.length > 8 || !el.getBoundingClientRect().width) continue;
+      if (![...el.children].every(c => /^(B|CODE|I|EM|STRONG|A|SPAN)$/.test(c.tagName) && !c.children.length)) continue;
+      const own = [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ').trim();
+      if (/[가-힣]/.test(own) || (own.match(/[A-Za-z][a-z]{2,}/g) || []).length < 3) continue;
+      if (/crawl|mock|allgres|laya-serve/i.test(el.textContent)) continue;
+      out.add('HTML: ' + el.innerHTML.trim().slice(0, 700));
     }
     return [...out];
   });

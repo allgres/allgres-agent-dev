@@ -1043,7 +1043,24 @@
    "not tested": "not tested",
    "chat not tested": "chat not tested",
    "chat failed": "chat failed",
-   "Use this price": "Use this price"
+   "Use this price": "Use this price",
+   "{0} of {1} models on": "{0} of {1} models on",
+   "One model in use has no price.": "One model in use has no price.",
+   "{0} models in use have no price.": "{0} models in use have no price.",
+   "Their spend is not counted toward any budget: {0}.": "Their spend is not counted toward any budget: {0}.",
+   ", and {0} more": ", and {0} more",
+   "Say hello to {0}.": "Say hello to {0}.",
+   "room · {0} members": "room · {0} members",
+   "closed": "closed",
+   "Agent default: {0} / {1}": "Agent default: {0} / {1}",
+   "The provider says ${0} in / ${1} out": "The provider says ${0} in / ${1} out",
+   "No decided proposals yet.": "No decided proposals yet.",
+   "No proposals need review. Agent change requests will appear here.": "No proposals need review. Agent change requests will appear here.",
+   "Showing proposals for one agent.": "Showing proposals for one agent.",
+   "A provider works. Choose its model for General.": "A provider works. Choose its model for General.",
+   "An agent can sit in more than one team. Its first team sets what it may do and who answers for its cost; a second team only opens the way work comes in and which shared notes it reads. A team can have a window: work handed to the team goes to one agent, or waits for a person to pick who takes it (your pick is kept as a decision). Whoever takes the work does it with their own permissions, never the sender's.": "An agent can sit in more than one team. Its first team sets what it may do and who answers for its cost; a second team only opens the way work comes in and which shared notes it reads. A team can have a window: work handed to the team goes to one agent, or waits for a person to pick who takes it (your pick is kept as a decision). Whoever takes the work does it with their own permissions, never the sender's.",
+   "Connect a Model Context Protocol server to give agents abilities PostgreSQL cannot provide, such as research, equipment control, or monitoring. The server runs outside PostgreSQL. A local (stdio) server runs behind an HTTP relay, and you paste the relay address here.": "Connect a Model Context Protocol server to give agents abilities PostgreSQL cannot provide, such as research, equipment control, or monitoring. The server runs outside PostgreSQL. A local (stdio) server runs behind an HTTP relay, and you paste the relay address here.",
+   "Parts without a translation are shown in English.": "Parts without a translation are shown in English."
   }
  }
 }

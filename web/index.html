@@ -231,6 +231,8 @@ const I18N={
   usersSection:'Users',providersSection:'LLM providers',sandboxSection:'SQL sandbox allowlist',accessSection:'Dashboard access',
 };
 function t(key){return I18N[key]??key}
+// A sentence with parts to fill in: the pack holds it with {0}, {1} where they go, so the order can differ by language.
+function tf(tpl,...a){const base=(uiLang()!=='en'&&PACK[tpl])||tpl;return base.replace(/\{(\d+)\}/g,(m,i)=>a[i]??'')}
 
 function theme(){return PREFS.theme||''}
 function applyTheme(){document.documentElement.setAttribute('data-theme',theme()||'dark')}
@@ -268,11 +270,22 @@ function trAttrs(el,ko){
     else if(el.hasAttribute(key)){el.setAttribute(a,el.getAttribute(key));el.removeAttribute(key)}
   }
 }
+// A sentence with <b> or <code> inside is translated whole: the pack holds it keyed by its HTML.
+const TR_HTML=new WeakMap();
+function trHtml(el,ko){
+  if(!ko){const o=TR_HTML.get(el);if(o!==undefined){el.innerHTML=o;TR_HTML.delete(el)}return false}
+  if(TR_HTML.has(el)||!el.children.length||el.children.length>8)return false;
+  for(const c of el.children)if(!/^(B|CODE|I|EM|STRONG|A|SPAN)$/.test(c.tagName)||c.children.length)return false;
+  const v=PACK[el.innerHTML.trim()];
+  if(!v)return false;
+  TR_HTML.set(el,el.innerHTML);el.innerHTML=v;return true;
+}
 function trWalk(root,ko){
   if(!root)return;
   if(root.nodeType===3){trNode(root,ko);return}
   if(root.nodeType!==1||/^(SCRIPT|STYLE|TEXTAREA|CODE|PRE|IFRAME)$/.test(root.tagName)||root.classList.contains('mono'))return;
   trAttrs(root,ko);
+  if(trHtml(root,ko))return;
   for(let c=root.firstChild;c;c=c.nextSibling)trWalk(c,ko);
 }
 function applyI18n(root){
@@ -1104,7 +1117,7 @@ async function modelsApplyPanel(fresh){
   const regOf=name=>provs.find(x=>x.name===name);
   const used=m=>{const n=(m.agents||[]).length;return n||m.functions?`<span title="${esc((m.agents||[]).join(', '))}">${n} agent${n===1?'':'s'}${m.functions?`, ${m.functions} function/procedure${m.functions===1?'':'s'}`:''}</span>`:'<span class="muted">not used</span>'};
   // A price is written beside its model. The provider's own claim, when it made one, is offered, never applied alone.
-  const priceCell=(p,m)=>`<div class="row"><input class="input mrIn" data-prov="${esc(p.name)}" data-pid="${esc(p.provider_id)}" data-model="${esc(m.model)}" value="${m.input_price_per_1k==null?'':esc(m.input_price_per_1k)}" placeholder="in $/1k" aria-label="Input price per 1k tokens"><input class="input mrOut" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" value="${m.output_price_per_1k==null?'':esc(m.output_price_per_1k)}" placeholder="out $/1k" aria-label="Output price per 1k tokens"><button class="btn small mrPriceSave" data-prov="${esc(p.name)}" data-pid="${esc(p.provider_id)}" data-model="${esc(m.model)}" disabled>Save</button></div>${m.reported&&m.input_price_per_1k==null?`<div class="muted u-font-size-11px">The provider says $${esc(m.reported.input_per_1k)} in / $${esc(m.reported.output_per_1k)} out <button class="btn small mrUseReported" data-pid="${esc(p.provider_id)}" data-model="${esc(m.model)}">Use this price</button></div>`:''}`;
+  const priceCell=(p,m)=>`<div class="row"><input class="input mrIn" data-prov="${esc(p.name)}" data-pid="${esc(p.provider_id)}" data-model="${esc(m.model)}" value="${m.input_price_per_1k==null?'':esc(m.input_price_per_1k)}" placeholder="in $/1k" aria-label="Input price per 1k tokens"><input class="input mrOut" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" value="${m.output_price_per_1k==null?'':esc(m.output_price_per_1k)}" placeholder="out $/1k" aria-label="Output price per 1k tokens"><button class="btn small mrPriceSave" data-prov="${esc(p.name)}" data-pid="${esc(p.provider_id)}" data-model="${esc(m.model)}" disabled>Save</button></div>${m.reported&&m.input_price_per_1k==null?`<div class="muted u-font-size-11px">${tf('The provider says ${0} in / ${1} out',esc(m.reported.input_per_1k),esc(m.reported.output_per_1k))} <button class="btn small mrUseReported" data-pid="${esc(p.provider_id)}" data-model="${esc(m.model)}">Use this price</button></div>`:''}`;
   const row=(p,m)=>`<tr data-model="${esc(m.model)}"><td><label class="row"><input type="checkbox" class="mrOn" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" ${m.is_enabled?'checked':''} aria-label="On"> <b class="mono">${esc(m.model)}</b>${m.is_default?' <span class="status s-ok" title="New agents start with this model">default</span>':''}${m.is_enabled?'':' <span class="muted">off</span>'}</label>${m.note?`<div class="muted u-font-size-12px">${esc(m.note)}</div>`:''}</td><td>${priceCell(p,m)}</td><td>${used(m)}</td><td class="u-text-align-right"><button class="btn small mrUse" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" ${m.is_enabled&&p.is_enabled?'':'disabled'}>Use on agents…</button> <button class="btn small mrNote" data-prov="${esc(p.name)}" data-model="${esc(m.model)}">Note</button> <button class="btn small mrParams" data-prov="${esc(p.name)}" data-model="${esc(m.model)}" title="${esc(paramsSummary(m.params))}">Settings</button> <button class="btn small danger mrRemove" data-prov="${esc(p.name)}" data-model="${esc(m.model)}">Remove</button></td></tr>`;
   const prov=full=>{
     const p=regOf(full.name);
@@ -1115,7 +1128,7 @@ async function modelsApplyPanel(fresh){
       return `<details class="mrProv" data-prov="${esc(full.name)}" ${isOpen?'open':''}>${head('')}<div class="muted u-margin-6px-0">${full.purpose==='embedding'?`Embedding provider${full.embedding_model?`: ${esc(full.embedding_model)}`:''}. It serves no chat models.`:'No model list.'}</div></details>`;
     }
     const on=(p.models||[]).filter(m=>m.is_enabled).length;
-    return `<details class="mrProv" data-prov="${esc(p.name)}" ${isOpen?'open':''}>${head(` <span class="muted">${on} of ${(p.models||[]).length} model${(p.models||[]).length===1?'':'s'} on</span>`)}
+    return `<details class="mrProv" data-prov="${esc(p.name)}" ${isOpen?'open':''}>${head(` <span class="muted">${tf('{0} of {1} models on',on,(p.models||[]).length)}</span>`)}
 ${(p.models||[]).length?`<table class="table"><thead><tr><th>Model</th><th>Price in / out per 1k</th><th>Used by</th><th></th></tr></thead><tbody>${p.models.map(m=>row(p,m)).join('')}</tbody></table>`:`<div class="muted u-margin-6px-0">${p.last_probe_status==='error'?'The provider did not list its models. Check its address and key under Edit, then ask again.':p.last_probe_status==='ok'?'The provider lists no models. Add one by name below.':'Asking the provider for its models…'}</div>`}
 <div class="row wrap u-gap-8px u-margin-top-12px"><input class="input u-max-width-300px mrAddName" data-prov="${esc(p.name)}" placeholder="add a model by name"><button class="btn small mrAdd" data-prov="${esc(p.name)}">Add model</button><button class="btn small mrRefresh" data-pid="${esc(p.provider_id)}" title="Ask the provider for its models again">Refresh the list</button></div></details>`;
   };
@@ -1123,7 +1136,7 @@ ${(p.models||[]).length?`<table class="table"><thead><tr><th>Model</th><th>Price
   const noPrice=provs.flatMap(p=>(p.models||[]).filter(m=>m.input_price_per_1k==null&&((m.agents||[]).length||m.functions)).map(m=>`${p.name} / ${m.model}`));
   box.className='';
   box.innerHTML=`<div class="muted u-margin-bottom-10px">Switch a model off to stop it being put on agents, and use <b>Use on agents…</b> to give a model to every agent or to chosen ones, and to functions and procedures. Only the provider and model change; each agent's instructions and limits stay. A price lets a model's calls count toward a cost limit; a model with no price is never treated as free.</div>
-${noPrice.length?`<div class="banner u-margin-bottom-10px" id="unpricedBlock"><b>${noPrice.length} model${noPrice.length===1?'':'s'} in use ${noPrice.length===1?'has':'have'} no price.</b> Their spend is not counted toward any budget: ${esc(noPrice.slice(0,6).join(', '))}${noPrice.length>6?`, and ${noPrice.length-6} more`:''}.</div>`:''}
+${noPrice.length?`<div class="banner u-margin-bottom-10px" id="unpricedBlock"><b>${noPrice.length===1?tf('One model in use has no price.'):tf('{0} models in use have no price.',noPrice.length)}</b> ${tf('Their spend is not counted toward any budget: {0}.',esc(noPrice.slice(0,6).join(', '))+(noPrice.length>6?tf(', and {0} more',noPrice.length-6):''))}</div>`:''}
 ${def?`<div class="banner u-margin-bottom-10px">New agents start with <b>${esc(def.provider)} / ${esc(def.model)}</b>. <button class="btn small" id="maClearDefault">Stop doing that</button></div>`:'<div class="muted u-margin-bottom-10px">No default for new agents: a new agent has no model until you give it one.</div>'}
 ${all.map(prov).join('')||'<div class="muted">No providers yet. Add one above.</div>'}`;
   const reload=async()=>{await modelsApplyPanel(true)};
@@ -2092,7 +2105,7 @@ function narrowProviders(agent,providerOpts){
 function chatModelPicker(agent,providerOpts){
   if(!agent)return '';
   providerOpts=narrowProviders(agent,providerOpts);
-  return `<div class="row wrap u-margin-bottom-22px-gap-8px-align-items-flex-end"><div class="field u-margin-0-min-width-180px"><label>My provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field u-margin-0-min-width-180px"><label>My model</label>${modelField('cmModel',providerOpts.find(p=>p.name===agent.provider)?.available_models||[],agent.model||'',{ph:'e.g. gpt-4o, claude-sonnet-5'})}</div><button class="btn small" id="cmSave">Save for me</button><button class="btn small" id="cmTest" title="Send one short message to this provider and model and show what comes back. Nothing is saved.">Test model</button>${agent.is_overridden?'<button class="btn small" id="cmReset">Use Agent default</button>':''}${(agent.allowed_models||[]).length?`<div class="muted u-font-size-11px"><span>This agent may use only:</span> ${esc(agent.allowed_models.map(x=>x.provider+' / '+x.model).join(', '))}</div>`:''}<div class="muted u-font-size-11px">Agent default: ${esc(agent.default_provider||'—')} / ${esc(agent.default_model||'—')}</div><div id="cmTestOut" class="muted u-font-size-12px u-width-100"></div></div>`;
+  return `<div class="row wrap u-margin-bottom-22px-gap-8px-align-items-flex-end"><div class="field u-margin-0-min-width-180px"><label>My provider</label><select class="select" id="cmProvider">${providerOpts.length?(!agent.provider?'<option value="">— select —</option>':'')+providerOpts.map(p=>`<option value="${esc(p.name)}" ${p.name===agent.provider?'selected':''}>${esc(p.name)} (${esc(p.kind)})</option>`).join(''):'<option value="">No provider configured -- ask an admin</option>'}</select></div><div class="field u-margin-0-min-width-180px"><label>My model</label>${modelField('cmModel',providerOpts.find(p=>p.name===agent.provider)?.available_models||[],agent.model||'',{ph:'e.g. gpt-4o, claude-sonnet-5'})}</div><button class="btn small" id="cmSave">Save for me</button><button class="btn small" id="cmTest" title="Send one short message to this provider and model and show what comes back. Nothing is saved.">Test model</button>${agent.is_overridden?'<button class="btn small" id="cmReset">Use Agent default</button>':''}${(agent.allowed_models||[]).length?`<div class="muted u-font-size-11px"><span>This agent may use only:</span> ${esc(agent.allowed_models.map(x=>x.provider+' / '+x.model).join(', '))}</div>`:''}<div class="muted u-font-size-11px">${tf('Agent default: {0} / {1}',esc(agent.default_provider||'—'),esc(agent.default_model||'—'))}</div><div id="cmTestOut" class="muted u-font-size-12px u-width-100"></div></div>`;
 }
 function wireChatModelPicker(agent,providerOpts,onSaved){
   if(!agent||!$('#cmProvider'))return;
@@ -2161,7 +2174,7 @@ async function loadConvList(){
 function renderConvList(){
   const el=$('#convList');if(!el)return;
   el.innerHTML=convState.list.map(c=>{
-    const sub=c.kind==='room'?`room · ${esc(c.members)} members${c.room_status==='closed'?' · closed':''}`:c.project?`${esc(c.project)} · ${esc(c.agent)}`:esc(c.agent);
+    const sub=c.kind==='room'?`${tf('room · {0} members',esc(c.members))}${c.room_status==='closed'?' · '+tf('closed'):''}`:c.project?`${esc(c.project)} · ${esc(c.agent)}`:esc(c.agent);
     return `<button class="btn convItem ${c.conversation_id===state.convId?'primary':''}" data-id="${esc(c.conversation_id)}"><b class="convTitle">${esc(c.title||'New chat')}</b><span class="convSub">${sub}${c.busy?' · working…':''}</span></button>`;
   }).join('')||'<div class="muted">Nothing yet. Start a new chat.</div>';
   el.querySelectorAll('.convItem').forEach(b=>b.onclick=()=>{convPicked=true;state.convId=b.dataset.id;showConv()});
@@ -2251,7 +2264,7 @@ async function renderConvThread(c){
     if(state.convId!==c.conversation_id||!$('#convThread'))return;
     const waiting=h.busy?`<div class="bubblerow bubblerow-agent"><div class="bubble bubble-agent pending"><span>${esc(c.agent)} · ${esc(t('Waiting for the answer…'))}</span><span class="dots"><i></i><i></i><i></i></span> <span class="muted pendingTime"></span></div></div>`
       :h.last_error?`<div class="banner">${esc(c.agent)} could not answer: ${esc(h.last_error)}</div>`:'';
-    $('#convThread').innerHTML=((h.messages||[]).map(msgBubble).join('')||`<div class="muted">Say hello to ${esc(c.agent)}.</div>`)+waiting;
+    $('#convThread').innerHTML=((h.messages||[]).map(msgBubble).join('')||`<div class="muted">${tf('Say hello to {0}.',esc(c.agent))}</div>`)+waiting;
     scrollBottom('#convThread');
     state.convBusy=h.busy?c.conversation_id:null;
     state.convQueued=h.queued_message||'';

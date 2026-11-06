@@ -1044,7 +1044,24 @@
    "not tested": "테스트 안 함",
    "chat not tested": "대화 테스트 안 함",
    "chat failed": "대화 실패",
-   "Use this price": "이 가격 사용"
+   "Use this price": "이 가격 사용",
+   "{0} of {1} models on": "{0} / {1} 모델 켜짐",
+   "One model in use has no price.": "사용 중인 모델 하나에 가격이 없습니다.",
+   "{0} models in use have no price.": "사용 중인 모델 {0}개에 가격이 없습니다.",
+   "Their spend is not counted toward any budget: {0}.": "이 모델들의 지출은 어떤 예산에도 집계되지 않습니다: {0}.",
+   ", and {0} more": " 외 {0}개",
+   "Say hello to {0}.": "{0}에게 인사해 보세요.",
+   "room · {0} members": "룸 · 멤버 {0}명",
+   "closed": "닫힘",
+   "Agent default: {0} / {1}": "에이전트 기본값: {0} / {1}",
+   "The provider says ${0} in / ${1} out": "제공자가 알려 준 가격: 입력 ${0} / 출력 ${1}",
+   "No decided proposals yet.": "아직 결정된 제안이 없습니다.",
+   "No proposals need review. Agent change requests will appear here.": "검토할 제안이 없습니다. 에이전트의 변경 요청이 여기에 나타납니다.",
+   "Showing proposals for one agent.": "한 에이전트의 제안만 보고 있습니다.",
+   "A provider works. Choose its model for General.": "제공자가 동작합니다. General이 쓸 모델을 고르세요.",
+   "An agent can sit in more than one team. Its first team sets what it may do and who answers for its cost; a second team only opens the way work comes in and which shared notes it reads. A team can have a window: work handed to the team goes to one agent, or waits for a person to pick who takes it (your pick is kept as a decision). Whoever takes the work does it with their own permissions, never the sender's.": "에이전트는 둘 이상의 팀에 속할 수 있습니다. 첫 번째 팀이 할 수 있는 일과 비용을 누가 책임지는지를 정하고, 두 번째 팀부터는 일이 들어오는 길과 읽을 공유 노트만 열어 줍니다. 팀에는 창구를 둘 수 있습니다. 팀에 넘긴 일은 한 에이전트에게 가거나, 사람이 맡을 에이전트를 고를 때까지 기다립니다(그 선택은 결정으로 기록됩니다). 일을 맡은 쪽은 보낸 쪽이 아니라 자기 권한으로 처리합니다.",
+   "Connect a Model Context Protocol server to give agents abilities PostgreSQL cannot provide, such as research, equipment control, or monitoring. The server runs outside PostgreSQL. A local (stdio) server runs behind an HTTP relay, and you paste the relay address here.": "Model Context Protocol 서버를 연결하면 리서치, 장비 제어, 모니터링처럼 PostgreSQL이 줄 수 없는 능력을 에이전트에게 줄 수 있습니다. 서버는 PostgreSQL 밖에서 실행됩니다. 로컬(stdio) 서버는 HTTP 중계 뒤에서 실행하고, 그 중계 주소를 여기에 붙여 넣습니다.",
+   "Parts without a translation are shown in English.": "번역되지 않은 부분은 영어로 표시됩니다."
   }
  }
 }
