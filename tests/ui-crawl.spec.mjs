@@ -115,11 +115,11 @@ async function untranslated(page, issues, where) {
       // A sentence with <b>/<code> inside is translated whole by the pack's own rules, not by piece; only whole texts are judged.
       if (el.parentElement && [...el.parentElement.children].some(c => /^(CODE|B|I|A|EM|STRONG)$/.test(c.tagName)) && el.children.length) continue;
       if (/^(CODE|B|I|A|EM|STRONG)$/.test(el.tagName) === false && [...el.childNodes].some(c => c.nodeType === 1 && /^(CODE|B|I|EM|STRONG)$/.test(c.tagName))) continue;
-      if (words.length >= 2 && !/[_/@.:\d]/.test(t)) out.add(t.slice(0, 60));
+      if (words.length >= 2 && !/[_@]|:\/\//.test(t)) out.add(t.slice(0, 90));
     }
     return [...out];
   });
-  for (const t of found.slice(0, 8)) issues.push({ where: where(), kind: 'untranslated', text: t });
+  for (const t of found.slice(0, 40)) issues.push({ where: where(), kind: 'untranslated', text: t });
 }
 
 async function layout(page, issues, where) {
